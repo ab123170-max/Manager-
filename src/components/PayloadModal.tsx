@@ -14,6 +14,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { ExtractedFormData } from '../types';
+import { GEMINI_MODEL } from '../config/model';
 
 interface PayloadModalProps {
   isOpen: boolean;
@@ -54,7 +55,7 @@ export const PayloadModal: React.FC<PayloadModalProps> = ({
       return acc;
     }, {} as Record<string, string>),
     aiMetadata: {
-      model: 'gemini-3.8-flash',
+      model: GEMINI_MODEL,
       confidenceScore: data.confidenceScore,
     },
   };

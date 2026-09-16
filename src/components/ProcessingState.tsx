@@ -36,7 +36,7 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({
   const pipelineSteps = [
     { title: 'OpenCV Preprocessing', desc: 'Grayscale & contrast enhancement' },
     { title: 'Local OCR Extraction', desc: 'Analyzing local character & date cues' },
-    { title: `Gemini 3.8 Vision Supervisor`, desc: `Auditing OCR via model '${GEMINI_MODEL}'` },
+    { title: `Gemini 3.7 Vision Supervisor`, desc: `Auditing OCR via model '${GEMINI_MODEL}'` },
     { title: 'Structured Field Mapping', desc: 'Resolving SKU, batch, dates & confidence' },
     { title: 'Validation & Auto-Fill', desc: 'Applying strict zero-hallucination rules' },
   ];
@@ -172,7 +172,7 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({
           <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
         </h3>
         <p className="text-xs text-slate-500 max-w-sm mx-auto">
-          Executing OpenCV enhancement, OCR cue audit, and Gemini 3.8 structured extraction.
+          Executing OpenCV enhancement, OCR cue audit, and Gemini 3.7 structured extraction.
         </p>
       </div>
 

@@ -70,7 +70,7 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                 Product Inventory ({items.length} {items.length === 1 ? 'item' : 'items'})
               </h3>
               <p className="text-xs text-slate-500">
-                Saved products extracted and verified via Gemini 3.8 Vision Supervisor
+                Saved products extracted and verified via Gemini 3.7 Vision Supervisor
               </p>
             </div>
           </div>

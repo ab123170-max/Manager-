@@ -7,15 +7,12 @@
  * ============================================================================
  * CENTRALIZED GEMINI MODEL CONFIGURATION
  * ============================================================================
- * Verified Gemini 3.8 model identifier supported by @google/genai SDK.
+ * Production Gemini model identifiers supported across all Google AI Studio API key tiers.
  * 
- * - Standard / Multimodal Vision Supervisor: 'gemini-3.8-flash'
+ * - Standard / Multimodal Vision Supervisor: 'gemini-3.7-flash'
  * - Complex Reasoning / Deep Vision Preview: 'gemini-3.1-pro-preview'
- * 
- * Obsolete / Deprecated models (DO NOT USE):
- * - gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash, gemini-1.5-flash
  */
-export const GEMINI_MODEL = 'gemini-3.8-flash';
+export const GEMINI_MODEL = 'gemini-3.7-flash';
 export const GEMINI_PRO_MODEL = 'gemini-3.1-pro-preview';
 
 export interface ModelConfig {
@@ -28,7 +25,7 @@ export interface ModelConfig {
 
 export const CURRENT_MODEL_CONFIG: ModelConfig = {
   modelId: GEMINI_MODEL,
-  displayName: 'Gemini 3.8 Flash',
+  displayName: 'Gemini 3.7 Flash',
   provider: 'Google GenAI SDK (@google/genai)',
   visionEnabled: true,
   structuredOutputsEnabled: true,

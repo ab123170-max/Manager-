@@ -9,7 +9,7 @@ import { GEMINI_MODEL } from '../config/model';
 
 /**
  * ============================================================================
- * SECURE SERVER-SIDE ARCHITECTURE & GEMINI 3.8 VISION SUPERVISOR
+ * SECURE SERVER-SIDE ARCHITECTURE & GEMINI 3.7 VISION SUPERVISOR
  * ============================================================================
  * The Gemini API key is securely managed exclusively server-side via Express
  * using `process.env.GEMINI_API_KEY`.
@@ -18,7 +18,7 @@ import { GEMINI_MODEL } from '../config/model';
  * - Base64 image data
  * - Local OCR pre-extraction cues (from OpenCV-style canvas preprocessing)
  * 
- * The server invokes Gemini 3.8 (model: GEMINI_MODEL = 'gemini-3.8-flash')
+ * The server invokes Gemini 3.7 (model: GEMINI_MODEL = 'gemini-3.7-flash')
  * as the vision supervisor to validate OCR, interpret product labels,
  * extract barcodes, batch numbers, expiry dates, and return strict structured JSON.
  */
@@ -94,13 +94,16 @@ export async function extractFormDataFromImages(
     if (errorCode === 'API_KEY_INVALID' || response.status === 401) {
       userFriendlyMsg =
         'Gemini API Key Error: Your GEMINI_API_KEY is missing or invalid. Please verify it in Settings or the environment.';
-    } else if (errorCode === 'MODEL_NOT_FOUND' || response.status === 404) {
-      userFriendlyMsg = `Model Error: Model '${GEMINI_MODEL}' was not found. Verify your API access privileges.`;
+    } else if (errorCode === 'MODEL_NOT_FOUND') {
+      userFriendlyMsg = `Model Error: Model '${GEMINI_MODEL}' was not found. Please verify your API access or update the model in Settings.`;
+    } else if (response.status === 404) {
+      userFriendlyMsg =
+        'Backend Route 404: The server endpoint (/api/extract-form) was not found on this deployment. If deployed on Vercel as a static SPA, configure serverless routes or deploy to a container platform (Cloud Run / Render).';
     } else if (errorCode === 'INVALID_MODEL_NAME') {
-      userFriendlyMsg = `Model Identifier Error: ${result.error || 'Invalid model format. System reverted to gemini-3.8-flash.'}`;
+      userFriendlyMsg = `Model Identifier Error: ${result.error || `Invalid model format. System reverted to ${GEMINI_MODEL}.`}`;
     } else if (errorCode === 'MODEL_HIGH_DEMAND' || response.status === 503) {
       userFriendlyMsg =
-        'High Demand: Gemini 3.8 Flash is temporarily experiencing high traffic. Please retry in a few moments.';
+        'High Demand: Gemini is temporarily experiencing high traffic. Please retry in a few moments.';
     } else if (errorCode === 'RATE_LIMIT_EXCEEDED' || response.status === 429) {
       userFriendlyMsg =
         'Rate Limit Reached: Gemini API quota exceeded. Please wait a few seconds and retry.';

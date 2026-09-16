@@ -528,7 +528,7 @@ export default function App() {
             </div>
             <div className="text-xs text-slate-600 space-y-2 leading-relaxed">
               <p>
-                <strong>SmartStock AI</strong> incorporates high-speed local 1D/2D Barcode/QR scanning with Gemini 3.8 Vision OCR intelligence.
+                <strong>SmartStock AI</strong> incorporates high-speed local 1D/2D Barcode/QR scanning with Gemini 3.7 Vision OCR intelligence.
               </p>
               <ul className="list-disc pl-5 space-y-1">
                 <li><strong>Scanner:</strong> Extract MFD, EXP, Batch, and MRP from labels, or scan multi-item wholesale purchase invoices.</li>

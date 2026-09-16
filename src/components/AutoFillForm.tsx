@@ -173,7 +173,7 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  Gemini 3.8 Supervised
+                  Gemini 3.7 Supervised
                 </span>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                   {overallConfidencePercent}% Confidence

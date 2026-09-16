@@ -11,12 +11,12 @@ dotenv.config();
  * ============================================================================
  * CENTRALIZED MODEL CONFIGURATION & SANITIZATION
  * ============================================================================
- * Verified Gemini 3.8 model identifier: "gemini-3.8-flash"
+ * Primary Gemini model identifier: "gemini-3.7-flash"
  * Strictly sanitizes process.env.GEMINI_MODEL to prevent auth tokens or malformed
  * prefixes from causing 400 INVALID_ARGUMENT errors.
  */
 function resolveGeminiModel(candidate?: string): string {
-  const DEFAULT_MODEL = "gemini-3.8-flash";
+  const DEFAULT_MODEL = "gemini-3.7-flash";
   if (!candidate || typeof candidate !== "string") {
     return DEFAULT_MODEL;
   }
@@ -253,7 +253,7 @@ Return strict JSON:
 }`;
 
           const geminiRes = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-3.7-flash",
             contents: [
               {
                 role: "user",
@@ -392,7 +392,7 @@ Return strict JSON:
           const ai = getAiClient();
           const prompt = `Extract all printed label fields: Product Name, Brand, MFD, EXP, Best Before, Batch Number, MRP (price), Net Weight, Quantity. Return JSON.`;
           const gemRes = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model: "gemini-3.7-flash",
             contents: [
               {
                 role: "user",
@@ -801,6 +801,7 @@ ${localCuesContext}`;
       let usedModel = GEMINI_MODEL;
       const modelCandidates = [
         GEMINI_MODEL,
+        "gemini-3.7-flash",
         "gemini-2.5-flash",
         "gemini-3.1-flash-lite",
         "gemini-2.5-flash-lite",
@@ -1113,8 +1114,8 @@ Return strict JSON only matching the schema.`;
 
       const modelCandidates = [
         GEMINI_MODEL,
+        "gemini-3.7-flash",
         "gemini-2.5-flash",
-        "gemini-3.1-flash-lite",
         "gemini-2.5-flash-lite",
       ].filter((m, i, arr) => arr.indexOf(m) === i);
 
@@ -1338,23 +1339,39 @@ Return strict JSON only matching this schema. Never invent products or amounts.`
         required: ["invoiceNumber", "supplier", "items", "grandTotal"],
       };
 
-      const modelName = GEMINI_MODEL;
-      const response = await callGeminiWithBackoff(async () => {
-        return await ai.models.generateContent({
-          model: modelName,
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: prompt }, ...imageParts],
-            },
-          ],
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: schema,
-            temperature: 0.1,
-          },
-        });
-      });
+      const modelCandidates = [
+        GEMINI_MODEL,
+        "gemini-3.7-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+      ].filter((m, i, arr) => arr.indexOf(m) === i);
+
+      let response;
+      let modelUsed = GEMINI_MODEL;
+      for (const candidate of modelCandidates) {
+        try {
+          modelUsed = candidate;
+          response = await callGeminiWithBackoff(async () => {
+            return await ai.models.generateContent({
+              model: candidate,
+              contents: [
+                {
+                  role: "user",
+                  parts: [{ text: prompt }, ...imageParts],
+                },
+              ],
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: schema,
+                temperature: 0.1,
+              },
+            });
+          }, 1);
+          if (response?.text) break;
+        } catch (candidateErr) {
+          console.warn(`[Invoice API] Candidate '${candidate}' failed. Trying next...`, candidateErr);
+        }
+      }
 
       const text = response?.text;
       if (!text) {
@@ -1369,7 +1386,7 @@ Return strict JSON only matching this schema. Never invent products or amounts.`
 
       return res.json({
         success: true,
-        model: modelName,
+        model: modelUsed,
         data: parsedData,
       });
     } catch (err: unknown) {
