@@ -470,7 +470,7 @@ Return strict JSON:
 
   /**
    * POST /api/extract-form
-   * Multimodal Vision Supervisor route powered by Gemini 3.8.
+   * Multimodal Vision Supervisor route powered by Gemini 3.7.
    * Receives single imageBase64 or multiple images array, mimeType, and optional local OCR hypotheses.
    * Cross-synthesizes required information across photos and returns strict structured JSON.
    */
@@ -934,7 +934,7 @@ ${localCuesContext}`;
         return res.status(500).json({
           success: false,
           code: "MALFORMED_RESPONSE",
-          error: "Empty or malformed response returned by the Gemini 3.8 supervisor.",
+          error: "Empty or malformed response returned by the Gemini 3.7 supervisor.",
         });
       }
 
@@ -1201,7 +1201,7 @@ Return strict JSON only matching the schema.`;
 
   /**
    * POST /api/extract-invoice
-   * Dedicated Invoice & Purchase Bill OCR Supervisor route powered by Gemini 3.8.
+   * Dedicated Invoice & Purchase Bill OCR Supervisor route powered by Gemini 3.7.
    * Extracts supplier details, invoice metadata, line items (Qty, Rate, Amount, Tax, Discount, MFD, EXP), and totals.
    */
   app.post("/api/extract-invoice", async (req, res) => {

@@ -161,7 +161,7 @@ export async function preprocessImageCanvas(
  * ============================================================================
  * LOCAL OCR ASSIST & HEURISTIC PATTERN RECOGNITION
  * ============================================================================
- * Acts as the first extraction layer before the Gemini 3.8 supervisor.
+ * Acts as the first extraction layer before the Gemini 3.7 supervisor.
  * Scans candidate text patterns (or SVG strings / local OCR hints) to extract
  * candidate tokens for barcodes, lot/batch numbers, manufacturing/expiry dates,
  * quantities, and MRPs.

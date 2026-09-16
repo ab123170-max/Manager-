@@ -86,7 +86,7 @@ export function saveProductToInventory(
     supplier: formData.organization || formData.brand || '',
     rackLocation: 'Section A-1',
     ingredients: formData.notesOrAdditional || '',
-    notes: `Scanned & validated via Gemini 3.8 Vision supervisor.`,
+    notes: `Scanned & validated via Gemini 3.7 Vision supervisor.`,
     warnings: formData.warnings || [],
     missingFields: formData.missingFields || [],
     imageThumbnail: imageThumbnail || undefined,

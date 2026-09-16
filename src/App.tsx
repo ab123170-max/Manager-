@@ -491,7 +491,7 @@ export default function App() {
           <IncomeView />
         )}
 
-        {/* 3.7 & 3.8 Account Summary & Financial Reports */}
+        {/* Account Summary & Financial Reports */}
         {navState.activeSection === 'account' &&
           (navState.activeSubView === 'account_summary' ||
             navState.activeSubView === 'financial_reports') && <AccountSummaryView />}

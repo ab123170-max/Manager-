@@ -42,7 +42,7 @@ export interface ImageInputItem {
 }
 
 /**
- * Dispatches multiple images (or a single image) and local OCR cues to the server-side Gemini 3.8 Vision supervisor.
+ * Dispatches multiple images (or a single image) and local OCR cues to the server-side Gemini 3.7 Vision supervisor.
  * Synthesizes required information across all provided photos into a unified structured record.
  */
 export async function extractFormDataFromImages(
@@ -186,7 +186,7 @@ export async function extractFormDataFromImages(
 }
 
 /**
- * Dispatches a single image and local OCR cues to the server-side Gemini 3.8 Vision supervisor.
+ * Dispatches a single image and local OCR cues to the server-side Gemini 3.7 Vision supervisor.
  * (Preserved for backwards compatibility, delegating to extractFormDataFromImages).
  */
 export async function extractFormDataFromImage(
