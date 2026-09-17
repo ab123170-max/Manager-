@@ -3,43 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { AppHeader } from './components/navigation/AppHeader';
 import { AndroidNavDrawer } from './components/navigation/AndroidNavDrawer';
-import { AndroidBottomBar } from './components/navigation/AndroidBottomBar';
-import { CameraViewport } from './components/CameraViewport';
-import { ProcessingState } from './components/ProcessingState';
-import { AutoFillForm } from './components/AutoFillForm';
-import { PayloadModal } from './components/PayloadModal';
-import { ScanInvoiceView } from './components/scanner/ScanInvoiceView';
-import { ManualProductEntryView } from './components/scanner/ManualProductEntryView';
-import { BarcodeScannerView } from './components/scanner/BarcodeScannerView';
-import { QrScannerView } from './components/scanner/QrScannerView';
-import { ScanHistoryView } from './components/scanner/ScanHistoryView';
-import { InventoryOverviewView } from './components/inventory/InventoryOverviewView';
-import { InventoryAccountingView } from './components/inventory/InventoryAccountingView';
-import { StockInView } from './components/inventory/StockInView';
-import { StockOutView } from './components/inventory/StockOutView';
-import { LowStockView } from './components/inventory/LowStockView';
-import { ExpiringSoonView } from './components/inventory/ExpiringSoonView';
-import { ExpiredProductsView } from './components/inventory/ExpiredProductsView';
-import { CategoriesView } from './components/inventory/CategoriesView';
-import { InventoryReportsView } from './components/inventory/InventoryReportsView';
-import { StockTransactionsLedgerView } from './components/inventory/StockTransactionsLedgerView';
-import { MarketplaceContainer } from './components/marketplace/MarketplaceContainer';
-import { SalesView } from './components/account/SalesView';
-import { PurchasesView } from './components/account/PurchasesView';
-import { ProfitLossView } from './components/account/ProfitLossView';
-import { ExpensesView } from './components/account/ExpensesView';
-import { IncomeView } from './components/account/IncomeView';
-import { AccountSummaryView } from './components/account/AccountSummaryView';
-import { extractFormDataFromImage } from './services/geminiService';
+import { ViewLoadingSkeleton } from './components/common/ViewLoadingSkeleton';
+import { extractProduct5FieldsFromImages, extractFormDataFromImage } from './services/geminiService';
 import {
   ExtractedFormData,
   ExtractionStage,
   SavedInventoryItem,
   AppNavigationState,
   MenuSection,
+  ProductScanResult,
 } from './types';
 import { preprocessImageCanvas } from './utils/imagePreprocessing';
 import {
@@ -50,17 +25,104 @@ import {
 } from './utils/unifiedDataStore';
 import { GEMINI_MODEL } from './config/model';
 import {
-  Boxes,
-  FileSpreadsheet,
   HelpCircle,
   X,
   Sparkles,
   Cpu,
-  Camera,
-  Barcode as BarcodeIcon,
-  Zap,
   Plus,
+  RotateCcw,
 } from 'lucide-react';
+import { tempImageManager } from './utils/smartLabelCropper';
+import { ToastContainer } from './components/common/ToastContainer';
+
+// ============================================================================
+// CODE-SPLIT / LAZY-LOADED HEAVY VIEW CHUNKS
+// ============================================================================
+const CameraViewport = lazy(() =>
+  import('./components/CameraViewport').then((m) => ({ default: m.CameraViewport }))
+);
+const MultiShotProductScanner = lazy(() =>
+  import('./components/scanner/MultiShotProductScanner').then((m) => ({
+    default: m.MultiShotProductScanner,
+  }))
+);
+const AutoFillForm = lazy(() =>
+  import('./components/AutoFillForm').then((m) => ({ default: m.AutoFillForm }))
+);
+const ProcessingState = lazy(() =>
+  import('./components/ProcessingState').then((m) => ({ default: m.ProcessingState }))
+);
+const PayloadModal = lazy(() =>
+  import('./components/PayloadModal').then((m) => ({ default: m.PayloadModal }))
+);
+const ManualProductEntryView = lazy(() =>
+  import('./components/scanner/ManualProductEntryView').then((m) => ({
+    default: m.ManualProductEntryView,
+  }))
+);
+const BarcodeScannerView = lazy(() =>
+  import('./components/scanner/BarcodeScannerView').then((m) => ({
+    default: m.BarcodeScannerView,
+  }))
+);
+const QrScannerView = lazy(() =>
+  import('./components/scanner/QrScannerView').then((m) => ({ default: m.QrScannerView }))
+);
+const ScanHistoryView = lazy(() =>
+  import('./components/scanner/ScanHistoryView').then((m) => ({ default: m.ScanHistoryView }))
+);
+const InventoryOverviewView = lazy(() =>
+  import('./components/inventory/InventoryOverviewView').then((m) => ({
+    default: m.InventoryOverviewView,
+  }))
+);
+const InventoryAccountingView = lazy(() =>
+  import('./components/inventory/InventoryAccountingView').then((m) => ({
+    default: m.InventoryAccountingView,
+  }))
+);
+const StockInView = lazy(() =>
+  import('./components/inventory/StockInView').then((m) => ({ default: m.StockInView }))
+);
+const StockOutView = lazy(() =>
+  import('./components/inventory/StockOutView').then((m) => ({ default: m.StockOutView }))
+);
+const LowStockView = lazy(() =>
+  import('./components/inventory/LowStockView').then((m) => ({ default: m.LowStockView }))
+);
+const ExpiringSoonView = lazy(() =>
+  import('./components/inventory/ExpiringSoonView').then((m) => ({
+    default: m.ExpiringSoonView,
+  }))
+);
+const ExpiredProductsView = lazy(() =>
+  import('./components/inventory/ExpiredProductsView').then((m) => ({
+    default: m.ExpiredProductsView,
+  }))
+);
+const CategoriesView = lazy(() =>
+  import('./components/inventory/CategoriesView').then((m) => ({ default: m.CategoriesView }))
+);
+const InventoryReportsView = lazy(() =>
+  import('./components/inventory/InventoryReportsView').then((m) => ({
+    default: m.InventoryReportsView,
+  }))
+);
+const StockTransactionsLedgerView = lazy(() =>
+  import('./components/inventory/StockTransactionsLedgerView').then((m) => ({
+    default: m.StockTransactionsLedgerView,
+  }))
+);
+const InventoryTurnoverView = lazy(() =>
+  import('./components/inventory/InventoryTurnoverView').then((m) => ({
+    default: m.InventoryTurnoverView,
+  }))
+);
+const ProductReputationView = lazy(() =>
+  import('./components/inventory/ProductReputationView').then((m) => ({
+    default: m.ProductReputationView,
+  }))
+);
 
 export default function App() {
   // Navigation State
@@ -75,7 +137,9 @@ export default function App() {
   const [editingProduct, setEditingProduct] = useState<SavedInventoryItem | null>(null);
   const [currentStage, setCurrentStage] = useState<ExtractionStage>('idle');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [extractedData, setExtractedData] = useState<ExtractedFormData | null>(null);
+  const [productScanResult, setProductScanResult] = useState<ProductScanResult | null>(null);
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [submittedData, setSubmittedData] = useState<ExtractedFormData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -97,61 +161,128 @@ export default function App() {
     });
   }, []);
 
+  const isScannerSubView = (sub: string) =>
+    [
+      'scan_product',
+      'manual_entry',
+      'barcode_scanner',
+      'qr_scanner',
+      'multi_scan',
+      'multiple_image_scan',
+      'scan_history',
+    ].includes(sub);
+
   const handleNavigate = (
     section: MenuSection,
     subView: string
   ) => {
-    setNavState({ activeSection: section, activeSubView: subView });
+    // Scanner is positioned inside Inventory In
+    const targetSection: MenuSection = isScannerSubView(subView)
+      ? 'inventory_in'
+      : section;
+
+    // If leaving scanner workflows, release temporary images from memory
+    const wasInScanner = isScannerSubView(navState.activeSubView);
+    const willBeInScanner = isScannerSubView(subView);
+    if (wasInScanner && !willBeInScanner) {
+      tempImageManager.clearAll();
+      setCapturedImage(null);
+      setCapturedImages([]);
+      setExtractionError(null);
+    }
+    setNavState({ activeSection: targetSection, activeSubView: subView });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   /**
-   * Pipeline Execution: Image -> Preprocess -> Gemini Vision
+   * Multi-Shot Synchronized Analysis (1 to 5 photos of product packaging)
    */
-  const handleImageSelected = async (imageBase64: string) => {
-    setCapturedImage(imageBase64);
+  const handleMultiShotAnalyze = async (images: string[]) => {
+    if (!images || images.length === 0) return;
+    setCapturedImages(images);
+    setCapturedImage(images[0] || null);
     setCurrentStage('processing');
     setExtractionError(null);
 
     try {
-      const { enhancedDataUrl, cues } = await preprocessImageCanvas(imageBase64, {
-        contrast: 1.25,
-        sharpen: true,
-      });
+      const result = await extractProduct5FieldsFromImages(images);
+      setProductScanResult(result);
 
-      if (prefilledBarcode && !cues.possibleBarcodes.includes(prefilledBarcode)) {
-        cues.possibleBarcodes.unshift(prefilledBarcode);
-      }
+      const currencySymbol = result.currency === 'NPR' ? 'Rs. ' : result.currency === 'INR' ? '₹' : result.currency === 'EUR' ? '€' : result.currency === 'GBP' ? '£' : '$';
 
-      const data = await extractFormDataFromImage(enhancedDataUrl, {
-        localOcrCues: cues,
-      });
-
-      if (prefilledBarcode && !data.barcode) {
-        data.barcode = prefilledBarcode;
-      }
+      // Create ExtractedFormData object for unified application compatibility
+      const data: ExtractedFormData = {
+        isProductOrPackage: true,
+        documentType: 'Product Package / Label',
+        productName: result.productName,
+        brand: '',
+        category: '',
+        sku: '',
+        barcode: prefilledBarcode || '',
+        batchNumber: '',
+        manufacturingDate: result.manufactureDate || '',
+        expiryDate: result.expiryDate || '',
+        bestBefore: result.bestBeforeMonths ? `${result.bestBeforeMonths} months` : '',
+        bestBeforeMonths: result.bestBeforeMonths,
+        quantity: String(result.quantity || 1),
+        unit: result.unit || 'pcs',
+        mrp: result.price !== null ? `${currencySymbol}${result.price.toFixed(2)}` : '',
+        confidence: result.confidence,
+        warnings: result.warnings,
+        missingFields: [],
+        fullName: result.productName,
+        documentNumber: '',
+        dateOfBirth: '',
+        issueDate: result.manufactureDate || '',
+        email: '',
+        phone: '',
+        address: '',
+        organization: '',
+        nationality: '',
+        notesOrAdditional: '',
+        confidenceScore: result.confidence.overall || 0.95,
+        customFields: [],
+      };
 
       setExtractedData(data);
       setCurrentStage('ready');
     } catch (err: unknown) {
       const error = err as Error;
-      console.error('Image extraction error:', error);
+      console.error('Multi-shot extraction error:', error);
       setExtractionError(
         error.message ||
-          'Failed to extract data. Please ensure the label image is clear and try again.'
+          'Failed to extract data. Please ensure the label photos are clear and try again.'
       );
       setCurrentStage('error');
     }
   };
 
+  /**
+   * Pipeline Execution: Single Image -> Preprocess -> Gemini Vision
+   */
+  const handleImageSelected = async (imageBase64: string) => {
+    handleMultiShotAnalyze([imageBase64]);
+  };
+
   const handleResetWorkflow = () => {
+    tempImageManager.clearAll();
     setCapturedImage(null);
+    setCapturedImages([]);
     setExtractedData(null);
+    setProductScanResult(null);
     setExtractionError(null);
     setSubmittedData(null);
     setPrefilledBarcode(null);
     setIsModalOpen(false);
     setCurrentStage('idle');
+  };
+
+  const handleRetryExtraction = () => {
+    if (capturedImages.length > 0) {
+      handleMultiShotAnalyze(capturedImages);
+    } else {
+      handleResetWorkflow();
+    }
   };
 
   const handleFormSubmit = (finalFormData: ExtractedFormData) => {
@@ -161,17 +292,17 @@ export default function App() {
 
   const handleStartProductRegistration = (barcode: string) => {
     setPrefilledBarcode(barcode);
-    handleNavigate('scanner', 'scan_product');
+    handleNavigate('inventory_in', 'scan_product');
     setCurrentStage('idle');
   };
 
   const handleStartSaleForProduct = (product: SavedInventoryItem) => {
     setPosProduct(product);
-    handleNavigate('account', 'sales');
+    handleNavigate('inventory_out', 'stock_out');
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 flex flex-col font-sans text-slate-900 pb-20 md:pb-8">
+    <div className="min-h-screen bg-slate-100/70 flex flex-col font-sans text-slate-900 pb-8">
       {/* App Header */}
       <AppHeader
         activeSection={navState.activeSection}
@@ -200,317 +331,302 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* ==================================================================== */}
-        {/* SECTION 1: SCANNER VIEWS                                             */}
-        {/* ==================================================================== */}
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading SmartStock AI module..." />}>
+          {/* ==================================================================== */}
+          {/* SECTION 1: INVENTORY IN -> SCANNER VIEWS                              */}
+          {/* ==================================================================== */}
 
-        {/* 1.1 Scan Product (AI Label & Vision Extraction) */}
-        {navState.activeSection === 'scanner' && navState.activeSubView === 'scan_product' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase tracking-wider flex items-center gap-1">
-                    <Cpu className="w-3 h-3" /> Model: {GEMINI_MODEL}
-                  </span>
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    Gemini Vision Supervisor + Local OCR Active
-                  </span>
-                </div>
-                <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                  {currentStage === 'ready'
-                    ? 'Review & Modify Auto-Filled Product Data'
-                    : currentStage === 'processing'
-                    ? 'Vision Supervisor OCR & Mapping Engine'
-                    : 'Product Label & Package Vision Scanner'}
-                </h1>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Capture or upload product packaging to automatically extract and map MFD, Expiry, Batch, MRP, and SKU.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingProduct(null);
-                    handleNavigate('scanner', 'manual_entry');
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 flex items-center gap-1.5 transition-all"
-                  id="btn-scan-add-manual"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>＋ Add Product Manually</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowHelpModal(true)}
-                  className="p-2 text-slate-500 hover:text-slate-900 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 shadow-2xs transition-colors"
-                  title="Architecture Documentation"
-                >
-                  <HelpCircle className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Stage Routing */}
-            {currentStage === 'idle' && (
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-white border border-slate-200/90 rounded-2xl shadow-2xs">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
-                      <Sparkles className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-bold text-slate-900">Need direct entry without scanning?</h3>
-                      <p className="text-[11px] text-slate-500">Add products with custom SKU, auto date calculations & stock details.</p>
-                    </div>
+          {/* 1.1 Scan Product (AI Multi-Shot Synchronized Vision Extraction) */}
+          {navState.activeSubView === 'scan_product' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 uppercase tracking-wider flex items-center gap-1">
+                      <Cpu className="w-3 h-3" /> Model: {GEMINI_MODEL}
+                    </span>
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      Multi-Shot 5-Field Vision Engine Active · Inventory In
+                    </span>
                   </div>
+                  <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                    {currentStage === 'ready'
+                      ? 'Review & Modify 5-Field Product Data'
+                      : currentStage === 'processing'
+                      ? 'Synchronized Vision Analysis & Date Calculator'
+                      : 'Multi-Shot Product Scanner'}
+                  </h1>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Snap 1 to 5 photos (Front label, MFD/EXP stamps, Best before) to extract and calculate the 5 product fields.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       setEditingProduct(null);
-                      handleNavigate('scanner', 'manual_entry');
+                      handleNavigate('inventory_in', 'manual_entry');
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shrink-0 flex items-center justify-center gap-1.5 shadow-2xs"
+                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 flex items-center gap-1.5 transition-all"
+                    id="btn-scan-add-manual"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-4 h-4" />
                     <span>＋ Add Product Manually</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowHelpModal(true)}
+                    className="p-2 text-slate-500 hover:text-slate-900 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 shadow-2xs transition-colors"
+                    title="Architecture Documentation"
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                  </button>
                 </div>
-                <CameraViewport onImageSelected={handleImageSelected} disabled={false} />
               </div>
-            )}
 
-            {currentStage === 'processing' && (
-              <ProcessingState capturedImage={capturedImage} onCancel={handleResetWorkflow} />
-            )}
-
-            {currentStage === 'error' && (
-              <div className="bg-white rounded-3xl p-8 border border-rose-200 shadow-sm text-center max-w-lg mx-auto space-y-4">
-                <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
-                  <X className="w-6 h-6" />
+              {/* Stage Routing */}
+              {currentStage === 'idle' && (
+                <div className="space-y-4">
+                  <MultiShotProductScanner onAnalyze={handleMultiShotAnalyze} disabled={false} />
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Extraction Error</h3>
-                  <p className="text-xs text-slate-600 mt-1">{extractionError}</p>
+              )}
+
+              {currentStage === 'processing' && (
+                <ProcessingState
+                  imagePreview={capturedImage}
+                  onCancel={handleResetWorkflow}
+                />
+              )}
+
+              {currentStage === 'error' && (
+                <div className="bg-white rounded-3xl p-8 border border-rose-200 shadow-sm text-center max-w-lg mx-auto space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+                    <X className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Extraction Error</h3>
+                    <p className="text-xs text-slate-600 mt-1">{extractionError}</p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                    {capturedImages.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleRetryExtraction}
+                        className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Retry Extraction
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleResetWorkflow}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors"
+                    >
+                      Discard & Retake Photo
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleResetWorkflow}
-                  className="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors"
-                >
-                  Try Another Image
-                </button>
-              </div>
-            )}
+              )}
 
-            {currentStage === 'ready' && extractedData && (
-              <AutoFillForm
-                initialData={extractedData}
-                imageThumbnail={capturedImage}
-                onSubmit={handleFormSubmit}
-                onReset={handleResetWorkflow}
-              />
-            )}
-          </div>
-        )}
-
-        {/* 1.2 Scan Invoice */}
-        {navState.activeSection === 'scanner' && navState.activeSubView === 'scan_invoice' && (
-          <ScanInvoiceView
-            onSuccess={() => handleNavigate('inventory', 'inventory_accounting')}
-          />
-        )}
-
-        {/* 1.3 Barcode Scanner */}
-        {navState.activeSection === 'scanner' && navState.activeSubView === 'barcode_scanner' && (
-          <BarcodeScannerView
-            onRegisterProduct={handleStartProductRegistration}
-            onRecordSale={handleStartSaleForProduct}
-            onViewProduct={() => handleNavigate('inventory', 'inventory')}
-          />
-        )}
-
-        {/* 1.4 QR Scanner */}
-        {navState.activeSection === 'scanner' && navState.activeSubView === 'qr_scanner' && (
-          <QrScannerView
-            onRegisterProduct={handleStartProductRegistration}
-            onRecordSale={handleStartSaleForProduct}
-          />
-        )}
-
-        {/* 1.5 Multiple Image Scan */}
-        {navState.activeSection === 'scanner' && navState.activeSubView === 'multiple_image_scan' && (
-          <div className="space-y-6">
-            <div className="bg-white p-5 rounded-3xl border border-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Batch Multi-Package Scanner</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Scan multiple sides of product packaging (Front, Back, Nutrition, Dates) into a single unified record.
-              </p>
+              {currentStage === 'ready' && (productScanResult || extractedData) && (
+                <AutoFillForm
+                  initialData={(productScanResult || extractedData)!}
+                  imageThumbnail={capturedImage}
+                  capturedImages={capturedImages}
+                  onSubmit={handleFormSubmit}
+                  onRetake={handleResetWorkflow}
+                  onCleanupImages={() => {
+                    setCapturedImage(null);
+                    setCapturedImages([]);
+                    tempImageManager.clearAll();
+                  }}
+                />
+              )}
             </div>
-            <CameraViewport onImageSelected={handleImageSelected} disabled={false} />
-          </div>
-        )}
+          )}
 
-        {/* 1.6 Scan History */}
-        {navState.activeSection === 'scanner' && navState.activeSubView === 'scan_history' && (
-          <ScanHistoryView
-            onSelectProduct={() => handleNavigate('inventory', 'inventory')}
-          />
-        )}
-
-        {/* 1.7 Add / Edit Product Manually */}
-        {navState.activeSection === 'scanner' && navState.activeSubView === 'manual_entry' && (
-          <ManualProductEntryView
-            existingProduct={editingProduct}
-            initialBarcode={prefilledBarcode}
-            onSaveSuccess={(saved) => {
-              setEditingProduct(null);
-              setPrefilledBarcode(null);
-              handleNavigate('inventory', 'inventory');
-            }}
-            onCancel={() => {
-              setEditingProduct(null);
-              setPrefilledBarcode(null);
-              handleNavigate('scanner', 'scan_product');
-            }}
-          />
-        )}
-
-        {/* ==================================================================== */}
-        {/* SECTION 2: INVENTORY VIEWS                                           */}
-        {/* ==================================================================== */}
-
-        {/* 2.1 & 2.3 Inventory Overview & Products */}
-        {navState.activeSection === 'inventory' &&
-          (navState.activeSubView === 'inventory' || navState.activeSubView === 'products') && (
-            <InventoryOverviewView
-              onAddProduct={() => {
-                setEditingProduct(null);
-                handleNavigate('scanner', 'manual_entry');
-              }}
-              onEditProduct={(prod) => {
-                setEditingProduct(prod);
-                handleNavigate('scanner', 'manual_entry');
-              }}
-              onStockIn={() => handleNavigate('inventory', 'stock_in')}
+          {/* 1.2 Barcode Scanner */}
+          {navState.activeSubView === 'barcode_scanner' && (
+            <BarcodeScannerView
+              onRegisterProduct={handleStartProductRegistration}
               onRecordSale={handleStartSaleForProduct}
-              onNavigateSection={handleNavigate}
+              onViewProduct={() => handleNavigate('inventory', 'inventory')}
             />
           )}
 
-        {/* 2.2 Inventory Accounting */}
-        {navState.activeSection === 'inventory' &&
-          navState.activeSubView === 'inventory_accounting' && <InventoryAccountingView />}
-
-        {/* 2.4 Stock In */}
-        {navState.activeSection === 'inventory' &&
-          navState.activeSubView === 'stock_in' && <StockInView />}
-
-        {/* 2.5 Stock Out */}
-        {navState.activeSection === 'inventory' &&
-          navState.activeSubView === 'stock_out' && <StockOutView />}
-
-        {/* 2.5.1 Stock Transactions Ledger (Standardized Stock Transaction Engine) */}
-        {navState.activeSection === 'inventory' &&
-          navState.activeSubView === 'stock_ledger' && <StockTransactionsLedgerView />}
-
-        {/* 2.6 Low Stock */}
-        {navState.activeSection === 'inventory' &&
-          navState.activeSubView === 'low_stock' && (
-            <LowStockView onStockIn={() => handleNavigate('inventory', 'stock_in')} />
+          {/* 1.4 QR Scanner */}
+          {navState.activeSubView === 'qr_scanner' && (
+            <QrScannerView
+              onRegisterProduct={handleStartProductRegistration}
+              onRecordSale={handleStartSaleForProduct}
+            />
           )}
 
-        {/* 2.7 Expiring Soon */}
-        {navState.activeSection === 'inventory' &&
-          navState.activeSubView === 'expiring_soon' && (
-            <ExpiringSoonView onRecordSale={handleStartSaleForProduct} />
+          {/* 1.5 Multiple Image Scan */}
+          {(navState.activeSubView === 'multiple_image_scan' || navState.activeSubView === 'multi_scan') && (
+            <div className="space-y-6">
+              <MultiShotProductScanner onAnalyze={handleMultiShotAnalyze} disabled={false} />
+            </div>
           )}
 
-        {/* 2.8 Expired Products */}
-        {navState.activeSection === 'inventory' &&
-          navState.activeSubView === 'expired_products' && <ExpiredProductsView />}
-
-        {/* 2.9 Categories */}
-        {navState.activeSection === 'inventory' &&
-          navState.activeSubView === 'categories' && <CategoriesView />}
-
-        {/* 2.10 Inventory Reports */}
-        {navState.activeSection === 'inventory' &&
-          navState.activeSubView === 'inventory_reports' && <InventoryReportsView />}
-
-        {/* ==================================================================== */}
-        {/* SECTION 3: MARKETPLACE & SOCIAL COMMERCE                             */}
-        {/* ==================================================================== */}
-        {navState.activeSection === 'marketplace' && (
-          <MarketplaceContainer
-            initialSubView={
-              navState.activeSubView === 'marketplace_listings' || navState.activeSubView === 'listings'
-                ? 'listings'
-                : navState.activeSubView === 'marketplace_create_listing' || navState.activeSubView === 'create_listing'
-                ? 'create_listing'
-                : navState.activeSubView === 'marketplace_orders' || navState.activeSubView === 'orders'
-                ? 'orders'
-                : navState.activeSubView === 'marketplace_social_hub' || navState.activeSubView === 'social_channels'
-                ? 'social_channels'
-                : navState.activeSubView === 'marketplace_settings' || navState.activeSubView === 'settings'
-                ? 'settings'
-                : 'dashboard'
-            }
-          />
-        )}
-
-        {/* ==================================================================== */}
-        {/* SECTION 4: ACCOUNT VIEWS                                             */}
-        {/* ==================================================================== */}
-
-        {/* 3.1 Sales */}
-        {navState.activeSection === 'account' && navState.activeSubView === 'sales' && (
-          <SalesView initialProduct={posProduct} />
-        )}
-
-        {/* 3.2 Purchases */}
-        {navState.activeSection === 'account' && navState.activeSubView === 'purchases' && (
-          <PurchasesView />
-        )}
-
-        {/* 3.3 & 3.4 Profit & Loss */}
-        {navState.activeSection === 'account' &&
-          (navState.activeSubView === 'profit' || navState.activeSubView === 'loss') && (
-            <ProfitLossView />
+          {/* 1.6 Scan History */}
+          {navState.activeSubView === 'scan_history' && (
+            <ScanHistoryView
+              onSelectProduct={() => handleNavigate('inventory', 'inventory')}
+            />
           )}
 
-        {/* 3.5 Expenses */}
-        {navState.activeSection === 'account' && navState.activeSubView === 'expenses' && (
-          <ExpensesView />
-        )}
+          {/* 1.7 Add / Edit Product Manually */}
+          {navState.activeSubView === 'manual_entry' && (
+            <ManualProductEntryView
+              existingProduct={editingProduct}
+              initialBarcode={prefilledBarcode}
+              onSaveSuccess={(_saved) => {
+                setEditingProduct(null);
+                setPrefilledBarcode(null);
+                handleNavigate('inventory', 'inventory');
+              }}
+              onCancel={() => {
+                setEditingProduct(null);
+                setPrefilledBarcode(null);
+                handleNavigate('inventory_in', 'scan_product');
+              }}
+            />
+          )}
 
-        {/* 3.6 Income */}
-        {navState.activeSection === 'account' && navState.activeSubView === 'income' && (
-          <IncomeView />
-        )}
+          {/* ==================================================================== */}
+          {/* SECTION 2: INVENTORY VIEWS                                           */}
+          {/* ==================================================================== */}
 
-        {/* Account Summary & Financial Reports */}
-        {navState.activeSection === 'account' &&
-          (navState.activeSubView === 'account_summary' ||
-            navState.activeSubView === 'financial_reports') && <AccountSummaryView />}
+          {/* 2.1 & 2.3 Inventory Overview & Products */}
+          {navState.activeSection === 'inventory' &&
+            (navState.activeSubView === 'inventory' || navState.activeSubView === 'products') && (
+              <InventoryOverviewView
+                onAddProduct={() => {
+                  setEditingProduct(null);
+                  handleNavigate('inventory_in', 'manual_entry');
+                }}
+                onEditProduct={(prod) => {
+                  setEditingProduct(prod);
+                  handleNavigate('inventory_in', 'manual_entry');
+                }}
+                onStockIn={(prodId) => {
+                  if (prodId) {
+                    const found = products.find((p) => p.id === prodId);
+                    if (found) setPosProduct(found);
+                  }
+                  handleNavigate('inventory_in', 'stock_in');
+                }}
+                onStockOut={(prodId) => {
+                  if (prodId) {
+                    const found = products.find((p) => p.id === prodId);
+                    if (found) setPosProduct(found);
+                  }
+                  handleNavigate('inventory_out', 'stock_out');
+                }}
+                onRecordSale={handleStartSaleForProduct}
+                onNavigateSection={handleNavigate}
+              />
+            )}
+
+          {/* 2.2 Inventory Turnover & Velocity */}
+          {navState.activeSection === 'inventory' &&
+            navState.activeSubView === 'turnover' && (
+              <InventoryTurnoverView
+                onStockIn={(prodId) => {
+                  if (prodId) {
+                    const found = products.find((p) => p.id === prodId);
+                    if (found) setPosProduct(found);
+                  }
+                  handleNavigate('inventory_in', 'stock_in');
+                }}
+                onStockOut={(prodId) => {
+                  if (prodId) {
+                    const found = products.find((p) => p.id === prodId);
+                    if (found) setPosProduct(found);
+                  }
+                  handleNavigate('inventory_out', 'stock_out');
+                }}
+              />
+            )}
+
+          {/* 2.3 Product Reputation & Ratings */}
+          {navState.activeSection === 'inventory' &&
+            navState.activeSubView === 'reputation' && (
+              <ProductReputationView />
+            )}
+
+          {/* 2.4 Stock Transactions Ledger */}
+          {navState.activeSection === 'inventory' &&
+            navState.activeSubView === 'stock_ledger' && <StockTransactionsLedgerView />}
+
+          {/* 2.5 Low Stock */}
+          {navState.activeSection === 'inventory' &&
+            navState.activeSubView === 'low_stock' && (
+              <LowStockView onStockIn={() => handleNavigate('inventory_in', 'stock_in')} />
+            )}
+
+          {/* 2.6 Expiring Soon */}
+          {navState.activeSection === 'inventory' &&
+            navState.activeSubView === 'expiring_soon' && (
+              <ExpiringSoonView onRecordSale={handleStartSaleForProduct} />
+            )}
+
+          {/* 2.7 Expired Products */}
+          {navState.activeSection === 'inventory' &&
+            (navState.activeSubView === 'expired' || navState.activeSubView === 'expired_products') && (
+              <ExpiredProductsView />
+            )}
+
+          {/* 2.8 Categories */}
+          {navState.activeSection === 'inventory' &&
+            navState.activeSubView === 'categories' && <CategoriesView />}
+
+          {/* 2.9 Inventory Reports */}
+          {navState.activeSection === 'inventory' &&
+            (navState.activeSubView === 'reports' || navState.activeSubView === 'inventory_reports') && (
+              <InventoryReportsView />
+            )}
+
+          {/* ==================================================================== */}
+          {/* SECTION 3: INVENTORY IN (RECEIVING / PURCHASES)                       */}
+          {/* ==================================================================== */}
+          {navState.activeSection === 'inventory_in' &&
+            (navState.activeSubView === 'stock_in' || navState.activeSubView === 'inventory_in') && (
+              <StockInView initialProductId={posProduct?.id} />
+            )}
+          {navState.activeSection === 'inventory_in' &&
+            navState.activeSubView === 'stock_ledger' && (
+              <StockTransactionsLedgerView defaultTypeFilter="in" />
+            )}
+
+          {/* ==================================================================== */}
+          {/* SECTION 4: INVENTORY OUT (DISPATCH / SALES)                           */}
+          {/* ==================================================================== */}
+          {navState.activeSection === 'inventory_out' &&
+            (navState.activeSubView === 'stock_out' || navState.activeSubView === 'inventory_out') && (
+              <StockOutView
+                initialProduct={posProduct}
+                initialProductId={posProduct?.id}
+              />
+            )}
+          {navState.activeSection === 'inventory_out' &&
+            navState.activeSubView === 'stock_ledger' && (
+              <StockTransactionsLedgerView defaultTypeFilter="out" />
+            )}
+        </Suspense>
       </main>
 
-      {/* Android Bottom Navigation Bar for Mobile */}
-      <AndroidBottomBar
-        activeSection={navState.activeSection}
-        activeSubView={navState.activeSubView}
-        onNavigate={handleNavigate}
-        onOpenDrawer={() => setIsDrawerOpen(true)}
-      />
-
       {/* Payload Modal */}
-      <PayloadModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        formData={submittedData}
-      />
+      <Suspense fallback={null}>
+        <PayloadModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          formData={submittedData}
+        />
+      </Suspense>
 
       {/* Help Modal */}
       {showHelpModal && (
@@ -531,9 +647,10 @@ export default function App() {
                 <strong>SmartStock AI</strong> incorporates high-speed local 1D/2D Barcode/QR scanning with Gemini 3.7 Vision OCR intelligence.
               </p>
               <ul className="list-disc pl-5 space-y-1">
-                <li><strong>Scanner:</strong> Extract MFD, EXP, Batch, and MRP from labels, or scan multi-item wholesale purchase invoices.</li>
-                <li><strong>Inventory:</strong> Real-time valuation, stock-in/out tracking, low stock warnings, and expiry date safety alerts.</li>
-                <li><strong>Account:</strong> POS customer checkouts, vendor purchases, operating expenses, and double-entry profit &amp; loss statements.</li>
+                <li><strong>Scanner:</strong> Extract MFD, EXP, Batch, Price, and Product Name from packaging labels, or use Barcode/QR and manual entry.</li>
+                <li><strong>Inventory:</strong> Real-time valuation, stock movement ledger, low stock warnings, and expiry date safety alerts.</li>
+                <li><strong>Turnover &amp; Reputation:</strong> Stock velocity, turnover ratios, DSI days, and verified product quality ratings.</li>
+                <li><strong>Inventory In &amp; Out:</strong> Streamlined stock receiving, dispatch, sales fulfillment, and wastage tracking.</li>
               </ul>
             </div>
             <button
@@ -546,6 +663,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Expiry Alert Toast System (30-day proactive warning) */}
+      <ToastContainer onNavigateToInventory={() => handleNavigate('inventory', 'inventory')} />
     </div>
   );
 }

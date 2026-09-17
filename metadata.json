@@ -1,6 +1,6 @@
 {
   "name": "Image to Form Auto-Fill",
-  "description": "Two-Engine Barcode & OCR Inventory Scanner with ZXing barcode decoding, Tesseract printed text OCR, Open Food Facts lookup, conflict resolution, and stock management.",
+  "description": "Two-Engine Barcode & OCR Inventory Scanner with stock-in receiving, stock-out dispatch, turnover velocity analytics, and product reputation management.",
   "requestFramePermissions": [
     "camera"
   ],

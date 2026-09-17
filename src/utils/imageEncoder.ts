@@ -31,7 +31,7 @@
  */
 export function captureFrameFromVideo(
   videoEl: HTMLVideoElement,
-  quality: number = 0.92
+  quality: number = 0.88
 ): string {
   if (!videoEl || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) {
     throw new Error('Video stream is not ready or has zero dimensions.');
@@ -43,7 +43,7 @@ export function captureFrameFromVideo(
   const height = videoEl.videoHeight;
 
   // Max dimension clamp to prevent massive payloads while maintaining crisp text OCR
-  const MAX_DIM = 1920;
+  const MAX_DIM = 1440;
   let targetWidth = width;
   let targetHeight = height;
 

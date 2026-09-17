@@ -14,6 +14,7 @@ import {
   Check,
   SwitchCamera,
   Layers,
+  Sparkles,
 } from 'lucide-react';
 import { useCamera } from '../hooks/useCamera';
 import { captureFrameFromVideo, fileToBase64 } from '../utils/imageEncoder';
@@ -35,10 +36,11 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
   const [dragActive, setDragActive] = useState(false);
   const [capturedPreview, setCapturedPreview] = useState<string | null>(null);
   const [selectedSample, setSelectedSample] = useState<SampleDoc | null>(null);
+  const [cameraInitiated, setCameraInitiated] = useState(false);
 
-  // Automatically request camera stream when the camera tab is selected
+  // Manage camera hardware lifecycle
   useEffect(() => {
-    if (activeTab === 'camera' && !capturedPreview && !disabled) {
+    if (activeTab === 'camera' && cameraInitiated && !capturedPreview && !disabled) {
       startCamera();
     } else {
       stopCamera();
@@ -46,7 +48,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
     return () => {
       stopCamera();
     };
-  }, [activeTab, capturedPreview, disabled, startCamera, stopCamera]);
+  }, [activeTab, cameraInitiated, capturedPreview, disabled, startCamera, stopCamera]);
 
   /**
    * ==========================================================================
@@ -58,7 +60,6 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
   const handleCapturePhoto = () => {
     if (!videoRef.current) return;
     try {
-      // 1. Capture snapshot from active video stream and convert to Base64
       const base64Data = captureFrameFromVideo(videoRef.current, 0.95);
       setCapturedPreview(base64Data);
       stopCamera();
@@ -113,7 +114,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
   const handleRetake = () => {
     setCapturedPreview(null);
     setSelectedSample(null);
-    if (activeTab === 'camera') {
+    if (activeTab === 'camera' && cameraInitiated) {
       startCamera();
     }
   };
@@ -183,6 +184,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
               <img
                 src={capturedPreview}
                 alt="Selected document"
+                loading="lazy"
                 className="max-h-[380px] w-auto object-contain"
               />
               <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur text-white text-xs px-3 py-1 rounded-full font-medium flex items-center gap-1.5">
@@ -242,7 +244,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
                     </div>
                   )}
 
-                  {/* Camera Not Streaming Placeholder / Error state */}
+                  {/* Camera Not Streaming Placeholder / Start Action / Error state */}
                   {!cameraState.isStreaming && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-slate-300">
                       {cameraState.error ? (
@@ -259,7 +261,10 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
                           <div className="pt-2 flex flex-wrap gap-2 justify-center">
                             <button
                               type="button"
-                              onClick={() => startCamera()}
+                              onClick={() => {
+                                setCameraInitiated(true);
+                                startCamera();
+                              }}
                               className="px-4 py-2 bg-white text-slate-900 rounded-xl text-xs font-semibold hover:bg-slate-100 transition-colors"
                             >
                               Retry Camera
@@ -272,6 +277,29 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
                               Use File Upload Instead
                             </button>
                           </div>
+                        </div>
+                      ) : !cameraInitiated ? (
+                        <div className="space-y-3 max-w-xs">
+                          <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 text-indigo-400 mx-auto flex items-center justify-center shadow-lg">
+                            <Camera className="w-7 h-7" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-white">Live Camera Scanner</h3>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              Tap below to launch camera feed and capture packaging labels.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCameraInitiated(true);
+                              startCamera();
+                            }}
+                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 mx-auto"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Launch Live Camera</span>
+                          </button>
                         </div>
                       ) : (
                         <div className="space-y-3">
@@ -308,7 +336,15 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => (cameraState.isStreaming ? stopCamera() : startCamera())}
+                      onClick={() => {
+                        if (cameraState.isStreaming) {
+                          stopCamera();
+                          setCameraInitiated(false);
+                        } else {
+                          setCameraInitiated(true);
+                          startCamera();
+                        }
+                      }}
                       disabled={disabled}
                       className="p-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
                       title={cameraState.isStreaming ? 'Pause Camera' : 'Start Camera'}
@@ -405,6 +441,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
                         <img
                           src={doc.dataUrl}
                           alt={doc.name}
+                          loading="lazy"
                           className="w-full h-full object-cover"
                         />
                       </div>

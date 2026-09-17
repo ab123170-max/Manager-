@@ -15,7 +15,7 @@ import { CameraState } from '../types';
  * - Attaches the MediaStream to a video element (`videoRef.current.srcObject = stream`)
  * - Switches between front and rear cameras (facingMode: 'user' | 'environment')
  * - Gracefully releases video hardware tracks when unmounting or switching
- * - Provides clear error diagnostics (e.g. NotAllowedError, NotFoundError)
+ * - Provides clear error diagnostics and fallback states (NotAllowedError, NotFoundError)
  */
 export function useCamera() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -37,7 +37,11 @@ export function useCamera() {
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => {
-        track.stop();
+        try {
+          track.stop();
+        } catch {
+          // ignore
+        }
       });
       streamRef.current = null;
     }
@@ -83,12 +87,16 @@ export function useCamera() {
 
       const targetFacingMode = mode || cameraState.facingMode;
 
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (
+        typeof navigator === 'undefined' ||
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+      ) {
         setCameraState((prev) => ({
           ...prev,
           hasPermission: false,
           error:
-            'Camera API is not supported in this browser or context. Please use file upload instead or ensure HTTPS is active.',
+            'Camera API is not supported in this browser or context. Please use photo upload instead.',
         }));
         return;
       }
@@ -96,17 +104,29 @@ export function useCamera() {
       try {
         setCameraState((prev) => ({ ...prev, error: null }));
 
-        // Request high-resolution video stream for readable document text
-        const constraints: MediaStreamConstraints = {
-          video: {
-            facingMode: { ideal: targetFacingMode },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false, // We only need video frames, not audio
-        };
+        // Request video stream with fallback constraint handling
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: targetFacingMode },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+            audio: false,
+          });
+        } catch (initialErr: any) {
+          // Fallback to basic video constraints if high-res failed
+          if (initialErr?.name === 'OverconstrainedError' || initialErr?.name === 'ConstraintNotSatisfiedError') {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false,
+            });
+          } else {
+            throw initialErr;
+          }
+        }
 
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         streamRef.current = stream;
 
         // Check torch capabilities on the active video track
@@ -125,7 +145,6 @@ export function useCamera() {
         // Bind the stream directly to the video element's srcObject
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          // Play automatically once metadata is loaded
           videoRef.current.onloadedmetadata = () => {
             videoRef.current
               ?.play()
@@ -139,46 +158,56 @@ export function useCamera() {
                 }));
               })
               .catch((playErr) => {
-                console.error('Video play error:', playErr);
+                console.warn('Video element play was deferred:', playErr);
               });
           };
         }
 
-        // Query available video devices for device switching
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter(
-          (device) => device.kind === 'videoinput'
-        );
-
-        setCameraState((prev) => ({
-          ...prev,
-          availableDevices: videoInputs,
-          facingMode: targetFacingMode,
-          hasPermission: true,
-        }));
+        // Query available video devices
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = devices.filter((device) => device.kind === 'videoinput');
+          setCameraState((prev) => ({
+            ...prev,
+            availableDevices: videoInputs,
+            facingMode: targetFacingMode,
+            hasPermission: true,
+          }));
+        } catch {
+          // Ignore enumeration failure
+        }
       } catch (err: unknown) {
         const error = err as Error;
-        console.error('Camera initialization failed:', error);
+        console.warn('Camera access denied or unavailable:', error.message || error.name);
         let message = 'Unable to access camera.';
 
+        const errName = error.name || '';
+        const errMsg = (error.message || '').toLowerCase();
+
         if (
-          error.name === 'NotAllowedError' ||
-          error.name === 'PermissionDeniedError'
+          errName === 'NotAllowedError' ||
+          errName === 'PermissionDeniedError' ||
+          errMsg.includes('permission') ||
+          errMsg.includes('denied')
         ) {
           message =
-            'Camera permission was denied. Please allow camera access in your browser site settings or use file upload.';
+            'Camera permission was denied. Please allow camera access in your browser or site settings, or use photo upload / manual entry.';
         } else if (
-          error.name === 'NotFoundError' ||
-          error.name === 'DevicesNotFoundError'
+          errName === 'NotFoundError' ||
+          errName === 'DevicesNotFoundError' ||
+          errMsg.includes('not found')
         ) {
           message =
-            'No camera device detected. Please connect a webcam or use file upload.';
+            'No camera device detected. Please connect a webcam or use photo upload.';
         } else if (
-          error.name === 'NotReadableError' ||
-          error.name === 'TrackStartError'
+          errName === 'NotReadableError' ||
+          errName === 'TrackStartError' ||
+          errMsg.includes('in use')
         ) {
           message =
-            'Camera is already in use by another application or browser tab.';
+            'Camera is in use by another tab or app. Please close other camera apps or use file upload.';
+        } else {
+          message = error.message || 'Camera initialization failed.';
         }
 
         setCameraState((prev) => ({

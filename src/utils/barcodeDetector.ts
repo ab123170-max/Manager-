@@ -3,23 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {
-  MultiFormatReader,
-  RGBLuminanceSource,
-  BinaryBitmap,
-  HybridBinarizer,
-  DecodeHintType,
-  BarcodeFormat,
-  NotFoundException,
-} from '@zxing/library';
 import { DetectedCode } from '../types';
 
 /**
  * ============================================================================
- * HIGH-PERFORMANCE BARCODE & QR CODE DETECTOR ENGINE
+ * HIGH-PERFORMANCE BARCODE & QR CODE DETECTOR ENGINE (ZXing Engine)
  * ============================================================================
- * Prioritizes the ultra-fast native Browser BarcodeDetector API (Android Chrome, Edge),
- * with seamless fallback to ZXing multi-format reader when native API is unavailable.
+ * Fast, reliable barcode and QR code decoding using ZXing multi-format reader.
  *
  * Supported formats:
  * - 1D: EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39, Code 93, ITF, Codabar
@@ -43,113 +33,61 @@ const FORMAT_NORMALIZATION: Record<string, string> = {
   pdf417: 'PDF417',
 };
 
-// ZXing BarcodeFormat enum to friendly label
-function mapZxingFormat(format: BarcodeFormat): string {
-  switch (format) {
-    case BarcodeFormat.EAN_13:
-      return 'EAN-13';
-    case BarcodeFormat.EAN_8:
-      return 'EAN-8';
-    case BarcodeFormat.UPC_A:
-      return 'UPC-A';
-    case BarcodeFormat.UPC_E:
-      return 'UPC-E';
-    case BarcodeFormat.CODE_128:
-      return 'Code 128';
-    case BarcodeFormat.CODE_39:
-      return 'Code 39';
-    case BarcodeFormat.CODE_93:
-      return 'Code 93';
-    case BarcodeFormat.ITF:
-      return 'ITF';
-    case BarcodeFormat.CODABAR:
-      return 'Codabar';
-    case BarcodeFormat.QR_CODE:
-      return 'QR_CODE';
-    case BarcodeFormat.DATA_MATRIX:
-      return 'Data Matrix';
-    case BarcodeFormat.AZTEC:
-      return 'Aztec';
-    case BarcodeFormat.PDF_417:
-      return 'PDF417';
-    default:
-      return 'Barcode';
-  }
-}
-
-// Native BarcodeDetector interface for TypeScript
-interface NativeBarcodeDetector {
-  detect: (image: ImageBitmapSource) => Promise<
-    Array<{
-      format: string;
-      rawValue: string;
-      boundingBox?: DOMRectReadOnly;
-      cornerPoints?: Array<{ x: number; y: number }>;
-    }>
-  >;
-}
-
-declare global {
-  interface Window {
-    BarcodeDetector?: {
-      new (options?: { formats: string[] }): NativeBarcodeDetector;
-      getSupportedFormats: () => Promise<string[]>;
-    };
-  }
-}
-
 class CodeDetectionEngine {
-  private nativeDetector: NativeBarcodeDetector | null = null;
-  private zxingReader: MultiFormatReader | null = null;
-  private hints: Map<DecodeHintType, unknown> = new Map();
-  private isNativeSupported = false;
-  private supportedNativeFormats: string[] = [];
+  private zxingReader: any = null;
+  private zxingModule: any = null;
+  private hints: any = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
+  private isInitializingZxing = false;
 
-  constructor() {
-    this.init();
-  }
+  constructor() {}
 
-  private async init() {
-    // 1. Check Native BarcodeDetector API
-    if (typeof window !== 'undefined' && 'BarcodeDetector' in window && window.BarcodeDetector) {
-      try {
-        const supported = await window.BarcodeDetector.getSupportedFormats();
-        if (supported && supported.length > 0) {
-          this.supportedNativeFormats = supported;
-          this.nativeDetector = new window.BarcodeDetector({ formats: supported });
-          this.isNativeSupported = true;
-          return;
-        }
-      } catch (e) {
-        console.warn('Native BarcodeDetector probe fallback to ZXing:', e);
+  /**
+   * Lazily loads ZXing library
+   */
+  private async getZxingReader(): Promise<{ reader: any; zxing: any } | null> {
+    if (this.zxingReader && this.zxingModule) {
+      return { reader: this.zxingReader, zxing: this.zxingModule };
+    }
+
+    if (this.isInitializingZxing) {
+      await new Promise((r) => setTimeout(r, 200));
+      if (this.zxingReader && this.zxingModule) {
+        return { reader: this.zxingReader, zxing: this.zxingModule };
       }
     }
 
-    // 2. Setup ZXing Fallback MultiFormatReader
+    this.isInitializingZxing = true;
     try {
+      const zxing = await import('@zxing/library');
+      this.zxingModule = zxing;
       const formats = [
-        BarcodeFormat.EAN_13,
-        BarcodeFormat.EAN_8,
-        BarcodeFormat.UPC_A,
-        BarcodeFormat.UPC_E,
-        BarcodeFormat.CODE_128,
-        BarcodeFormat.CODE_39,
-        BarcodeFormat.CODE_93,
-        BarcodeFormat.ITF,
-        BarcodeFormat.CODABAR,
-        BarcodeFormat.QR_CODE,
-        BarcodeFormat.DATA_MATRIX,
+        zxing.BarcodeFormat.EAN_13,
+        zxing.BarcodeFormat.EAN_8,
+        zxing.BarcodeFormat.UPC_A,
+        zxing.BarcodeFormat.UPC_E,
+        zxing.BarcodeFormat.CODE_128,
+        zxing.BarcodeFormat.CODE_39,
+        zxing.BarcodeFormat.CODE_93,
+        zxing.BarcodeFormat.ITF,
+        zxing.BarcodeFormat.CODABAR,
+        zxing.BarcodeFormat.QR_CODE,
+        zxing.BarcodeFormat.DATA_MATRIX,
       ];
       this.hints = new Map();
-      this.hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
-      this.hints.set(DecodeHintType.TRY_HARDER, true);
+      this.hints.set(zxing.DecodeHintType.POSSIBLE_FORMATS, formats);
+      this.hints.set(zxing.DecodeHintType.TRY_HARDER, true);
 
-      this.zxingReader = new MultiFormatReader();
+      this.zxingReader = new zxing.MultiFormatReader();
       this.zxingReader.setHints(this.hints);
+
+      return { reader: this.zxingReader, zxing: this.zxingModule };
     } catch (e) {
-      console.error('Failed to initialize ZXing fallback:', e);
+      console.error('Failed to lazily load ZXing library:', e);
+      return null;
+    } finally {
+      this.isInitializingZxing = false;
     }
   }
 
@@ -174,36 +112,17 @@ class CodeDetectionEngine {
   }
 
   /**
-   * Detects barcode or QR code from an active HTMLVideoElement frame.
+   * Detects barcode or QR code from an active HTMLVideoElement frame using ZXing reader.
    */
   public async detectFromVideo(video: HTMLVideoElement): Promise<DetectedCode | null> {
     if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
       return null;
     }
 
-    // 1. Try Native BarcodeDetector (Chrome Android, Edge, Opera)
-    if (this.isNativeSupported && this.nativeDetector) {
-      try {
-        const barcodes = await this.nativeDetector.detect(video);
-        if (barcodes && barcodes.length > 0) {
-          const first = barcodes[0];
-          const rawValue = first.rawValue?.trim() || '';
-          if (rawValue) {
-            const normalizedFormat =
-              FORMAT_NORMALIZATION[first.format.toLowerCase()] || first.format.toUpperCase();
-            return this.buildDetectedCode(normalizedFormat, rawValue);
-          }
-        }
-      } catch {
-        // Native detection frame transfer fallback
-      }
-    }
+    const zxingInstance = await this.getZxingReader();
+    if (!zxingInstance) return null;
 
-    // 2. ZXing Fallback using frame buffer
-    if (!this.zxingReader) {
-      this.zxingReader = new MultiFormatReader();
-      this.zxingReader.setHints(this.hints);
-    }
+    const { reader, zxing } = zxingInstance;
 
     try {
       const vWidth = video.videoWidth;
@@ -212,31 +131,115 @@ class CodeDetectionEngine {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const luminanceSource = new RGBLuminanceSource(
+      const luminanceSource = new zxing.RGBLuminanceSource(
         imageData.data,
         canvas.width,
         canvas.height
       );
-      const binaryBitmap = new BinaryBitmap(new HybridBinarizer(luminanceSource));
+      const binaryBitmap = new zxing.BinaryBitmap(new zxing.HybridBinarizer(luminanceSource));
 
-      const result = this.zxingReader.decodeWithState(binaryBitmap);
+      const result = reader.decodeWithState(binaryBitmap);
       if (result && result.getText()) {
         const rawValue = result.getText().trim();
-        const formatLabel = mapZxingFormat(result.getBarcodeFormat());
+        const formatLabel = this.mapZxingFormatLabel(result.getBarcodeFormat(), zxing);
         return this.buildDetectedCode(formatLabel, rawValue);
       }
-    } catch (e) {
-      if (e instanceof NotFoundException) {
+    } catch (e: any) {
+      if (e?.name === 'NotFoundException' || e instanceof zxing.NotFoundException) {
         return null;
       }
       return null;
     } finally {
-      if (this.zxingReader) {
-        this.zxingReader.reset();
+      if (reader) {
+        reader.reset();
       }
     }
 
     return null;
+  }
+
+  /**
+   * Detects barcode or QR code from an image element or data URL
+   */
+  public async detectFromImage(imageSource: HTMLImageElement | string): Promise<DetectedCode | null> {
+    let imgElement: HTMLImageElement;
+    if (typeof imageSource === 'string') {
+      imgElement = new Image();
+      imgElement.src = imageSource;
+      await new Promise<void>((resolve, reject) => {
+        imgElement.onload = () => resolve();
+        imgElement.onerror = () => reject(new Error('Failed to load image'));
+      });
+    } else {
+      imgElement = imageSource;
+    }
+
+    const zxingInstance = await this.getZxingReader();
+    if (!zxingInstance) return null;
+
+    const { reader, zxing } = zxingInstance;
+
+    try {
+      const { canvas, ctx } = this.getCanvas(imgElement.naturalWidth || imgElement.width, imgElement.naturalHeight || imgElement.height);
+      ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const luminanceSource = new zxing.RGBLuminanceSource(
+        imageData.data,
+        canvas.width,
+        canvas.height
+      );
+      const binaryBitmap = new zxing.BinaryBitmap(new zxing.HybridBinarizer(luminanceSource));
+
+      const result = reader.decodeWithState(binaryBitmap);
+      if (result && result.getText()) {
+        const rawValue = result.getText().trim();
+        const formatLabel = this.mapZxingFormatLabel(result.getBarcodeFormat(), zxing);
+        return this.buildDetectedCode(formatLabel, rawValue);
+      }
+    } catch {
+      return null;
+    } finally {
+      if (reader) {
+        reader.reset();
+      }
+    }
+
+    return null;
+  }
+
+  private mapZxingFormatLabel(format: any, zxing: any): string {
+    const BarcodeFormat = zxing.BarcodeFormat;
+    switch (format) {
+      case BarcodeFormat.EAN_13:
+        return 'EAN-13';
+      case BarcodeFormat.EAN_8:
+        return 'EAN-8';
+      case BarcodeFormat.UPC_A:
+        return 'UPC-A';
+      case BarcodeFormat.UPC_E:
+        return 'UPC-E';
+      case BarcodeFormat.CODE_128:
+        return 'Code 128';
+      case BarcodeFormat.CODE_39:
+        return 'Code 39';
+      case BarcodeFormat.CODE_93:
+        return 'Code 93';
+      case BarcodeFormat.ITF:
+        return 'ITF';
+      case BarcodeFormat.CODABAR:
+        return 'Codabar';
+      case BarcodeFormat.QR_CODE:
+        return 'QR_CODE';
+      case BarcodeFormat.DATA_MATRIX:
+        return 'Data Matrix';
+      case BarcodeFormat.AZTEC:
+        return 'Aztec';
+      case BarcodeFormat.PDF_417:
+        return 'PDF417';
+      default:
+        return 'Barcode';
+    }
   }
 
   /**
@@ -297,6 +300,20 @@ export async function detectCodesInFrame(
 }
 
 /**
+ * Image code detector helper
+ */
+export async function detectCodesInImage(
+  imageSource: HTMLImageElement | string,
+  mode: 'barcode' | 'qr' | 'all' = 'all'
+): Promise<DetectedCode[]> {
+  const res = await codeDetector.detectFromImage(imageSource);
+  if (!res) return [];
+  if (mode === 'barcode' && res.type !== 'barcode') return [];
+  if (mode === 'qr' && res.type !== 'qr') return [];
+  return [res];
+}
+
+/**
  * Synthesizes an audio beep upon successful code scan
  */
 export function playScanBeep() {
@@ -333,4 +350,3 @@ export function triggerHapticFeedback() {
     // Ignore
   }
 }
-

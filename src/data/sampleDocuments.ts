@@ -189,39 +189,6 @@ const driverLicenseSvg = `
 </svg>
 `;
 
-const invoiceSvg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
-  <rect x="0" y="0" width="900" height="600" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="4"/>
-  
-  <rect x="40" y="40" width="48" height="48" rx="8" fill="#0284c7"/>
-  <text x="105" y="72" font-family="system-ui, sans-serif" font-size="28" font-weight="800" fill="#0f172a">APEX DIGITAL SOLUTIONS INC.</text>
-  <text x="105" y="94" font-family="system-ui, sans-serif" font-size="14" font-weight="500" fill="#64748b">500 TECH BOULEVARD, SUITE 400, AUSTIN, TX 78701</text>
-  
-  <text x="860" y="70" font-family="system-ui, sans-serif" font-size="34" font-weight="900" fill="#0284c7" text-anchor="end">INVOICE</text>
-  <text x="860" y="95" font-family="system-ui, sans-serif" font-size="16" font-weight="700" fill="#64748b" text-anchor="end">INV-2025-0842</text>
-
-  <line x1="40" y1="120" x2="860" y2="120" stroke="#e2e8f0" stroke-width="2"/>
-
-  <text x="40" y="155" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#0284c7">BILLED TO (CLIENT)</text>
-  <text x="40" y="185" font-family="system-ui, sans-serif" font-size="22" font-weight="800" fill="#0f172a">SARAH ELIZABETH CHEN</text>
-  <text x="40" y="210" font-family="system-ui, sans-serif" font-size="15" font-weight="500" fill="#334155">CHEN CONSULTING PARTNERS</text>
-  <text x="40" y="232" font-family="system-ui, sans-serif" font-size="15" font-weight="500" fill="#334155">1200 GRAND AVENUE, SEATTLE, WA 98101</text>
-  <text x="40" y="254" font-family="system-ui, sans-serif" font-size="15" font-weight="500" fill="#334155">sarah.chen@chenpartners.com • (206) 555-0194</text>
-
-  <text x="560" y="155" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#64748b">INVOICE DATE</text>
-  <text x="560" y="180" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#0f172a">2025-09-10</text>
-
-  <text x="730" y="155" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#64748b">PAYMENT DUE</text>
-  <text x="730" y="180" font-family="system-ui, sans-serif" font-size="17" font-weight="700" fill="#dc2626">2025-10-10</text>
-
-  <rect x="520" y="445" width="340" height="110" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
-  <text x="545" y="480" font-family="system-ui, sans-serif" font-size="15" font-weight="600" fill="#64748b">SUBTOTAL</text>
-  <text x="835" y="480" font-family="system-ui, sans-serif" font-size="15" font-weight="600" fill="#334155" text-anchor="end">$5,050.00</text>
-  <text x="545" y="525" font-family="system-ui, sans-serif" font-size="18" font-weight="800" fill="#0f172a">TOTAL BALANCE DUE</text>
-  <text x="835" y="525" font-family="system-ui, sans-serif" font-size="22" font-weight="900" fill="#0284c7" text-anchor="end">$5,050.00</text>
-</svg>
-`;
-
 const coffeeFrontSvg = `
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="580" viewBox="0 0 900 580">
   <defs>
@@ -337,13 +304,5 @@ export const SAMPLE_DOCUMENTS: SampleDoc[] = [
     type: 'Official Identity Card',
     description: 'State Driver License with photo, DL number, DOB, and address',
     dataUrl: createSvgDataUrl(driverLicenseSvg),
-  },
-  {
-    id: 'sample-invoice',
-    name: 'Commercial Invoice',
-    category: 'document',
-    type: 'Billing / Invoice',
-    description: 'Corporate service invoice with line items, client, and totals',
-    dataUrl: createSvgDataUrl(invoiceSvg),
   },
 ];

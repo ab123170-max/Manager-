@@ -57,6 +57,194 @@ export interface BarcodeLookupResult {
   source: 'database' | 'inventory' | 'catalog' | 'api' | 'none';
   normalizedBarcode: string;
   isDuplicate: boolean;
+  fromCache?: boolean;
+}
+
+export interface BarcodeCacheEntry {
+  barcode: string;
+  result: BarcodeLookupResult;
+  timestamp: number;
+  expiresAt: number;
+  hits: number;
+}
+
+export interface BarcodeLookupOptions {
+  forceRefresh?: boolean;
+  bypassCache?: boolean;
+}
+
+/**
+ * ============================================================================
+ * SESSION CACHE LAYER FOR BARCODE LOOKUP
+ * ============================================================================
+ * Prevents redundant external HTTP calls to Open Food Facts for identical barcodes
+ * during the same session. Features:
+ * - Dual-layer storage: Fast In-Memory Map + SessionStorage hydration
+ * - In-flight request deduplication (collapses multiple simultaneous scans into 1 call)
+ * - Intelligent TTLs (long TTL for found products, short TTL for not found, none for network errors)
+ * - Automatic LRU/size-capped eviction (up to 300 cached entries)
+ */
+class BarcodeSessionCache {
+  private memoryCache: Map<string, BarcodeCacheEntry> = new Map();
+  private inFlightRequests: Map<string, Promise<BarcodeLookupResult>> = new Map();
+  private hitsCount = 0;
+  private missesCount = 0;
+  private readonly storageKey = 'smartstock_barcode_session_cache_v1';
+  private readonly MAX_CACHE_ENTRIES = 300;
+  private readonly SUCCESS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours within session
+  private readonly NOT_FOUND_TTL_MS = 15 * 60 * 1000; // 15 mins for unknown barcodes
+
+  constructor() {
+    this.hydrateFromSessionStorage();
+  }
+
+  private hydrateFromSessionStorage() {
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const raw = window.sessionStorage.getItem(this.storageKey);
+        if (raw) {
+          const parsed: BarcodeCacheEntry[] = JSON.parse(raw);
+          const now = Date.now();
+          if (Array.isArray(parsed)) {
+            parsed.forEach((entry) => {
+              if (entry && entry.barcode && entry.expiresAt > now) {
+                this.memoryCache.set(entry.barcode, entry);
+              }
+            });
+          }
+        }
+      }
+    } catch {
+      // Ignore sessionStorage parsing or quota errors
+    }
+  }
+
+  private persistToSessionStorage() {
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const entries = Array.from(this.memoryCache.values());
+        window.sessionStorage.setItem(this.storageKey, JSON.stringify(entries));
+      }
+    } catch {
+      // Ignore quota exceptions safely
+    }
+  }
+
+  public get(barcode: string): BarcodeLookupResult | null {
+    const entry = this.memoryCache.get(barcode);
+    if (!entry) {
+      this.missesCount++;
+      return null;
+    }
+
+    if (Date.now() > entry.expiresAt) {
+      this.memoryCache.delete(barcode);
+      this.persistToSessionStorage();
+      this.missesCount++;
+      return null;
+    }
+
+    entry.hits++;
+    this.hitsCount++;
+    return {
+      ...entry.result,
+      fromCache: true,
+    };
+  }
+
+  public set(barcode: string, result: BarcodeLookupResult) {
+    // Do not cache transient network failures to permit rapid retries upon reconnection
+    if (result.status === 'network_error' || result.status === 'invalid_barcode') {
+      return;
+    }
+
+    const ttl = result.found ? this.SUCCESS_TTL_MS : this.NOT_FOUND_TTL_MS;
+    const now = Date.now();
+
+    // Capacity cap eviction
+    if (this.memoryCache.size >= this.MAX_CACHE_ENTRIES) {
+      const oldestKey = this.memoryCache.keys().next().value;
+      if (oldestKey) {
+        this.memoryCache.delete(oldestKey);
+      }
+    }
+
+    const cacheEntry: BarcodeCacheEntry = {
+      barcode,
+      result: { ...result, fromCache: true },
+      timestamp: now,
+      expiresAt: now + ttl,
+      hits: 0,
+    };
+
+    this.memoryCache.set(barcode, cacheEntry);
+    this.persistToSessionStorage();
+  }
+
+  public getInFlight(barcode: string): Promise<BarcodeLookupResult> | null {
+    return this.inFlightRequests.get(barcode) || null;
+  }
+
+  public setInFlight(barcode: string, promise: Promise<BarcodeLookupResult>) {
+    this.inFlightRequests.set(barcode, promise);
+  }
+
+  public clearInFlight(barcode: string) {
+    this.inFlightRequests.delete(barcode);
+  }
+
+  public invalidate(barcode: string) {
+    this.memoryCache.delete(barcode);
+    this.persistToSessionStorage();
+  }
+
+  public clear() {
+    this.memoryCache.clear();
+    this.inFlightRequests.clear();
+    this.hitsCount = 0;
+    this.missesCount = 0;
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem(this.storageKey);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  public getStats() {
+    return {
+      size: this.memoryCache.size,
+      inFlight: this.inFlightRequests.size,
+      hits: this.hitsCount,
+      misses: this.missesCount,
+    };
+  }
+}
+
+export const barcodeCache = new BarcodeSessionCache();
+
+/**
+ * Access cache statistics and utilities
+ */
+export function getBarcodeCacheStats() {
+  return barcodeCache.getStats();
+}
+
+export function clearBarcodeLookupCache() {
+  barcodeCache.clear();
+}
+
+export function invalidateBarcodeCache(barcode: string) {
+  const normalized = normalizeBarcode(barcode);
+  if (normalized) {
+    barcodeCache.invalidate(normalized);
+  }
+}
+
+export function getCachedBarcodeLookup(barcode: string): BarcodeLookupResult | null {
+  const normalized = normalizeBarcode(barcode);
+  return normalized ? barcodeCache.get(normalized) : null;
 }
 
 /**
@@ -225,13 +413,15 @@ export function checkDuplicateBarcode(barcode: string): SavedInventoryItem | nul
  * Main Product Database Lookup Pipeline
  * 1. Validates barcode format
  * 2. Checks user inventory for duplicate protection
- * 3. Queries Open Food Facts API: https://world.openfoodfacts.org/api/v2/product/{BARCODE}.json
- * 4. Maps API response into clean inventory form schema (leaving quantity, purchase_price, selling_price for manual entry)
- * 5. Returns standardized status messages: "Product found", "Product not found", "Network error", "Invalid barcode"
+ * 3. Resolves known items from local catalog database
+ * 4. Returns standardized status messages: "Product found", "Product not found", "Invalid barcode"
  */
-export async function lookupBarcodeProduct(rawBarcode: string): Promise<BarcodeLookupResult> {
+export async function lookupBarcodeProduct(
+  rawBarcode: string,
+  options?: BarcodeLookupOptions
+): Promise<BarcodeLookupResult> {
   const normalized = normalizeBarcode(rawBarcode);
-  pipelineLogger.log('barcodeLookupStarted', { rawBarcode, normalized });
+  pipelineLogger.log('barcodeLookupStarted', { rawBarcode, normalized, options });
 
   // 1. Validate Barcode
   if (!normalized || !validateBarcodeChecksum(normalized)) {
@@ -247,7 +437,7 @@ export async function lookupBarcodeProduct(rawBarcode: string): Promise<BarcodeL
     };
   }
 
-  // 2. Duplicate Protection Check
+  // 2. Duplicate Protection Check in User Inventory (Always dynamic & fresh)
   const existingItem = checkDuplicateBarcode(normalized);
   if (existingItem) {
     const product: BarcodeLookupProduct = {
@@ -327,106 +517,8 @@ export async function lookupBarcodeProduct(rawBarcode: string): Promise<BarcodeL
     };
   }
 
-  // 4. Query Open Food Facts API
-  const endpoint = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(normalized)}.json`;
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000); // 4-second timeout
-
-    const response = await fetch(endpoint, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'SmartStock-Inventory-Scanner/2.0',
-      },
-    });
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data && (data.status === 1 || data.product)) {
-        const prod = data.product || {};
-
-        // Extract product name (never assume barcode is the product name!)
-        const rawName =
-          prod.product_name ||
-          prod.product_name_en ||
-          prod.generic_name ||
-          prod.product_name_fr ||
-          prod.product_name_es ||
-          '';
-
-        if (rawName && rawName.trim() !== normalized) {
-          const brandName = prod.brands || prod.brand || '';
-          const categoryName =
-            (prod.categories_tags && prod.categories_tags[0]?.replace(/^[a-z]{2}:/, '').replace(/-/g, ' ')) ||
-            prod.categories ||
-            'Food & Groceries';
-          const imgUrl = prod.image_front_url || prod.image_url || prod.image_small_url || undefined;
-          const desc = prod.generic_name || prod.ingredients_text || '';
-
-          const mappedProduct: BarcodeLookupProduct = {
-            product_name: rawName.trim(),
-            brand: brandName.trim(),
-            barcode: normalized,
-            category: categoryName.trim(),
-            image_url: imgUrl,
-            quantity: '', // Leave for manual entry per requirement 3
-            purchase_price: '', // Leave for manual entry per requirement 3
-            selling_price: '', // Leave for manual entry per requirement 3
-            mfd: '', // Leave for manual entry unless reliably available
-            exp: '', // Leave for manual entry unless reliably available
-            description: desc.trim(),
-            package_size: prod.quantity ? prod.quantity.replace(/[^0-9.]/g, '') : '1',
-            unit: prod.quantity ? prod.quantity.replace(/[0-9.\s]/g, '') || 'units' : 'units',
-            mrp: '',
-            supplier: prod.manufacturing_places || brandName.trim(),
-            // Legacy compatibility fields
-            productName: rawName.trim(),
-            packageSize: prod.quantity ? prod.quantity.replace(/[^0-9.]/g, '') : '1',
-            manufacturer: prod.manufacturing_places || brandName.trim(),
-            imageUrl: imgUrl,
-            source: 'api',
-            rawResponse: prod,
-          };
-
-          pipelineLogger.log('barcodeLookupResult', { found: true, source: 'api', mappedProduct });
-
-          return {
-            found: true,
-            status: 'product_found',
-            statusMessage: 'Product found',
-            product: mappedProduct,
-            existingInventoryItem: null,
-            source: 'api',
-            normalizedBarcode: normalized,
-            isDuplicate: false,
-          };
-        }
-      }
-    }
-  } catch (apiErr: unknown) {
-    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
-    const isTimeout = (apiErr as Error)?.name === 'AbortError';
-
-    console.debug('Open Food Facts API lookup non-blocking catch:', apiErr);
-
-    if (isOffline || isTimeout) {
-      return {
-        found: false,
-        status: 'network_error',
-        statusMessage: 'Network error',
-        product: null,
-        existingInventoryItem: null,
-        source: 'none',
-        normalizedBarcode: normalized,
-        isDuplicate: false,
-      };
-    }
-  }
-
-  // 5. Product Not Found in Database
-  return {
+  // 4. Product Not in Local Inventory or Catalog (No external barcode API lookup)
+  const notFoundResult: BarcodeLookupResult = {
     found: false,
     status: 'product_not_found',
     statusMessage: 'Product not found',
@@ -436,5 +528,13 @@ export async function lookupBarcodeProduct(rawBarcode: string): Promise<BarcodeL
     normalizedBarcode: normalized,
     isDuplicate: false,
   };
+
+  pipelineLogger.log('barcodeLookupResult', {
+    found: false,
+    source: 'none',
+    barcode: normalized,
+  });
+
+  return notFoundResult;
 }
 

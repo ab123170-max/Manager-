@@ -43,16 +43,18 @@ import {
 interface StockTransactionsLedgerViewProps {
   onBackToInventory?: () => void;
   onSelectProduct?: (productId: string) => void;
+  defaultTypeFilter?: 'all' | StockTransactionType;
 }
 
 export const StockTransactionsLedgerView: React.FC<StockTransactionsLedgerViewProps> = ({
   onBackToInventory,
   onSelectProduct,
+  defaultTypeFilter = 'all',
 }) => {
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
   const [products, setProducts] = useState<SavedInventoryItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | StockTransactionType>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | StockTransactionType>(defaultTypeFilter);
   const [sourceFilter, setSourceFilter] = useState<'all' | TransactionSource>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [selectedTxn, setSelectedTxn] = useState<StockTransaction | null>(null);
@@ -365,9 +367,6 @@ export const StockTransactionsLedgerView: React.FC<StockTransactionsLedgerViewPr
                 <option value="POS">POS / Store Sale</option>
                 <option value="Purchase">Purchase / Invoice</option>
                 <option value="Manual Entry">Manual Entry</option>
-                <option value="Facebook">Facebook Marketplace</option>
-                <option value="WhatsApp">WhatsApp</option>
-                <option value="TikTok">TikTok</option>
                 <option value="Location Transfer">Location Transfer</option>
                 <option value="Damage / Loss">Damage / Loss</option>
               </select>
@@ -799,7 +798,6 @@ export const StockTransactionsLedgerView: React.FC<StockTransactionsLedgerViewPr
                     ) : (
                       <>
                         <option value="sale">Direct Storefront Sale</option>
-                        <option value="marketplace_order">Marketplace Order</option>
                         <option value="damaged">Damaged Product</option>
                         <option value="expired">Expired Product</option>
                         <option value="lost_missing">Lost / Missing Stock</option>
@@ -837,9 +835,6 @@ export const StockTransactionsLedgerView: React.FC<StockTransactionsLedgerViewPr
                     <option value="Manual Entry">Manual Entry</option>
                     <option value="POS">POS</option>
                     <option value="Purchase">Purchase</option>
-                    <option value="Facebook">Facebook</option>
-                    <option value="WhatsApp">WhatsApp</option>
-                    <option value="TikTok">TikTok</option>
                     <option value="Damage / Loss">Damage / Loss</option>
                   </select>
                 </div>

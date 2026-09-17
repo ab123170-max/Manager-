@@ -23,9 +23,13 @@ import {
   subscribeToStore,
 } from '../../utils/unifiedDataStore';
 
-export const StockInView: React.FC = () => {
+interface StockInViewProps {
+  initialProductId?: string;
+}
+
+export const StockInView: React.FC<StockInViewProps> = ({ initialProductId }) => {
   const [products, setProducts] = useState<SavedInventoryItem[]>(getProducts());
-  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const [selectedProductId, setSelectedProductId] = useState<string>(initialProductId || '');
   const [quantity, setQuantity] = useState<number>(10);
   const [unitCost, setUnitCost] = useState<number>(0);
   const [supplier, setSupplier] = useState<string>('');

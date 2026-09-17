@@ -7,6 +7,7 @@ import { BarcodeLookupProduct } from '../services/barcodeLookup';
 import { ExtractedLabelFields } from './labelOcrExtractor';
 import { ExtractedFormData, SavedInventoryItem } from '../types';
 import { pipelineLogger } from './debugLogger';
+import { addMonthsToDate } from './productDateCalculator';
 
 export type FieldProvenance = 'AUTO-DETECTED' | 'DATABASE' | 'OCR' | 'GEMINI' | 'MANUAL';
 
@@ -52,49 +53,11 @@ export function calculateExpiryFromMfdAndMonths(
   if (!mfd || !months || months <= 0) return null;
 
   try {
-    let year: number;
-    let month: number;
-    let day = 1;
-
-    if (mfd.includes('-')) {
-      const parts = mfd.split('-').map((p) => parseInt(p, 10));
-      if (parts.length === 3) {
-        // YYYY-MM-DD
-        year = parts[0];
-        month = parts[1];
-        day = parts[2];
-      } else if (parts.length === 2) {
-        // YYYY-MM
-        year = parts[0];
-        month = parts[1];
-      } else {
-        return null;
-      }
-    } else if (mfd.includes('/')) {
-      const parts = mfd.split('/').map((p) => parseInt(p, 10));
-      if (parts.length === 2) {
-        // MM/YYYY
-        month = parts[0];
-        year = parts[1];
-      } else if (parts.length === 3) {
-        // DD/MM/YYYY
-        day = parts[0];
-        month = parts[1];
-        year = parts[2];
-      } else {
-        return null;
-      }
-    } else {
-      return null;
-    }
-
-    const date = new Date(year, month - 1 + months, day);
-    const expYear = date.getFullYear();
-    const expMonth = String(date.getMonth() + 1).padStart(2, '0');
-    const expDay = String(date.getDate()).padStart(2, '0');
+    const calculatedDate = addMonthsToDate(mfd, months);
+    if (!calculatedDate) return null;
 
     return {
-      calculatedDate: `${expYear}-${expMonth}-${expDay}`,
+      calculatedDate,
       note: `Calculated as ${months} months from MFD (${mfd})`,
     };
   } catch {

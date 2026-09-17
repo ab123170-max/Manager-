@@ -22,10 +22,47 @@ export interface DateMappingResult {
 }
 
 /**
+ * Core Product Extraction Schema
+ * Used by the synchronized multi-shot product scanner with auto-detected currency, unit, and language
+ */
+export interface Product5Fields {
+  productName: string;
+  price: number | null;
+  currency: string;
+  manufactureDate: string;
+  expiryDate: string;
+  bestBeforeMonths: number | null;
+  quantity: number;
+  unit: string;
+  detectedLanguage: string;
+}
+
+export interface ProductScanResult extends Product5Fields {
+  isCalculatedExpiry?: boolean;
+  packageSize?: string;
+  confidence?: {
+    productName?: number;
+    price?: number;
+    currency?: number;
+    manufactureDate?: number;
+    expiryDate?: number;
+    bestBeforeMonths?: number;
+    quantity?: number;
+    unit?: number;
+    detectedLanguage?: number;
+    overall?: number;
+  };
+  photosCount?: number;
+  capturedImages?: string[];
+  warnings?: string[];
+}
+
+/**
  * Product-specific label and packaging attributes
  */
 export interface ProductLabelData {
   productName: string;
+  price?: number | null;
   sku: string;
   barcode: string;
   batchNumber: string;
@@ -34,6 +71,7 @@ export interface ProductLabelData {
   expiryDate: string;
   bestBefore: string;
   bestBeforeMonths?: number | null;
+  isCalculatedExpiry?: boolean;
   quantity: string;
   unit: string;
   brand: string;
@@ -108,7 +146,7 @@ export interface CameraState {
 export interface SampleDoc {
   id: string;
   name: string;
-  category: 'product' | 'document' | 'invoice';
+  category: 'product' | 'document';
   type: string;
   description: string;
   dataUrl: string;
@@ -169,11 +207,14 @@ export interface SavedInventoryItem {
   isCalculatedExpiry?: boolean;
   quantity: string;
   unit: string;
+  packageSize?: string;
+  currency?: string;
+  detectedLanguage?: string;
   mrp: string;
   sellingPrice: string;
   purchasePrice: string;
   stockQuantity: number;
-  reservedStock?: number; // Stock held by pending marketplace orders
+  reservedStock?: number;
   minStockAlert: number;
   supplier?: string;
   rackLocation?: string;
@@ -187,6 +228,15 @@ export interface SavedInventoryItem {
   status?: 'in_stock' | 'low_stock' | 'out_of_stock' | 'expiring_soon' | 'expired' | 'reserved' | 'negative_stock';
   lastPurchaseDate?: string;
   lastSaleDate?: string;
+  turnoverRate?: number;
+  turnoverVelocity?: 'fast' | 'medium' | 'slow' | 'stagnant';
+  daysSalesOfInventory?: number;
+  reputationScore?: number;
+  reputationRating?: number;
+  reputationReviewsCount?: number;
+  reputationBadge?: 'Top Rated' | 'Customer Favorite' | 'Quality Verified' | 'Needs Attention';
+  returnRate?: number;
+  customerFeedbackSummary?: string;
 }
 
 export type CatalogProduct = SavedInventoryItem;
@@ -214,7 +264,6 @@ export type StockSubtype =
   | 'adjustment_increase'
   | 'transfer_in'
   | 'sale'
-  | 'marketplace_order'
   | 'damaged'
   | 'expired'
   | 'lost_missing'
@@ -227,10 +276,6 @@ export type TransactionSource =
   | 'Manual Entry'
   | 'Scanner'
   | 'Invoice'
-  | 'Facebook'
-  | 'WhatsApp'
-  | 'TikTok'
-  | 'Marketplace'
   | 'Location Transfer'
   | 'Damage / Loss';
 
@@ -261,105 +306,10 @@ export interface StockTransaction {
   idempotencyKey?: string;
 }
 
-/**
- * ============================================================================
- * MARKETPLACE MODULE TYPES
- * ============================================================================
- */
-
-export interface MarketplaceListing {
-  id: string;
-  productId: string;
-  title: string;
-  description: string;
-  sellingPrice: number;
-  discountPrice?: number;
-  availableQuantity: number;
-  productImages: string[];
-  category: string;
-  tags: string[];
-  contactNumber: string;
-  shopLocation: string;
-  deliveryInfo: string;
-  status: 'published' | 'draft' | 'archived';
-  channels: ('facebook' | 'whatsapp' | 'tiktok' | 'general')[];
-  viewsCount?: number;
-  inquiriesCount?: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type MarketplaceOrderStatus =
-  | 'draft'
-  | 'pending'
-  | 'confirmed'
-  | 'packed'
-  | 'shipped'
-  | 'delivered'
-  | 'cancelled'
-  | 'returned'
-  | 'refunded';
-
-export interface MarketplaceOrderItem {
-  productId: string;
-  productName: string;
-  barcode?: string;
-  sku?: string;
-  image?: string;
-  quantity: number;
-  unit: string;
-  unitPrice: number;
-  purchasePrice?: number;
-  totalPrice: number;
-}
-
-export interface MarketplaceOrder {
-  id: string;
-  orderNumber: string;
-  customerName: string;
-  customerPhone?: string;
-  customerAddress?: string;
-  customerCity?: string;
-  channel: 'facebook' | 'whatsapp' | 'tiktok' | 'pos' | 'marketplace' | 'other';
-  items: MarketplaceOrderItem[];
-  subtotal: number;
-  tax: number;
-  discount: number;
-  shippingFee: number;
-  totalAmount: number;
-  status: MarketplaceOrderStatus;
-  statusHistory: Array<{
-    status: MarketplaceOrderStatus;
-    timestamp: string;
-    notes?: string;
-  }>;
-  isStockReserved: boolean;
-  isStockDeducted: boolean;
-  accountingSaleId?: string;
-  paymentStatus: 'pending' | 'paid' | 'cod' | 'refunded';
-  paymentMethod?: string;
-  trackingNumber?: string;
-  deliveryCourier?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface MarketplaceMetrics {
-  readyToSellCount: number;
-  publishedCount: number;
-  draftCount: number;
-  pendingOrdersCount: number;
-  confirmedOrdersCount: number;
-  cancelledOrdersCount: number;
-  returnedOrdersCount: number;
-  totalMarketplaceSales: number;
-  totalReservedStock: number;
-}
-
 export interface AppSettings {
   allowNegativeStock: boolean;
-  autoReserveStockOnOrder?: boolean;
+  autoLanguage?: boolean;
+  language?: string;
   storeName?: string;
   shopName: string;
   contactPhone: string;
@@ -478,6 +428,8 @@ export interface InvoiceLineItem {
   taxAmount?: number;
   discount?: number;
   notes?: string;
+  detectedLanguage?: string;
+  currency?: string;
 }
 
 export interface InvoiceData {
@@ -498,32 +450,10 @@ export interface InvoiceData {
   createdAt: string;
   confirmedAt?: string;
   isProcessed?: boolean;
-}
-
-export interface ExtractedInvoiceData {
-  invoiceNumber: string;
-  invoiceDate: string;
-  supplier: string;
-  customerName?: string;
-  items: Array<{
-    productName: string;
-    barcode?: string;
-    quantity: number;
-    unit?: string;
-    unitPrice: number;
-    totalPrice: number;
-    taxRate?: number;
-    discount?: number;
-    mfd?: string;
-    exp?: string;
-    batchNumber?: string;
-  }>;
-  subtotal: number;
-  taxAmount: number;
-  discountAmount: number;
-  grandTotal: number;
-  confidence: Record<string, number>;
-  warnings: string[];
+  detectedLanguage?: string;
+  currency?: string;
+  currencySymbol?: string;
+  defaultUnit?: string;
 }
 
 /**
@@ -661,12 +591,11 @@ export interface AccountSummary {
 /**
  * Navigation Types
  */
-export type MenuSection = 'scanner' | 'inventory' | 'marketplace' | 'account';
+export type MenuSection = 'scanner' | 'inventory' | 'inventory_in' | 'inventory_out';
 
 export type ScannerSubView =
   | 'scan_product'
   | 'manual_entry'
-  | 'scan_invoice'
   | 'barcode_scanner'
   | 'qr_scanner'
   | 'multi_scan'
@@ -674,8 +603,9 @@ export type ScannerSubView =
 
 export type InventorySubView =
   | 'inventory'
-  | 'accounting'
   | 'products'
+  | 'turnover'
+  | 'reputation'
   | 'stock_in'
   | 'stock_out'
   | 'stock_ledger'
@@ -683,21 +613,21 @@ export type InventorySubView =
   | 'expiring_soon'
   | 'expired'
   | 'categories'
-  | 'reports';
+  | 'reports'
+  | 'accounting';
 
-export type MarketplaceSubView =
-  | 'dashboard'
-  | 'listings'
-  | 'create_listing'
-  | 'orders'
-  | 'social_channels'
-  | 'settings'
-  | 'marketplace_dashboard'
-  | 'marketplace_listings'
-  | 'marketplace_create_listing'
-  | 'marketplace_orders'
-  | 'marketplace_social_hub'
-  | 'marketplace_settings';
+export type InventoryInSubView =
+  | 'stock_in'
+  | 'receiving'
+  | 'in_ledger'
+  | 'scan_product'
+  | 'manual_entry'
+  | 'barcode_scanner'
+  | 'qr_scanner'
+  | 'multi_scan'
+  | 'multiple_image_scan'
+  | 'scan_history';
+export type InventoryOutSubView = 'stock_out' | 'dispatch' | 'out_ledger';
 
 export type AccountSubView =
   | 'sales'
@@ -709,7 +639,7 @@ export type AccountSubView =
   | 'summary'
   | 'reports';
 
-export type AppSubView = ScannerSubView | InventorySubView | MarketplaceSubView | AccountSubView;
+export type AppSubView = ScannerSubView | InventorySubView | InventoryInSubView | InventoryOutSubView | AccountSubView | string;
 
 export type SalesRecord = SaleRecord;
 

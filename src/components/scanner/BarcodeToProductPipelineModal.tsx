@@ -270,7 +270,7 @@ export const BarcodeToProductPipelineModal: React.FC<BarcodeToProductPipelineMod
       batchNumber: formFields.batchNumber.trim(),
       supplier: formFields.supplier.trim(),
       rackLocation: formFields.rackLocation.trim(),
-      notes: formFields.description.trim() || `Mapped via Open Food Facts API (${normalizedBarcode})`,
+      notes: formFields.description.trim() || `Scanned barcode (${normalizedBarcode})`,
       imageThumbnail: formFields.imageUrl || undefined,
       status: 'in_stock',
       warnings: [],
@@ -403,7 +403,7 @@ export const BarcodeToProductPipelineModal: React.FC<BarcodeToProductPipelineMod
             </span>
 
             <span className="text-[10px] text-slate-400 font-medium">
-              Open Food Facts API Pipeline
+              Barcode Intake
             </span>
           </div>
         </div>
@@ -419,8 +419,8 @@ export const BarcodeToProductPipelineModal: React.FC<BarcodeToProductPipelineMod
             <div className="py-12 flex flex-col items-center justify-center text-center space-y-3">
               <Loader2 className="w-9 h-9 text-indigo-600 animate-spin" />
               <div className="space-y-1">
-                <h4 className="text-sm font-bold text-slate-900">Searching product database...</h4>
-                <p className="text-xs text-slate-500">Querying Open Food Facts API for {normalizedBarcode}</p>
+                <h4 className="text-sm font-bold text-slate-900">Searching inventory &amp; catalog...</h4>
+                <p className="text-xs text-slate-500">Checking barcode {normalizedBarcode}</p>
               </div>
             </div>
           )}
@@ -626,10 +626,10 @@ export const BarcodeToProductPipelineModal: React.FC<BarcodeToProductPipelineMod
                 </div>
                 <div>
                   <h4 className="text-base font-extrabold text-slate-900">
-                    Product not found
+                    Product not in inventory
                   </h4>
                   <p className="text-xs text-amber-900/90 mt-0.5">
-                    The barcode <strong className="font-mono text-slate-900">{normalizedBarcode}</strong> was recognized, but is not yet registered in Open Food Facts.
+                    The barcode <strong className="font-mono text-slate-900">{normalizedBarcode}</strong> was recognized, but is not yet registered in your inventory or catalog.
                   </p>
                 </div>
               </div>
@@ -682,9 +682,9 @@ export const BarcodeToProductPipelineModal: React.FC<BarcodeToProductPipelineMod
               <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
                 <WifiOff className="w-6 h-6" />
               </div>
-              <h4 className="text-base font-extrabold text-slate-900">Network error</h4>
+              <h4 className="text-base font-extrabold text-slate-900">Offline Mode</h4>
               <p className="text-xs text-rose-900/90 max-w-sm mx-auto">
-                Unable to reach the Open Food Facts database. Please check your internet connection or register the product offline.
+                Unable to complete lookup. You can register the product offline manually below.
               </p>
               <div className="flex gap-2 pt-2">
                 <button

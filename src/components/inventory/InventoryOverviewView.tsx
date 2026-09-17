@@ -7,6 +7,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Boxes,
   Package,
+  Camera,
   DollarSign,
   TrendingUp,
   AlertTriangle,
@@ -23,35 +24,44 @@ import {
   Tag,
   Barcode,
   ShoppingBag,
+  Star,
+  ShieldCheck,
+  Zap,
 } from 'lucide-react';
-import { SavedInventoryItem, CatalogFilterOptions } from '../../types';
+import { SavedInventoryItem, CatalogFilterOptions, MenuSection } from '../../types';
 import {
   getProducts,
   getInventoryValuation,
   adjustProductStock,
   deleteProduct,
   subscribeToStore,
+  getInventoryTurnoverSummary,
+  getProductReputationSummary,
 } from '../../utils/unifiedDataStore';
 
 interface InventoryOverviewViewProps {
   onAddProduct?: () => void;
   onEditProduct?: (product: SavedInventoryItem) => void;
   onStockIn?: (productId?: string) => void;
+  onStockOut?: (productId?: string) => void;
   onRecordSale?: (product: SavedInventoryItem) => void;
   onSelectProduct?: (product: SavedInventoryItem) => void;
-  onNavigateSection?: (section: 'scanner' | 'inventory' | 'account', subView: string) => void;
+  onNavigateSection?: (section: MenuSection, subView: string) => void;
 }
 
 export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
   onAddProduct,
   onEditProduct,
   onStockIn,
+  onStockOut,
   onRecordSale,
   onSelectProduct,
   onNavigateSection,
 }) => {
   const [products, setProducts] = useState<SavedInventoryItem[]>(getProducts());
   const [metrics, setMetrics] = useState(getInventoryValuation());
+  const [turnoverSummary, setTurnoverSummary] = useState(getInventoryTurnoverSummary());
+  const [reputationSummary, setReputationSummary] = useState(getProductReputationSummary());
 
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -62,6 +72,8 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
     return subscribeToStore(() => {
       setProducts(getProducts());
       setMetrics(getInventoryValuation());
+      setTurnoverSummary(getInventoryTurnoverSummary());
+      setReputationSummary(getProductReputationSummary());
     });
   }, []);
 
@@ -146,15 +158,46 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
             </button>
           )}
 
-          {onNavigateSection && (
+          {onStockOut && (
             <button
               type="button"
-              onClick={() => onNavigateSection('scanner', 'scan_invoice')}
-              className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-colors flex items-center gap-1.5"
+              onClick={() => onStockOut()}
+              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors flex items-center gap-1.5"
             >
-              <Package className="w-3.5 h-3.5" />
-              <span>Scan Invoice</span>
+              <ArrowUpRight className="w-3.5 h-3.5 text-rose-600" />
+              <span>Stock Out</span>
             </button>
+          )}
+
+          {onNavigateSection && (
+            <>
+              <button
+                type="button"
+                onClick={() => onNavigateSection('inventory', 'turnover')}
+                className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-colors flex items-center gap-1.5"
+              >
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>Turnover</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigateSection('inventory', 'reputation')}
+                className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-bold transition-colors flex items-center gap-1.5"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+                <span>Reputation</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigateSection('scanner', 'scan_product')}
+                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors flex items-center gap-1.5"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Scan</span>
+              </button>
+            </>
           )}
 
           {onAddProduct && (
@@ -253,6 +296,61 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
             {metrics.expiredCount} expired / {metrics.expiringSoonCount} soon
           </span>
         </button>
+      </div>
+
+      {/* Turnover & Reputation Highlights */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+        {/* Turnover Highlight */}
+        <div className="bg-gradient-to-br from-indigo-50/60 to-white p-4 rounded-2xl border border-indigo-100 shadow-2xs flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <span className="text-[11px] font-bold text-indigo-700 uppercase tracking-tight flex items-center gap-1.5">
+              <Zap className="w-3.5 h-3.5 text-indigo-600" />
+              Stock Turnover &amp; Velocity
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-black text-slate-900">{turnoverSummary.averageTurnoverRatio}x</span>
+              <span className="text-xs text-slate-500 font-medium">({turnoverSummary.averageDSI} days avg DSI)</span>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {turnoverSummary.fastMovingCount} fast-moving items &bull; {turnoverSummary.stagnantCount} slow/dead stock
+            </p>
+          </div>
+          {onNavigateSection && (
+            <button
+              type="button"
+              onClick={() => onNavigateSection('inventory', 'turnover')}
+              className="px-3 py-1.5 rounded-xl bg-white hover:bg-indigo-600 hover:text-white text-indigo-600 border border-indigo-200 text-xs font-bold transition-all shrink-0 shadow-2xs"
+            >
+              Analyze Turnover &rarr;
+            </button>
+          )}
+        </div>
+
+        {/* Reputation Highlight */}
+        <div className="bg-gradient-to-br from-amber-50/50 to-white p-4 rounded-2xl border border-amber-100 shadow-2xs flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <span className="text-[11px] font-bold text-amber-800 uppercase tracking-tight flex items-center gap-1.5">
+              <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+              Product Reputation &amp; Ratings
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-black text-slate-900">{reputationSummary.averageRating} ★</span>
+              <span className="text-xs text-emerald-700 font-bold">({reputationSummary.averageScore}% satisfaction)</span>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {reputationSummary.topRatedCount} top rated products &bull; {reputationSummary.averageReturnRate}% return rate
+            </p>
+          </div>
+          {onNavigateSection && (
+            <button
+              type="button"
+              onClick={() => onNavigateSection('inventory', 'reputation')}
+              className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-600 hover:text-white text-amber-800 border border-amber-200 text-xs font-bold transition-all shrink-0 shadow-2xs"
+            >
+              Review Ratings &rarr;
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -360,8 +458,18 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
                         <div className="font-extrabold text-slate-900 text-xs">
                           {prod.productName}
                         </div>
-                        <div className="text-[11px] text-slate-500 font-medium">
-                          {prod.brand || prod.supplier || 'General'}
+                        <div className="text-[11px] text-slate-500 font-medium flex items-center gap-2">
+                          <span>{prod.brand || prod.supplier || 'General'}</span>
+                          {prod.turnoverVelocity === 'fast' && (
+                            <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200/60">
+                              ⚡ Fast
+                            </span>
+                          )}
+                          {prod.reputationRating && (
+                            <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200/60">
+                              ★ {prod.reputationRating}
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -448,6 +556,26 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
                           >
                             +1
                           </button>
+                          {onStockIn && (
+                            <button
+                              type="button"
+                              onClick={() => onStockIn(prod.id)}
+                              className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                              title="Stock In (+)"
+                            >
+                              <ArrowDownLeft className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {onStockOut && (
+                            <button
+                              type="button"
+                              onClick={() => onStockOut(prod.id)}
+                              className="p-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100"
+                              title="Stock Out (-)"
+                            >
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           {onRecordSale && (
                             <button
                               type="button"

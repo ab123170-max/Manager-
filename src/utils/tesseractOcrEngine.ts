@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { createWorker, Worker } from 'tesseract.js';
 import { mapLabelOcrText, NormalizedLabelResult } from './labelMappingEngine';
 
 /**
  * ============================================================================
- * TESSERACT.JS OCR ENGINE
+ * TESSERACT.JS OCR ENGINE (LAZY LOADED)
  * ============================================================================
  * Runs client-side optical character recognition on captured product label frames.
+ * - Dynamically loads tesseract.js on-demand only when OCR is actually invoked.
  * - Single-shot execution upon barcode detection or snapshot.
  * - Graceful fallback to server /api/ocr if client worker is blocked.
  * - Normalizes extracted text lines via labelMappingEngine.
@@ -25,13 +25,13 @@ export interface OcrEngineResult {
   source: 'client_tesseract' | 'server_ocr';
 }
 
-let workerInstance: Worker | null = null;
+let workerInstance: any = null;
 let isInitializingWorker = false;
 
 /**
  * Lazy loads or reuses the Tesseract worker instance.
  */
-async function getTesseractWorker(): Promise<Worker> {
+async function getTesseractWorker(): Promise<any> {
   if (workerInstance) {
     return workerInstance;
   }
@@ -43,6 +43,7 @@ async function getTesseractWorker(): Promise<Worker> {
 
   isInitializingWorker = true;
   try {
+    const { createWorker } = await import('tesseract.js');
     const worker = await createWorker('eng');
     workerInstance = worker;
     return workerInstance;
@@ -68,8 +69,8 @@ export async function runProductOcr(
 
     const lines = rawText
       .split(/[\r\n]+/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
+      .map((l: string) => l.trim())
+      .filter((l: string) => l.length > 0);
 
     const mapping = mapLabelOcrText(lines);
 

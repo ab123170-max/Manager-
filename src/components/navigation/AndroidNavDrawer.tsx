@@ -6,39 +6,27 @@
 import React, { useState } from 'react';
 import {
   Camera,
-  FileSpreadsheet,
+  Boxes,
+  ArrowDownLeft,
+  ArrowUpRight,
+  PlusCircle,
   Barcode,
   QrCode,
   Layers,
   History,
-  PlusCircle,
-  Boxes,
-  BookOpen,
   Package,
-  ArrowDownLeft,
-  ArrowUpRight,
   AlertTriangle,
   Clock,
   Skull,
   Tag,
   BarChart3,
   TrendingUp,
-  ShoppingBag,
-  CircleDollarSign,
-  TrendingDown,
-  Receipt,
-  Wallet,
-  PieChart,
   FileText,
   X,
   ChevronDown,
   ChevronRight,
   ShieldCheck,
   Zap,
-  Store,
-  Share2,
-  Sparkles,
-  SlidersHorizontal,
   ScrollText,
 } from 'lucide-react';
 import { MenuSection, AppSubView } from '../../types';
@@ -50,11 +38,13 @@ interface NavItem {
   badge?: string | number;
   badgeColor?: string;
   description?: string;
+  group?: string;
 }
 
 interface NavSection {
   id: MenuSection;
   title: string;
+  subtitle?: string;
   emoji: string;
   icon: React.ElementType;
   items: NavItem[];
@@ -64,8 +54,8 @@ interface AndroidNavDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   activeSection: MenuSection;
-  activeSubView: string;
-  onNavigate: (section: MenuSection, subView: any) => void;
+  activeSubView: AppSubView;
+  onNavigate: (section: MenuSection, subView: AppSubView) => void;
   badges?: {
     lowStock?: number;
     expiringSoon?: number;
@@ -90,51 +80,71 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
   badges,
   counts,
 }) => {
-  // Merge badges with counts
   const effectiveBadges = {
     totalProducts: badges?.totalProducts ?? counts?.products,
     lowStock: badges?.lowStock ?? counts?.lowStock,
     expiringSoon: badges?.expiringSoon ?? counts?.expiring,
     expired: badges?.expired ?? counts?.expired,
   };
-  // Only one section expanded at a time as requested in Section 10
-  const [expandedSection, setExpandedSection] = useState<MenuSection>(activeSection);
+
+  const getInitialSection = (sec: MenuSection): MenuSection => {
+    if (sec === 'scanner') return 'inventory_in';
+    return sec;
+  };
+
+  const [expandedSection, setExpandedSection] = useState<MenuSection>(getInitialSection(activeSection));
 
   const toggleSection = (section: MenuSection) => {
     setExpandedSection((prev) => (prev === section ? section : section));
   };
 
+  // Synchronized Inventory hierarchy: Inventory In (with Scanner) & Inventory Out as sub-menus
   const menuSections: NavSection[] = [
     {
-      id: 'scanner',
-      title: 'SCANNER',
-      emoji: '📷',
-      icon: Camera,
+      id: 'inventory_in',
+      title: 'INVENTORY IN',
+      subtitle: 'Sub-Menu of Inventory · Receiving & Intake',
+      emoji: '📥',
+      icon: ArrowDownLeft,
       items: [
-        { id: 'scan_product', label: 'Scan Product', icon: Camera, description: 'AI Packaging Label Vision & MFD/EXP' },
-        { id: 'manual_entry', label: 'Add Product Manually', icon: PlusCircle, description: 'Direct form input with auto date calculations' },
-        { id: 'scan_invoice', label: 'Scan Invoice', icon: FileSpreadsheet, description: 'Multi-image invoice OCR & stock auto-entry' },
-        { id: 'barcode_scanner', label: 'Barcode Scanner', icon: Barcode, description: 'Real-time 1D EAN/UPC hardware detection' },
-        { id: 'qr_scanner', label: 'QR Scanner', icon: QrCode, description: 'Instant QR code & matrix parser' },
-        { id: 'multi_scan', label: 'Multiple Image Scan', icon: Layers, description: 'Multi-angle batch package capture' },
-        { id: 'scan_history', label: 'Scan History', icon: History, description: 'Recent scans & detection log' },
+        // Scanner inside Inventory In!
+        { id: 'scan_product', label: 'Scan Product (AI Multi-Shot)', icon: Camera, group: 'Scanner (Intake Suite)', description: 'AI Packaging Label Vision & MFD/EXP' },
+        { id: 'barcode_scanner', label: 'Barcode Scanner', icon: Barcode, group: 'Scanner (Intake Suite)', description: 'Real-time 1D EAN/UPC hardware detection' },
+        { id: 'qr_scanner', label: 'QR Scanner', icon: QrCode, group: 'Scanner (Intake Suite)', description: 'Instant QR code & matrix parser' },
+        { id: 'manual_entry', label: 'Add Product Manually', icon: PlusCircle, group: 'Scanner (Intake Suite)', description: 'Direct form input with auto date calculations' },
+        { id: 'multi_scan', label: 'Multiple Image Scan', icon: Layers, group: 'Scanner (Intake Suite)', description: 'Multi-angle batch package capture' },
+        { id: 'scan_history', label: 'Scan History', icon: History, group: 'Scanner (Intake Suite)', description: 'Recent scans & detection log' },
+        // Inward stock operations
+        { id: 'stock_in', label: 'Receive Stock (Stock In)', icon: ArrowDownLeft, group: 'Inward Stock Operations', description: 'Purchases, vendor deliveries & restock' },
+        { id: 'stock_ledger', label: 'Inward Stock Movement Ledger', icon: ScrollText, group: 'Inward Stock Operations', description: 'History of inbound stock transactions' },
+      ],
+    },
+    {
+      id: 'inventory_out',
+      title: 'INVENTORY OUT',
+      subtitle: 'Sub-Menu of Inventory · Dispatches & Orders',
+      emoji: '📤',
+      icon: ArrowUpRight,
+      items: [
+        { id: 'stock_out', label: 'Dispatch Stock (Stock Out)', icon: ArrowUpRight, description: 'Customer sales, POS dispatch & write-offs' },
+        { id: 'stock_ledger', label: 'Outward Stock Movement Ledger', icon: ScrollText, description: 'History of outbound stock transactions' },
       ],
     },
     {
       id: 'inventory',
-      title: 'INVENTORY',
+      title: 'INVENTORY OVERVIEW & HEALTH',
+      subtitle: 'Master Inventory Management',
       emoji: '📦',
       icon: Boxes,
       items: [
-        { id: 'inventory', label: 'Inventory', icon: Boxes, badge: effectiveBadges.totalProducts },
-        { id: 'accounting', label: 'Inventory Accounting', icon: BookOpen, description: 'Transaction ledger & stock balance' },
-        { id: 'products', label: 'Products', icon: Package },
-        { id: 'stock_in', label: 'Stock In', icon: ArrowDownLeft },
-        { id: 'stock_out', label: 'Stock Out', icon: ArrowUpRight },
-        { id: 'stock_ledger', label: 'Stock Movement Ledger', icon: ScrollText, description: 'Audit trail of every stock change' },
+        { id: 'inventory', label: 'Inventory Overview', icon: Boxes, badge: effectiveBadges.totalProducts },
+        { id: 'turnover', label: 'Turnover & Velocity', icon: TrendingUp, description: 'Turnover ratio, DSI days & velocity tier' },
+        { id: 'reputation', label: 'Product Reputation', icon: ShieldCheck, description: 'Customer ratings, trust score & badges' },
+        { id: 'products', label: 'Products Catalog', icon: Package },
+        { id: 'stock_ledger', label: 'Complete Movement Ledger', icon: ScrollText, description: 'Audit trail of every stock transaction' },
         {
           id: 'low_stock',
-          label: 'Low Stock',
+          label: 'Low Stock Alerts',
           icon: AlertTriangle,
           badge: effectiveBadges.lowStock ? effectiveBadges.lowStock : undefined,
           badgeColor: 'bg-amber-500 text-white',
@@ -157,36 +167,6 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
         { id: 'reports', label: 'Inventory Reports', icon: BarChart3 },
       ],
     },
-    {
-      id: 'marketplace',
-      title: 'MARKETPLACE',
-      emoji: '🏪',
-      icon: Store,
-      items: [
-        { id: 'marketplace_dashboard', label: 'Marketplace Dashboard', icon: Store, description: 'Overview & channel revenue' },
-        { id: 'marketplace_listings', label: 'Live Listings', icon: Share2, description: 'Active product listings across channels' },
-        { id: 'marketplace_create_listing', label: 'Create Listing', icon: PlusCircle, description: 'Publish inventory items to social channels' },
-        { id: 'marketplace_orders', label: 'Orders & Fulfillment', icon: ShoppingBag, description: 'Order state machine & stock reservation' },
-        { id: 'marketplace_social_hub', label: 'Social Selling Hub', icon: Sparkles, description: 'Facebook, WhatsApp, and TikTok copy generators' },
-        { id: 'marketplace_settings', label: 'Marketplace Settings', icon: SlidersHorizontal, description: 'Configure rules & store info' },
-      ],
-    },
-    {
-      id: 'account',
-      title: 'ACCOUNT',
-      emoji: '💰',
-      icon: CircleDollarSign,
-      items: [
-        { id: 'sales', label: 'Sales', icon: TrendingUp },
-        { id: 'purchases', label: 'Purchases', icon: ShoppingBag },
-        { id: 'profit', label: 'Profit', icon: CircleDollarSign },
-        { id: 'loss', label: 'Loss', icon: TrendingDown },
-        { id: 'expenses', label: 'Expenses', icon: Receipt },
-        { id: 'income', label: 'Income', icon: Wallet },
-        { id: 'summary', label: 'Account Summary', icon: PieChart },
-        { id: 'reports', label: 'Financial Reports', icon: FileText },
-      ],
-    },
   ];
 
   if (!isOpen) return null;
@@ -200,8 +180,8 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
       />
 
       {/* Drawer Container */}
-      <aside className="relative w-80 max-w-[85vw] bg-white h-full flex flex-col shadow-2xl border-r border-slate-200 z-10 animate-in slide-in-from-left duration-250">
-        {/* Android Material Header */}
+      <aside className="relative w-84 max-w-[85vw] bg-white h-full flex flex-col shadow-2xl border-r border-slate-200 z-10 animate-in slide-in-from-left duration-250">
+        {/* Header */}
         <div className="bg-slate-900 text-white p-5 pt-6 pb-5 flex flex-col justify-between border-b border-slate-800">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -213,7 +193,7 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
                   SmartStock AI
                 </h2>
                 <p className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3 text-emerald-400" /> Android Inventory &amp; ERP
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" /> Inventory System
                 </p>
               </div>
             </div>
@@ -226,20 +206,29 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+            <span>Structure: <strong>Inventory Hierarchy</strong></span>
+            <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">
+              Synced
+            </span>
+          </div>
         </div>
 
         {/* Navigation Sections */}
         <div className="flex-1 overflow-y-auto py-3 px-3 space-y-2">
           {menuSections.map((section) => {
             const isExpanded = expandedSection === section.id;
-            const isCurrentSection = activeSection === section.id;
+            const isCurrentSection =
+              activeSection === section.id ||
+              (section.id === 'inventory_in' && activeSection === 'scanner');
 
             return (
               <div
                 key={section.id}
                 className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
                   isCurrentSection
-                    ? 'border-slate-300/80 bg-slate-50/50 shadow-2xs'
+                    ? 'border-indigo-300/80 bg-indigo-50/20 shadow-2xs'
                     : 'border-slate-200/60 bg-white'
                 }`}
               >
@@ -248,14 +237,23 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
                   type="button"
                   onClick={() => toggleSection(section.id)}
                   className={`w-full flex items-center justify-between px-3.5 py-3 text-left font-bold text-xs uppercase tracking-wider transition-colors ${
-                    isCurrentSection ? 'text-indigo-900' : 'text-slate-700 hover:bg-slate-50'
+                    isCurrentSection ? 'text-indigo-950' : 'text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     <span className="text-base">{section.emoji}</span>
-                    <span className="text-xs font-extrabold">{section.title}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black truncate">{section.title}</span>
+                        {section.subtitle?.includes('Sub-Menu') && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800 normal-case">
+                            Sub-Menu
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5 text-slate-400">
+                  <div className="flex items-center gap-1.5 text-slate-400 shrink-0">
                     {isExpanded ? (
                       <ChevronDown className="w-4 h-4 text-slate-600" />
                     ) : (
@@ -264,51 +262,90 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
                   </div>
                 </button>
 
-                {/* Sub-menu items (only expanded section shows) */}
+                {/* Sub-menu items */}
                 {isExpanded && (
                   <div className="px-2 pb-2.5 pt-1 space-y-1">
-                    {section.items.map((item) => {
+                    {section.items.map((item, idx) => {
+                      const isScannerItem =
+                        section.id === 'inventory_in' &&
+                        [
+                          'scan_product',
+                          'barcode_scanner',
+                          'qr_scanner',
+                          'manual_entry',
+                          'multi_scan',
+                          'scan_history',
+                        ].includes(item.id);
+
                       const isActive =
-                        activeSection === section.id && activeSubView === item.id;
+                        activeSubView === item.id ||
+                        (activeSection === section.id && activeSubView === item.id);
+
                       const IconComponent = item.icon;
 
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            onNavigate(section.id, item.id);
-                            onClose();
-                          }}
-                          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                            isActive
-                              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20 font-bold'
-                              : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <IconComponent
-                              className={`w-4 h-4 shrink-0 ${
-                                isActive ? 'text-white' : 'text-slate-500'
-                              }`}
-                            />
-                            <span className="truncate">{item.label}</span>
-                          </div>
+                      // Check if we need group heading
+                      const showGroupHeader =
+                        item.group &&
+                        (idx === 0 || section.items[idx - 1].group !== item.group);
 
-                          {item.badge !== undefined && (
-                            <span
-                              className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${
-                                item.badgeColor
-                                  ? item.badgeColor
-                                  : isActive
-                                  ? 'bg-indigo-700 text-white'
-                                  : 'bg-slate-200 text-slate-700'
-                              }`}
-                            >
-                              {item.badge}
-                            </span>
+                      return (
+                        <React.Fragment key={item.id}>
+                          {showGroupHeader && (
+                            <div className="pt-2.5 pb-1 px-2 flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-500 border-t border-slate-100 first:border-t-0">
+                              <span className="flex items-center gap-1 text-slate-700">
+                                {item.group?.includes('Scanner') ? '📷' : '📥'} {item.group}
+                              </span>
+                              {item.group?.includes('Scanner') && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800 normal-case">
+                                  Inside Inventory In
+                                </span>
+                              )}
+                            </div>
                           )}
-                        </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onNavigate(section.id, item.id);
+                              onClose();
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                              isActive
+                                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20 font-bold'
+                                : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <IconComponent
+                                className={`w-4 h-4 shrink-0 ${
+                                  isActive ? 'text-white' : 'text-slate-500'
+                                }`}
+                              />
+                              <div className="text-left min-w-0">
+                                <span className="truncate block">{item.label}</span>
+                                {item.description && !isActive && (
+                                  <span className="text-[10px] text-slate-400 truncate block font-normal">
+                                    {item.description}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {item.badge !== undefined && (
+                              <span
+                                className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full shrink-0 ${
+                                  item.badgeColor
+                                    ? item.badgeColor
+                                    : isActive
+                                    ? 'bg-indigo-700 text-white'
+                                    : 'bg-slate-200 text-slate-700'
+                                }`}
+                              >
+                                {item.badge}
+                              </span>
+                            )}
+                          </button>
+                        </React.Fragment>
                       );
                     })}
                   </div>
@@ -318,12 +355,12 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
           })}
         </div>
 
-        {/* Drawer Bottom Quick Action */}
-        <div className="p-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
-          <span className="font-semibold text-[11px]">AI Vision &amp; Accounting v2.4</span>
-          <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold">
-            Real DB Sync
-          </span>
+        {/* Footer */}
+        <div className="p-4 border-t border-slate-200 bg-slate-50">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>Inventory System</span>
+            <span className="font-semibold text-indigo-600">SmartStock AI</span>
+          </div>
         </div>
       </aside>
     </div>
