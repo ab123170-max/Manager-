@@ -4,6 +4,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { resolveGeminiModel, GEMINI_MODEL } from "./_shared";
 
 function sendJson(res: any, status: number, data: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -103,7 +104,7 @@ Return exactly one JSON object with these keys: productName, price, currency, ma
     parts.push({ text: prompt });
 
     const response = await ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+      model: resolveGeminiModel(process.env.GEMINI_MODEL || GEMINI_MODEL),
       contents: [{ role: "user", parts }],
       config: { responseMimeType: "application/json", temperature: 0.1 },
     });
@@ -122,7 +123,7 @@ Return exactly one JSON object with these keys: productName, price, currency, ma
 
     return sendJson(res, 200, {
       success: true,
-      model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+      model: resolveGeminiModel(process.env.GEMINI_MODEL || GEMINI_MODEL),
       photosAnalyzedCount: images.length,
       data: normalizeResult(parsed),
     });
