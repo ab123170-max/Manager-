@@ -1,8 +1,20 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
-function modelName() {
-  const value = (process.env.GEMINI_MODEL || 'gemini-3.7-flash').trim().replace(/^models\//, '');
-  return /^gemini-[a-z0-9.\-]+$/i.test(value) ? value : 'gemini-3.7-flash';
+function modelName(): string {
+  const value = (process.env.GEMINI_MODEL || 'gemini-3.7-flash').trim();
+  let clean = value;
+  while (clean.startsWith('models/')) {
+    clean = clean.replace(/^models\//, '');
+  }
+  if (
+    clean === 'gemini-flash-latest' ||
+    clean.includes('latest') ||
+    /^gemini-(1\.5|2\.0|2\.5)/i.test(clean) ||
+    !/^gemini-[a-z0-9.\-]+$/i.test(clean)
+  ) {
+    return 'gemini-3.7-flash';
+  }
+  return clean;
 }
 
 function getAI() {
@@ -34,30 +46,28 @@ function getImages(body: any) {
 const productSchema = {
   type: Type.OBJECT,
   properties: {
-    isProductOrPackage: { type: Type.BOOLEAN },
-    productName: { type: Type.STRING },
-    brand: { type: Type.STRING },
-    category: { type: Type.STRING },
-    sku: { type: Type.STRING },
-    barcode: { type: Type.STRING },
-    batchNumber: { type: Type.STRING },
-    manufacturingDate: { type: Type.STRING },
-    packedDate: { type: Type.STRING },
-    expiryDate: { type: Type.STRING },
-    bestBefore: { type: Type.STRING },
-    bestBeforeMonths: { type: Type.NUMBER },
-    quantity: { type: Type.STRING },
-    unit: { type: Type.STRING },
-    mrp: { type: Type.STRING },
-    documentType: { type: Type.STRING },
-    notesOrAdditional: { type: Type.STRING },
-    confidenceScore: { type: Type.NUMBER },
-    confidence: { type: Type.OBJECT },
-    warnings: { type: Type.ARRAY, items: { type: Type.STRING } },
-    missingFields: { type: Type.ARRAY, items: { type: Type.STRING } },
-    customFields: { type: Type.ARRAY, items: { type: Type.OBJECT } },
+    productName: {
+      type: Type.STRING,
+      description: 'Product name as printed on the packaging, or empty string if absent.',
+    },
+    price: {
+      type: Type.NUMBER,
+      description: 'Numeric price or MRP value. Null if not printed.',
+    },
+    manufactureDate: {
+      type: Type.STRING,
+      description: 'Manufacturing date (MFD / MFG / DOM / PKD) as printed. Empty string if absent.',
+    },
+    expiryDate: {
+      type: Type.STRING,
+      description: 'Expiry date (EXP / EXD / USE BY / BEST BEFORE date) as printed. Empty string if absent.',
+    },
+    bestBeforeMonths: {
+      type: Type.NUMBER,
+      description: 'Best before duration in months as a number (e.g. 12 or 24). Null if absent.',
+    },
   },
-  required: ['productName', 'brand', 'category', 'sku', 'barcode', 'batchNumber', 'manufacturingDate', 'expiryDate', 'bestBefore', 'quantity', 'unit', 'mrp', 'confidence', 'warnings', 'missingFields'],
+  required: ['productName', 'manufactureDate', 'expiryDate'],
 };
 
 async function extractForm(body: any) {
@@ -75,24 +85,46 @@ async function extractForm(body: any) {
     rawTextLines: (cues.rawTextLines || []).slice(0, 20),
   });
 
-  const prompt = `You are a strict product-label mapping and OCR engine. Analyze ${images.length} image(s) of the same product.
-Extract only information actually visible in the images or supplied OCR cues. Never invent values.
-Map abbreviations accurately: MFD/MFG/MANF/DOM -> manufacturingDate; PKD/PKG -> packedDate; EXP/EXD/EXPIRY/USE BY -> expiryDate; BB/BBD/BBE/BEST BEFORE -> bestBefore.
-If best before is a duration such as 12 MONTHS FROM MFD, put the phrase in bestBefore and the number in bestBeforeMonths. Do not convert a duration into an expiry date unless explicitly shown.
-Preserve date digits as seen. If a field is absent, return an empty string and include it in missingFields.
+  const prompt = `You are a strict product packaging extraction engine. Analyze the provided ${images.length} image(s) of the product.
+Extract ONLY the following 5 fields based strictly on what is visible on the package:
+1. productName: Name of the product as printed on the label.
+2. price: Numeric price or MRP value. Do not include currency symbols. Null if not visible.
+3. manufactureDate: Manufacturing or packaging date (MFD / MFG / DOM / PKD). Format as printed (e.g. DD/MM/YYYY or MM/YYYY). Empty string if absent.
+4. expiryDate: Expiry date (EXP / EXD / USE BY / BEST BEFORE date). Format as printed. Empty string if absent.
+5. bestBeforeMonths: Duration in months if stated as a best-before period (e.g., "Best before 12 months" -> 12). Null if absent.
+
+Never invent or hallucinate information. If a field is not present on the packaging, return empty string or null.
 OCR cues: ${cueText}`;
 
   const ai = getAI();
   const parts: any[] = images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } }));
   parts.push({ text: prompt });
 
+  const currentModel = modelName();
   const response = await ai.models.generateContent({
-    model: modelName(),
+    model: currentModel,
     contents: [{ role: 'user', parts }],
     config: { responseMimeType: 'application/json', responseSchema: productSchema, temperature: 0.1 },
   });
   if (!response.text) throw Object.assign(new Error('Gemini returned an empty response.'), { status: 502, code: 'MALFORMED_RESPONSE' });
-  return { success: true, model: modelName(), photosAnalyzedCount: images.length, data: JSON.parse(response.text) };
+
+  const extracted = JSON.parse(response.text);
+  const data = {
+    productName: String(extracted.productName || '').trim(),
+    price: typeof extracted.price === 'number' && !isNaN(extracted.price) ? extracted.price : null,
+    manufactureDate: String(extracted.manufactureDate || '').trim(),
+    expiryDate: String(extracted.expiryDate || '').trim(),
+    bestBeforeMonths: typeof extracted.bestBeforeMonths === 'number' && !isNaN(extracted.bestBeforeMonths) ? extracted.bestBeforeMonths : null,
+    confidence: {
+      productName: extracted.productName ? 0.95 : 0.0,
+      price: extracted.price !== null ? 0.90 : 0.0,
+      manufactureDate: extracted.manufactureDate ? 0.95 : 0.0,
+      expiryDate: extracted.expiryDate ? 0.95 : 0.0,
+      bestBeforeMonths: extracted.bestBeforeMonths !== null ? 0.90 : 0.0,
+    },
+    warnings: [],
+  };
+  return { success: true, model: currentModel, photosAnalyzedCount: images.length, data };
 }
 
 async function ocr(body: any) {
@@ -131,7 +163,7 @@ async function productLookup(body: any) {
 async function scan(body: any) {
   const result = await extractForm(body);
   const barcode = String(body?.barcode || '').replace(/[\s\-_]/g, '').trim();
-  if (barcode && result.data && !result.data.barcode) result.data.barcode = barcode;
+  if (barcode && result.data && !(result.data as any).barcode) (result.data as any).barcode = barcode;
   return result;
 }
 

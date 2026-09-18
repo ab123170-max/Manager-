@@ -5,7 +5,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { mapProductDateLabels } from "../serverDateMappingEngine";
+import { mapProductDateLabels } from "./serverDateMappingEngine";
 
 dotenv.config();
 
@@ -14,30 +14,32 @@ dotenv.config();
  * CENTRALIZED MODEL CONFIGURATION & SANITIZATION
  * ============================================================================
  */
+export const VALID_GEMINI_MODEL_ID = "gemini-3.7-flash";
+
 export function resolveGeminiModel(candidate?: string): string {
-  const DEFAULT_MODEL = "gemini-flash-latest";
+  const DEFAULT_MODEL = VALID_GEMINI_MODEL_ID;
   if (!candidate || typeof candidate !== "string") {
     return DEFAULT_MODEL;
   }
   let clean = candidate.trim();
-  if (clean.startsWith("models/")) {
+  while (clean.startsWith("models/")) {
     clean = clean.replace(/^models\//, "");
   }
-  // Ignore deprecated models
-  if (/^gemini-(1\.5|2\.0|2\.5)/i.test(clean)) {
+  // Ignore deprecated or invalid model aliases
+  if (
+    clean === "gemini-flash-latest" ||
+    clean.includes("latest") ||
+    /^gemini-(1\.5|2\.0|2\.5)/i.test(clean) ||
+    !/^gemini-[a-z0-9.\-]+$/i.test(clean)
+  ) {
     return DEFAULT_MODEL;
   }
-  // Validate model format: starts with gemini- and uses only valid model chars
-  if (/^gemini-[a-z0-9\.\-]+$/i.test(clean)) {
-    return clean;
-  }
-  return DEFAULT_MODEL;
+  return clean;
 }
 
 export const GEMINI_MODEL = resolveGeminiModel(process.env.GEMINI_MODEL);
 
 export const VALID_VISION_MODELS = [
-  "gemini-flash-latest",
   "gemini-3.7-flash",
   "gemini-3.8-flash",
   "gemini-3.1-flash-lite",
@@ -46,7 +48,7 @@ export const VALID_VISION_MODELS = [
 export function getModelCandidateList(overrideModel?: string): string[] {
   const primary = resolveGeminiModel(overrideModel || GEMINI_MODEL);
   return [primary, ...VALID_VISION_MODELS].filter(
-    (m, i, arr) => m && arr.indexOf(m) === i && !/^gemini-(1\.5|2\.0|2\.5)/i.test(m)
+    (m, i, arr) => m && arr.indexOf(m) === i && !/^gemini-(1\.5|2\.0|2\.5)/i.test(m) && m !== "gemini-flash-latest"
   );
 }
 
@@ -697,13 +699,8 @@ ${localCuesContext}`;
           },
           required: [
             "productName",
-            "currency",
             "manufactureDate",
             "expiryDate",
-            "quantity",
-            "unit",
-            "detectedLanguage",
-            "confidence",
           ],
         },
       },
