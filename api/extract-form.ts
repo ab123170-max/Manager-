@@ -1,10 +1,9 @@
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
+ * Vercel serverless endpoint: POST /api/extract-form
+ * Uses the Gemini REST generateContent endpoint directly so the model
+ * identifier is placed in the URL exactly as Google expects.
  */
-
-import { GoogleGenAI } from "@google/genai";
-import { resolveGeminiModel, GEMINI_MODEL } from "./_shared";
+const MODEL = "gemini-3.7-flash";
 
 function sendJson(res: any, status: number, data: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -27,7 +26,7 @@ async function getBody(req: any) {
   });
 }
 
-function cleanImage(value: string, fallbackMime = "image/jpeg") {
+function cleanImage(value: unknown, fallbackMime = "image/jpeg") {
   let data = String(value || "").trim();
   let mimeType = fallbackMime;
   const match = data.match(/^data:([^;]+);base64,(.+)$/s);
@@ -55,12 +54,16 @@ function normalizeResult(raw: any) {
   };
 }
 
+function extractJson(text: string) {
+  const cleaned = String(text || "").replace(/^\`\`\`json\s*/i, "").replace(/\s*\`\`\`$/i, "").trim();
+  return JSON.parse(cleaned);
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method === "OPTIONS") return sendJson(res, 204, {});
   if (req.method !== "POST") return sendJson(res, 405, { success: false, error: "POST required" });
 
   try {
-    const body = await getBody(req);
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return sendJson(res, 500, {
@@ -70,69 +73,147 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    const rawImages: any[] = Array.isArray(body.images) ? body.images : (body.imageBase64 ? [body.imageBase64] : []);
-    const images = rawImages.map((item) => {
-      if (typeof item === "string") return cleanImage(item, body.mimeType || "image/jpeg");
-      return cleanImage(item?.imageBase64 || item?.dataUrl || "", item?.mimeType || body.mimeType || "image/jpeg");
-    }).filter((x) => x.data);
+    const body = await getBody(req);
+    const rawImages: any[] = Array.isArray(body?.images)
+      ? body.images
+      : (body?.imageBase64 ? [body.imageBase64] : []);
+
+    const images = rawImages
+      .map((item) => typeof item === "string"
+        ? cleanImage(item, body?.mimeType || "image/jpeg")
+        : cleanImage(item?.imageBase64 || item?.dataUrl || "", item?.mimeType || body?.mimeType || "image/jpeg"))
+      .filter((x) => x.data);
 
     if (!images.length) {
-      return sendJson(res, 400, { success: false, code: "IMAGE_PROCESSING_FAILED", error: "No valid product image received." });
+      return sendJson(res, 400, {
+        success: false,
+        code: "IMAGE_PROCESSING_FAILED",
+        error: "No valid product image received.",
+      });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
-    const prompt = `You are a product package scanner. Analyze all supplied photos as the SAME product and return ONLY valid JSON. Extract only information actually visible on the package. Never invent missing values.
-
-Fields:
-productName: exact printed product name, original script/language.
-price: numeric printed MRP/price, null if not visible.
-currency: currency code such as NPR, INR, USD; only when supported by printed markings.
-manufactureDate: MFD/MFG/DOM date exactly as printed.
-expiryDate: EXP/EXD/use-by date exactly as printed. If only MFD + Best Before duration is visible, calculate expiry.
-bestBeforeMonths: numeric duration in months when printed or reliably calculated.
-quantity: package count, not weight. Single package = 1.
-unit: package unit such as pcs, bottles, cans, packets, boxes, packs, bags, g, kg, mL, L.
-detectedLanguage: primary label language.
-confidence: object with field confidence values from 0 to 1 and overall.
-warnings: array of short warnings for uncertain fields.
-
-Date rules: distinguish manufacture date from expiry date. Do not swap them. Use the current date only to interpret ambiguous relative date text; do not invent a date. Preserve printed date format when possible.
-
-Return exactly one JSON object with these keys: productName, price, currency, manufactureDate, expiryDate, bestBeforeMonths, quantity, unit, detectedLanguage, confidence, warnings.`;
-
-    const parts: any[] = images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } }));
-    parts.push({ text: prompt });
-
-    const response = await ai.models.generateContent({
-      model: resolveGeminiModel(process.env.GEMINI_MODEL || GEMINI_MODEL),
-      contents: [{ role: "user", parts }],
-      config: { responseMimeType: "application/json", temperature: 0.1 },
+    const localOcrCues = body?.localOcrCues || {};
+    const cueText = JSON.stringify({
+      possibleBarcodes: localOcrCues.possibleBarcodes || [],
+      possibleBatchNumbers: localOcrCues.possibleBatchNumbers || [],
+      possibleDates: localOcrCues.possibleDates || [],
+      possiblePrices: localOcrCues.possiblePrices || [],
+      possibleQuantities: localOcrCues.possibleQuantities || [],
+      extractedKeywords: localOcrCues.extractedKeywords || [],
+      rawTextLines: (localOcrCues.rawTextLines || []).slice(0, 20),
     });
 
-    if (!response?.text) {
-      return sendJson(res, 502, { success: false, code: "GEMINI_EMPTY_RESPONSE", error: "Gemini returned no extraction result." });
+    const prompt = `You are a strict product packaging extraction engine.
+Analyze all supplied photos as the SAME product.
+
+Extract ONLY:
+1. productName: exact printed product name.
+2. price: numeric printed MRP/price, null if not visible.
+3. currency: currency code only when supported by printed markings.
+4. manufactureDate: MFD/MFG/DOM/PKD date exactly as printed.
+5. expiryDate: EXP/EXD/USE BY date exactly as printed.
+6. bestBeforeMonths: duration in months if printed or reliably derivable from MFD and expiry.
+
+Rules:
+- Never invent or hallucinate information.
+- Do not swap manufacture and expiry dates.
+- If MFD + Best Before duration is visible and expiry is absent, calculate expiry.
+- Preserve the printed date format when possible.
+- Analyze all photos together as one product.
+- Return JSON only.
+
+Local OCR cues (may be incomplete; verify against images):
+${cueText}`;
+
+    // IMPORTANT: Use the model ID in the REST URL itself.
+    // This completely avoids SDK model-name serialization/normalization issues.
+    const endpoint =
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const requestBody = {
+      contents: [{
+        role: "user",
+        parts: [
+          ...images.map((img) => ({
+            inline_data: {
+              mime_type: img.mimeType,
+              data: img.data,
+            },
+          })),
+          { text: prompt },
+        ],
+      }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.1,
+      },
+    };
+
+    const googleResponse = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const googleJson: any = await googleResponse.json().catch(() => ({}));
+
+    if (!googleResponse.ok) {
+      const googleMessage =
+        googleJson?.error?.message ||
+        `Gemini API returned HTTP ${googleResponse.status}.`;
+
+      console.error("[extract-form] Gemini REST error:", googleJson);
+
+      return sendJson(res, googleResponse.status, {
+        success: false,
+        code: googleJson?.error?.status || "GEMINI_REQUEST_FAILED",
+        error: googleMessage,
+        model: MODEL,
+      });
+    }
+
+    const text =
+      googleJson?.candidates?.[0]?.content?.parts
+        ?.map((part: any) => part?.text || "")
+        .join("")
+        .trim() || "";
+
+    if (!text) {
+      return sendJson(res, 502, {
+        success: false,
+        code: "GEMINI_EMPTY_RESPONSE",
+        error: "Gemini returned no extraction result.",
+        model: MODEL,
+      });
     }
 
     let parsed: any;
     try {
-      parsed = JSON.parse(response.text);
+      parsed = extractJson(text);
     } catch {
-      const cleaned = response.text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
-      parsed = JSON.parse(cleaned);
+      return sendJson(res, 502, {
+        success: false,
+        code: "JSON_PARSE_ERROR",
+        error: "Gemini returned an invalid JSON extraction result.",
+        model: MODEL,
+      });
     }
 
     return sendJson(res, 200, {
       success: true,
-      model: resolveGeminiModel(process.env.GEMINI_MODEL || GEMINI_MODEL),
+      model: MODEL,
       photosAnalyzedCount: images.length,
       data: normalizeResult(parsed),
     });
   } catch (err: any) {
-    console.error("[extract-form] Vercel Gemini error:", err);
-    return sendJson(res, 502, {
+    console.error("[extract-form] Vercel handler error:", err);
+    return sendJson(res, 500, {
       success: false,
-      code: err?.status === 429 ? "GEMINI_QUOTA_OR_RATE_LIMIT" : "GEMINI_REQUEST_FAILED",
+      code: "INTERNAL_SERVER_ERROR",
       error: err?.message || "Gemini extraction failed on Vercel.",
+      model: MODEL,
     });
   }
 }
