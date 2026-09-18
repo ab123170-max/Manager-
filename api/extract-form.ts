@@ -125,39 +125,69 @@ Rules:
 Local OCR cues (may be incomplete; verify against images):
 ${cueText}`;
 
-    // IMPORTANT: Use the model ID in the REST URL itself.
-    // This completely avoids SDK model-name serialization/normalization issues.
-    const endpoint =
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    // Try the configured primary model first. If Google returns a temporary
+    // capacity/high-demand response, automatically retry with stable Flash
+    // fallbacks so a temporary spike does not break product scanning.
+    const models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"];
+    let googleJson: any = {};
+    let googleResponse: Response | null = null;
+    let usedModel = models[0];
 
-    const requestBody = {
-      contents: [{
-        role: "user",
-        parts: [
-          ...images.map((img) => ({
-            inline_data: {
-              mime_type: img.mimeType,
-              data: img.data,
-            },
-          })),
-          { text: prompt },
-        ],
-      }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.1,
-      },
-    };
+    for (const candidateModel of models) {
+      const endpoint =
+        `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-    const googleResponse = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    });
+      const requestBody = {
+        contents: [{
+          role: "user",
+          parts: [
+            ...images.map((img) => ({
+              inline_data: {
+                mime_type: img.mimeType,
+                data: img.data,
+              },
+            })),
+            { text: prompt },
+          ],
+        }],
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
+      };
 
-    const googleJson: any = await googleResponse.json().catch(() => ({}));
+      googleResponse = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+
+      googleJson = await googleResponse.json().catch(() => ({}));
+      usedModel = candidateModel;
+
+      // Retry only transient capacity/rate-limit errors. Do not hide
+      // authentication, permission, malformed-request, or quota errors.
+      if (googleResponse.ok) break;
+
+      const status = googleResponse.status;
+      const apiStatus = String(googleJson?.error?.status || "").toUpperCase();
+      const message = String(googleJson?.error?.message || "").toLowerCase();
+      const transient =
+        status === 429 ||
+        status === 503 ||
+        apiStatus === "UNAVAILABLE" ||
+        message.includes("high demand") ||
+        message.includes("temporarily unavailable");
+
+      if (!transient) break;
+    }
+
+    if (!googleResponse) {
+      return sendJson(res, 502, {
+        success: false,
+        code: "GEMINI_REQUEST_FAILED",
+        error: "Could not reach Gemini.",
+      });
+    }
 
     if (!googleResponse.ok) {
       const googleMessage =
@@ -170,7 +200,8 @@ ${cueText}`;
         success: false,
         code: googleJson?.error?.status || "GEMINI_REQUEST_FAILED",
         error: googleMessage,
-        model: MODEL,
+        model: usedModel,
+        attemptedModels: models,
       });
     }
 
@@ -185,7 +216,7 @@ ${cueText}`;
         success: false,
         code: "GEMINI_EMPTY_RESPONSE",
         error: "Gemini returned no extraction result.",
-        model: MODEL,
+        model: usedModel,
       });
     }
 
@@ -197,13 +228,13 @@ ${cueText}`;
         success: false,
         code: "JSON_PARSE_ERROR",
         error: "Gemini returned an invalid JSON extraction result.",
-        model: MODEL,
+        model: usedModel,
       });
     }
 
     return sendJson(res, 200, {
       success: true,
-      model: MODEL,
+      model: usedModel,
       photosAnalyzedCount: images.length,
       data: normalizeResult(parsed),
     });
@@ -213,7 +244,7 @@ ${cueText}`;
       success: false,
       code: "INTERNAL_SERVER_ERROR",
       error: err?.message || "Gemini extraction failed on Vercel.",
-      model: MODEL,
+      model: usedModel,
     });
   }
 }
