@@ -15,6 +15,17 @@ import {
   handleHealth,
   GEMINI_MODEL,
 } from "./api/_shared";
+import {
+  handleSendOtp,
+  handleVerifyOtp,
+  handleOAuthLogin,
+  handleEmailAuth,
+  handleWhatsAppRequest,
+  handleGetProfile,
+  handleSaveProfile,
+  handleUploadAvatar,
+  handleGetAvatar,
+} from "./api/authHandlers";
 
 dotenv.config();
 
@@ -31,6 +42,17 @@ async function startServer() {
   app.post("/api/scan", handleScan);
   app.post("/api/supervise-barcode-pipeline", handleSuperviseBarcodePipeline);
   app.get("/api/health", handleHealth);
+
+  // Authentication & User Profile API Routes
+  app.post("/api/auth/send-otp", handleSendOtp);
+  app.post("/api/auth/verify-otp", handleVerifyOtp);
+  app.post("/api/auth/oauth-login", handleOAuthLogin);
+  app.post("/api/auth/email-login", handleEmailAuth);
+  app.post("/api/auth/whatsapp-status", handleWhatsAppRequest);
+  app.get("/api/auth/profile", handleGetProfile);
+  app.post("/api/auth/profile", handleSaveProfile);
+  app.post("/api/auth/upload-avatar", handleUploadAvatar);
+  app.get("/api/auth/avatar/:id", handleGetAvatar);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

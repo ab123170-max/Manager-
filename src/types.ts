@@ -644,11 +644,56 @@ export type AppSubView = ScannerSubView | InventorySubView | InventoryInSubView 
 
 export type SalesRecord = SaleRecord;
 
-export interface AppNavigationState {
+export type AppNavigationState = {
   section?: MenuSection;
   subView?: string;
   activeSection: MenuSection;
   activeSubView: string;
   params?: Record<string, unknown>;
+};
+
+/**
+ * ============================================================================
+ * USER AUTHENTICATION & PROFILE TYPES
+ * ============================================================================
+ */
+export type AuthProviderType = 'google' | 'facebook' | 'phone' | 'whatsapp' | 'email';
+
+export interface AuthUser {
+  id: string; // Unique auth identifier
+  auth_user_id: string;
+  email?: string;
+  phone?: string;
+  provider: AuthProviderType;
+  providerId?: string;
+  displayName?: string;
+  photoURL?: string;
+  createdAt: string;
+  lastLoginAt: string;
 }
+
+export interface UserProfile {
+  id: string;
+  auth_user_id: string;
+  full_name: string;
+  username: string;
+  email: string;
+  phone: string;
+  profile_image_url: string;
+  address: string;
+  language: string;
+  currency: string;
+  created_at: string;
+  updated_at: string;
+  is_profile_complete?: boolean;
+}
+
+export interface AuthSession {
+  token: string;
+  user: AuthUser;
+  profile: UserProfile | null;
+  expiresAt: number;
+}
+
+export type AppRootMode = 'landing' | 'onboarding' | 'auth' | 'profile_setup' | 'app';
 

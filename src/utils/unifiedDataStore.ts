@@ -22,6 +22,22 @@ import {
   TransactionSource,
   AppSettings,
 } from '../types';
+import { supabaseDataService } from '../services/supabaseDataService';
+import { authService, subscribeAuth } from '../services/authService';
+
+/**
+ * Standard RFC-4122 v4 UUID generator for PostgreSQL compatibility
+ */
+function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 /**
  * ============================================================================
@@ -88,6 +104,41 @@ function notifyListeners() {
       l();
     } catch (err) {
       console.error('Store listener error:', err);
+    }
+  });
+}
+
+/**
+ * Synchronizes local inventory store with Supabase PostgreSQL tables.
+ */
+export async function syncWithSupabase(userId?: string): Promise<void> {
+  const currentUserId = userId || authService.getCurrentUser()?.id;
+  if (!currentUserId) return;
+
+  try {
+    const remoteProducts = await supabaseDataService.fetchProducts(currentUserId);
+    if (remoteProducts && remoteProducts.length > 0) {
+      setStoredArray(STORAGE_KEYS.PRODUCTS, remoteProducts);
+      invalidateStoreCache();
+      notifyListeners();
+    }
+
+    const remoteTxns = await supabaseDataService.fetchTransactions(currentUserId);
+    if (remoteTxns && remoteTxns.length > 0) {
+      setStoredArray(STORAGE_KEYS.STOCK_TRANSACTIONS, remoteTxns);
+      invalidateStoreCache();
+      notifyListeners();
+    }
+  } catch (err) {
+    console.warn('[unifiedDataStore] Supabase sync notice:', err);
+  }
+}
+
+// Auto-subscribe to auth changes so the store synchronizes automatically upon sign-in
+if (typeof window !== 'undefined') {
+  subscribeAuth((session) => {
+    if (session?.user?.id) {
+      syncWithSupabase(session.user.id);
     }
   });
 }
@@ -297,6 +348,7 @@ export function getProducts(): SavedInventoryItem[] {
 export function saveProduct(productData: Partial<SavedInventoryItem>): SavedInventoryItem {
   const products = getProducts();
   const numQty = productData.stockQuantity ?? (parseInt(productData.quantity || '1', 10) || 1);
+  const currentUserId = authService.getCurrentUser()?.id;
 
   const existingIdx = products.findIndex((p) => p.id === productData.id || (productData.barcode && p.barcode && p.barcode === productData.barcode));
 
@@ -308,16 +360,28 @@ export function saveProduct(productData: Partial<SavedInventoryItem>): SavedInve
       stockQuantity: numQty,
       quantity: String(numQty),
       updatedAt: new Date().toISOString(),
+      ...(currentUserId ? { user_id: currentUserId } : {}),
     };
     updated.status = calculateProductStatus(updated);
     products[existingIdx] = updated;
     setStoredArray(STORAGE_KEYS.PRODUCTS, products);
     notifyListeners();
+
+    if (currentUserId) {
+      supabaseDataService.upsertProduct(updated, currentUserId).catch((err) => {
+        console.warn('[unifiedDataStore] Supabase updateProduct notice:', err);
+      });
+    }
+
     return updated;
   }
 
+  const validUuid = productData.id && productData.id.length === 36 && productData.id.includes('-')
+    ? productData.id
+    : generateUuid();
+
   const newItem: SavedInventoryItem = {
-    id: productData.id || `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    id: validUuid,
     savedAt: productData.savedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     productName: productData.productName?.trim() || 'Untitled Product',
@@ -346,6 +410,7 @@ export function saveProduct(productData: Partial<SavedInventoryItem>): SavedInve
     imageThumbnail: productData.imageThumbnail,
     additionalPhotos: productData.additionalPhotos || [],
     status: 'in_stock',
+    ...(currentUserId ? { user_id: currentUserId } : {}),
   };
 
   newItem.status = calculateProductStatus(newItem);
@@ -381,11 +446,22 @@ export function saveProduct(productData: Partial<SavedInventoryItem>): SavedInve
   }
 
   notifyListeners();
+
+  // Async persist to Supabase PostgreSQL products table
+  if (currentUserId) {
+    supabaseDataService.upsertProduct(newItem, currentUserId).catch((err) => {
+      console.warn('[unifiedDataStore] Supabase saveProduct notice:', err);
+    });
+  }
+
   return newItem;
 }
 
 export function updateProduct(id: string, updates: Partial<SavedInventoryItem>): SavedInventoryItem[] {
   const products = getProducts();
+  const currentUserId = authService.getCurrentUser()?.id;
+  let targetProduct: SavedInventoryItem | null = null;
+
   const updated = products.map((item) => {
     if (item.id === id) {
       const merged: SavedInventoryItem = {
@@ -397,6 +473,7 @@ export function updateProduct(id: string, updates: Partial<SavedInventoryItem>):
         merged.quantity = String(updates.stockQuantity);
       }
       merged.status = calculateProductStatus(merged);
+      targetProduct = merged;
       return merged;
     }
     return item;
@@ -404,6 +481,13 @@ export function updateProduct(id: string, updates: Partial<SavedInventoryItem>):
 
   setStoredArray(STORAGE_KEYS.PRODUCTS, updated);
   notifyListeners();
+
+  if (currentUserId && targetProduct) {
+    supabaseDataService.upsertProduct(targetProduct, currentUserId).catch((err) => {
+      console.warn('[unifiedDataStore] Supabase updateProduct notice:', err);
+    });
+  }
+
   return updated;
 }
 
@@ -411,6 +495,14 @@ export function deleteProduct(id: string): SavedInventoryItem[] {
   const products = getProducts().filter((p) => p.id !== id);
   setStoredArray(STORAGE_KEYS.PRODUCTS, products);
   notifyListeners();
+
+  const currentUserId = authService.getCurrentUser()?.id;
+  if (currentUserId) {
+    supabaseDataService.deleteProduct(id, currentUserId).catch((err) => {
+      console.warn('[unifiedDataStore] Supabase deleteProduct notice:', err);
+    });
+  }
+
   return products;
 }
 
@@ -563,6 +655,16 @@ export function executeStockTransaction(params: {
   };
 
   setStoredArray(STORAGE_KEYS.STOCK_TRANSACTIONS, [transactionRecord, ...existingTransactions]);
+
+  // Sync to Supabase PostgreSQL inventory_transactions table
+  const currentUserId = authService.getCurrentUser()?.id;
+  if (currentUserId) {
+    supabaseDataService
+      .recordTransaction(transactionRecord, currentUserId, previousStock)
+      .catch((err) => {
+        console.warn('[unifiedDataStore] Supabase executeStockTransaction notice:', err);
+      });
+  }
 
   // Sync to Accounting Ledger for financial transparency
   const purchasePrice = params.unitPrice ?? (parseFloat(prod.purchasePrice?.replace(/[^0-9.]/g, '') || '0') || 0);

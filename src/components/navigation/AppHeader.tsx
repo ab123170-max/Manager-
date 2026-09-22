@@ -23,8 +23,12 @@ import {
   History,
   ShieldCheck,
   X,
+  User,
+  Settings,
 } from 'lucide-react';
-import { MenuSection, AppSubView } from '../../types';
+import { MenuSection, AppSubView, UserProfile } from '../../types';
+import { useLanguage } from '../../context/LanguageContext';
+import { LanguageSelectorButton } from '../common/LanguageSelectorButton';
 
 interface AppHeaderProps {
   activeSection: MenuSection;
@@ -34,6 +38,9 @@ interface AppHeaderProps {
   onToggleDrawer?: () => void;
   inventoryCount?: number;
   alertCount?: number;
+  userProfile?: UserProfile | null;
+  onEditProfile?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -44,7 +51,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onToggleDrawer,
   inventoryCount,
   alertCount = 0,
+  userProfile,
+  onEditProfile,
+  onOpenSettings,
 }) => {
+  const { t } = useLanguage();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -634,6 +645,49 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               </div>
             )}
           </div>
+
+          {/* Language Selector Button */}
+          <LanguageSelectorButton variant="pill" />
+
+          {/* Settings Trigger Button */}
+          {onOpenSettings && (
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              id="header-settings-btn"
+              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 text-slate-600 hover:text-slate-900 transition-colors"
+              title={t('settings.title')}
+              aria-label={t('settings.title')}
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* User Profile Avatar Pill */}
+          {userProfile && onEditProfile && (
+            <button
+              type="button"
+              onClick={onEditProfile}
+              id="header-user-profile-btn"
+              className="flex items-center gap-1.5 p-1 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 transition-all text-left group"
+              title="Manage Profile"
+            >
+              <div className="w-6 h-6 rounded-full overflow-hidden bg-blue-100 border border-blue-200 flex items-center justify-center shrink-0 text-[#1473EA] font-bold text-[10px]">
+                {userProfile.profile_image_url ? (
+                  <img
+                    src={userProfile.profile_image_url}
+                    alt={userProfile.full_name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  userProfile.full_name.charAt(0).toUpperCase() || <User className="w-3 h-3" />
+                )}
+              </div>
+              <span className="hidden md:inline-block text-xs font-bold text-slate-700 group-hover:text-[#1473EA] max-w-[100px] truncate">
+                {userProfile.full_name.split(' ')[0]}
+              </span>
+            </button>
+          )}
         </div>
       </div>
     </header>

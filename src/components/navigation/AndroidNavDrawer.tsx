@@ -28,8 +28,14 @@ import {
   ShieldCheck,
   Zap,
   ScrollText,
+  User,
+  LogOut,
+  HelpCircle,
+  Globe,
+  Settings,
 } from 'lucide-react';
-import { MenuSection, AppSubView } from '../../types';
+import { MenuSection, AppSubView, UserProfile } from '../../types';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface NavItem {
   id: AppSubView;
@@ -69,6 +75,11 @@ interface AndroidNavDrawerProps {
     expired?: number;
     scanHistory?: number;
   };
+  userProfile?: UserProfile | null;
+  onEditProfile?: () => void;
+  onShowOnboarding?: () => void;
+  onLogout?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
@@ -79,7 +90,13 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
   onNavigate,
   badges,
   counts,
+  userProfile,
+  onEditProfile,
+  onShowOnboarding,
+  onLogout,
+  onOpenSettings,
 }) => {
+  const { t, languageOption, openLanguageSelector } = useLanguage();
   const effectiveBadges = {
     totalProducts: badges?.totalProducts ?? counts?.products,
     lowStock: badges?.lowStock ?? counts?.lowStock,
@@ -361,11 +378,112 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
           })}
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-slate-200 bg-slate-50">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Inventory System</span>
-            <span className="font-semibold text-indigo-600">SmartStock AI</span>
+        {/* User Account & Actions Footer */}
+        <div className="p-3.5 border-t border-slate-200 bg-slate-50 space-y-2.5">
+          {userProfile && (
+            <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center text-slate-500 font-bold text-xs">
+                  {userProfile.profile_image_url ? (
+                    <img
+                      src={userProfile.profile_image_url}
+                      alt={userProfile.full_name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    userProfile.full_name.charAt(0).toUpperCase() || <User className="w-4 h-4" />
+                  )}
+                </div>
+                <div className="min-w-0 text-left">
+                  <p className="text-xs font-bold text-[#092B4C] truncate">{userProfile.full_name}</p>
+                  <p className="text-[10px] text-slate-400 truncate">@{userProfile.username}</p>
+                </div>
+              </div>
+
+              {onEditProfile && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onEditProfile();
+                  }}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-[#1473EA] hover:bg-slate-100 transition-colors shrink-0"
+                  title="Edit Profile"
+                >
+                  <User className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Language Selector Row */}
+          <button
+            type="button"
+            onClick={() => {
+              openLanguageSelector();
+            }}
+            id="drawer-language-btn"
+            className="w-full flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200/80 hover:bg-slate-100/80 transition-colors shadow-2xs group"
+          >
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+              <Globe className="w-4 h-4 text-indigo-600" />
+              <span>{t('settings.language')}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 group-hover:text-indigo-800">
+              <span>{languageOption.flag} {languageOption.name}</span>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            </div>
+          </button>
+
+          {/* Settings Row */}
+          {onOpenSettings && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenSettings();
+              }}
+              id="drawer-settings-btn"
+              className="w-full flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200/80 hover:bg-slate-100/80 transition-colors shadow-2xs text-xs font-bold text-slate-800 group"
+            >
+              <div className="flex items-center gap-2">
+                <Settings className="w-4 h-4 text-slate-600 group-hover:text-slate-900" />
+                <span>{t('settings.title')}</span>
+              </div>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+          )}
+
+          <div className="flex items-center justify-between text-xs text-slate-500 pt-0.5">
+            {onShowOnboarding ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onShowOnboarding();
+                }}
+                className="text-[11px] font-semibold text-slate-500 hover:text-[#1473EA] flex items-center gap-1 transition-colors"
+              >
+                <HelpCircle className="w-3 h-3 text-[#1473EA]" />
+                <span>Feature Tour</span>
+              </button>
+            ) : (
+              <span className="text-[11px] text-slate-400 font-medium">SmartStock AI</span>
+            )}
+
+            {onLogout && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onLogout();
+                }}
+                className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 transition-colors hover:bg-rose-50 px-2 py-1 rounded-lg"
+              >
+                <LogOut className="w-3 h-3" />
+                <span>{t('auth.logout')}</span>
+              </button>
+            )}
           </div>
         </div>
       </aside>

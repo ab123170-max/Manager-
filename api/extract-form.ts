@@ -63,6 +63,8 @@ export default async function handler(req: any, res: any) {
   if (req.method === "OPTIONS") return sendJson(res, 204, {});
   if (req.method !== "POST") return sendJson(res, 405, { success: false, error: "POST required" });
 
+  let usedModel = "gemini-3.7-flash";
+
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -131,7 +133,7 @@ ${cueText}`;
     const models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"];
     let googleJson: any = {};
     let googleResponse: Response | null = null;
-    let usedModel = models[0];
+    usedModel = models[0];
 
     for (const candidateModel of models) {
       const endpoint =

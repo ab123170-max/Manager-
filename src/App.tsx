@@ -15,7 +15,11 @@ import {
   AppNavigationState,
   MenuSection,
   ProductScanResult,
+  AuthSession,
+  UserProfile,
+  AppRootMode,
 } from './types';
+import { authService, subscribeAuth } from './services/authService';
 import { preprocessImageCanvas } from './utils/imagePreprocessing';
 import {
   getProducts,
@@ -133,7 +137,56 @@ const ProductReputationView = lazy(() =>
   }))
 );
 
+// Lazy-loaded Authentication, Onboarding, Landing & Profile Modules
+const LandingPage = lazy(() =>
+  import('./components/landing/LandingPage').then((m) => ({ default: m.LandingPage }))
+);
+const AuthScreen = lazy(() =>
+  import('./components/auth/AuthScreen').then((m) => ({ default: m.AuthScreen }))
+);
+const ProfileSetupView = lazy(() =>
+  import('./components/profile/ProfileSetupView').then((m) => ({ default: m.ProfileSetupView }))
+);
+const OnboardingModal = lazy(() =>
+  import('./components/onboarding/OnboardingModal').then((m) => ({ default: m.OnboardingModal }))
+);
+const SettingsModal = lazy(() =>
+  import('./components/settings/SettingsModal').then((m) => ({ default: m.SettingsModal }))
+);
+
 export default function App() {
+  // Authentication & View Mode State
+  const [session, setSession] = useState<AuthSession | null>(() => authService.getSession());
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [isEditingProfileModal, setIsEditingProfileModal] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const [rootMode, setRootMode] = useState<AppRootMode>(() => {
+    const currentSession = authService.getSession();
+    if (!currentSession || !currentSession.user) {
+      return 'landing';
+    }
+    if (!currentSession.profile?.is_profile_complete) {
+      return 'profile_setup';
+    }
+    return 'dashboard';
+  });
+
+  useEffect(() => {
+    const unsub = subscribeAuth((newSession) => {
+      setSession(newSession);
+      if (!newSession || !newSession.user) {
+        setRootMode('landing');
+      } else if (!newSession.profile?.is_profile_complete) {
+        setRootMode('profile_setup');
+      } else {
+        setRootMode('dashboard');
+      }
+    });
+    return unsub;
+  }, []);
+
   // Navigation State
   const [navState, setNavState] = useState<AppNavigationState>({
     activeSection: 'scanner',
@@ -348,6 +401,112 @@ export default function App() {
     handleNavigate('inventory_out', 'stock_out');
   };
 
+  // Authentication & Onboarding Navigation Handlers
+  const handleLandingGetStarted = () => {
+    if (!authService.isOnboardingCompleted()) {
+      setIsOnboardingOpen(true);
+    } else {
+      setAuthMode('signup');
+      setRootMode('auth');
+    }
+  };
+
+  const handleLandingLogin = () => {
+    setAuthMode('login');
+    setRootMode('auth');
+  };
+
+  const handleOnboardingFinish = () => {
+    setIsOnboardingOpen(false);
+    setAuthMode('signup');
+    setRootMode('auth');
+  };
+
+  const handleAuthSuccess = (newSession: AuthSession, isNewUser: boolean) => {
+    setSession(newSession);
+    if (isNewUser || !newSession.profile?.is_profile_complete) {
+      setRootMode('profile_setup');
+    } else {
+      setRootMode('dashboard');
+    }
+  };
+
+  const handleProfileSaved = (savedProfile: UserProfile) => {
+    if (session) {
+      setSession({
+        ...session,
+        profile: savedProfile,
+      });
+    }
+    setIsEditingProfileModal(false);
+    setRootMode('dashboard');
+  };
+
+  const handleLogout = () => {
+    authService.clearSession();
+    setSession(null);
+    setRootMode('landing');
+  };
+
+  // ---------------------------------------------------------------------------
+  // 1. Landing Page View (Unauthenticated Users)
+  // ---------------------------------------------------------------------------
+  if (rootMode === 'landing') {
+    return (
+      <Suspense fallback={<ViewLoadingSkeleton label="Loading SmartStock AI..." />}>
+        <LandingPage
+          onGetStarted={handleLandingGetStarted}
+          onLogin={handleLandingLogin}
+        />
+        <OnboardingModal
+          isOpen={isOnboardingOpen}
+          onClose={() => setIsOnboardingOpen(false)}
+          onFinish={handleOnboardingFinish}
+        />
+      </Suspense>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2. Authentication View (Login & Signup)
+  // ---------------------------------------------------------------------------
+  if (rootMode === 'auth') {
+    return (
+      <Suspense fallback={<ViewLoadingSkeleton label="Loading Authentication..." />}>
+        <AuthScreen
+          initialMode={authMode}
+          onSuccess={handleAuthSuccess}
+          onBackToLanding={() => setRootMode('landing')}
+        />
+      </Suspense>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3. User Profile Setup View (First-time or incomplete profiles)
+  // ---------------------------------------------------------------------------
+  if (rootMode === 'profile_setup') {
+    return (
+      <Suspense fallback={<ViewLoadingSkeleton label="Loading Profile Setup..." />}>
+        {session?.user ? (
+          <ProfileSetupView
+            user={session.user}
+            initialProfile={session.profile}
+            isInitialSetup={true}
+            onProfileSaved={handleProfileSaved}
+          />
+        ) : (
+          <div className="min-h-screen flex items-center justify-center bg-[#F5F7FA]">
+            <ViewLoadingSkeleton label="Initializing account session..." />
+          </div>
+        )}
+      </Suspense>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4. Main App Dashboard (Existing complete workflow)
+  // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-100/70 flex flex-col font-sans text-slate-900 pb-8">
       {/* App Header */}
@@ -358,6 +517,9 @@ export default function App() {
         onToggleDrawer={() => setIsDrawerOpen(true)}
         inventoryCount={products.length}
         alertCount={valuation.lowStockCount + activeExpiryAlertsCount}
+        userProfile={session?.profile}
+        onEditProfile={() => setIsEditingProfileModal(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Android Nav Drawer */}
@@ -374,6 +536,11 @@ export default function App() {
           expired: valuation.expiredCount,
           scanHistory: scanHistory.length,
         }}
+        userProfile={session?.profile}
+        onEditProfile={() => setIsEditingProfileModal(true)}
+        onShowOnboarding={() => setIsOnboardingOpen(true)}
+        onLogout={handleLogout}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Main Container */}
@@ -744,6 +911,45 @@ export default function App() {
         onNavigateToInventory={() => handleNavigate('inventory', 'inventory')}
         onNavigateToAlerts={() => handleNavigate('inventory', 'expiry_alerts')}
       />
+
+      {/* Edit Profile Modal in Dashboard */}
+      {isEditingProfileModal && session?.user && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto animate-in fade-in">
+          <div className="w-full max-w-xl my-8">
+            <Suspense fallback={<ViewLoadingSkeleton label="Loading Profile..." />}>
+              <ProfileSetupView
+                user={session.user}
+                initialProfile={session.profile}
+                isInitialSetup={false}
+                onCancel={() => setIsEditingProfileModal(false)}
+                onProfileSaved={handleProfileSaved}
+              />
+            </Suspense>
+          </div>
+        </div>
+      )}
+
+      {/* Feature Onboarding / Tour Reopened from Drawer */}
+      <Suspense fallback={null}>
+        <OnboardingModal
+          isOpen={isOnboardingOpen}
+          onClose={() => setIsOnboardingOpen(false)}
+          onFinish={() => setIsOnboardingOpen(false)}
+        />
+      </Suspense>
+
+      {/* Global Settings & Language Modal */}
+      <Suspense fallback={null}>
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          userProfile={session?.profile}
+          onEditProfile={() => {
+            setIsSettingsOpen(false);
+            setIsEditingProfileModal(true);
+          }}
+        />
+      </Suspense>
     </div>
   );
 }
