@@ -612,6 +612,7 @@ export type InventorySubView =
   | 'low_stock'
   | 'expiring_soon'
   | 'expired'
+  | 'expiry_alerts'
   | 'categories'
   | 'reports'
   | 'accounting';

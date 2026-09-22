@@ -47,7 +47,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
 
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'samples'>('camera');
-  const [cameraStarted, setCameraStarted] = useState(false);
+  const [cameraStarted, setCameraStarted] = useState(true);
   const [isFlashActive, setIsFlashActive] = useState(false);
 
   // Initialize camera lifecycle
@@ -74,7 +74,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
       setIsFlashActive(true);
       setTimeout(() => setIsFlashActive(false), 150);
 
-      const base64Data = captureFrameFromVideo(videoRef.current, 0.88);
+      const base64Data = captureFrameFromVideo(videoRef.current, 0.80);
       setCapturedPhotos((prev) => [...prev, base64Data]);
     } catch (err: unknown) {
       const error = err as Error;

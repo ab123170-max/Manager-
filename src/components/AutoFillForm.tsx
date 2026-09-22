@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -20,17 +20,21 @@ import {
   Package,
   Layers,
   HelpCircle,
+  Loader2,
+  Edit3,
 } from 'lucide-react';
 import { ExtractedFormData, ProductScanResult, SavedInventoryItem } from '../types';
 import { getAppSettings } from '../utils/unifiedDataStore';
 import { addInventoryIn } from '../services/productPipelineService';
 import { addMonthsToDate, calculateMonthDifference } from '../utils/productDateCalculator';
+import { parseProductDate } from '../utils/dateService';
 import { tempImageManager } from '../utils/smartLabelCropper';
 
 interface AutoFillFormProps {
   initialData: ExtractedFormData | ProductScanResult;
   imageThumbnail: string | null;
   capturedImages?: string[];
+  isExtracting?: boolean;
   onSubmit: (formData: ExtractedFormData) => void;
   onRetake: () => void;
   onInventoryUpdated?: () => void;
@@ -72,6 +76,7 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
   initialData,
   imageThumbnail,
   capturedImages = [],
+  isExtracting = false,
   onSubmit,
   onRetake,
   onInventoryUpdated,
@@ -80,6 +85,16 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
   const appSettings = getAppSettings();
   const defaultAppCurrency = (appSettings.currency === '$' ? 'USD' : appSettings.currency === '₹' ? 'INR' : appSettings.currency === 'रु' || appSettings.currency === 'Rs' ? 'NPR' : appSettings.currency || 'USD').toUpperCase();
   const [persistPhotoWithRecord, setPersistPhotoWithRecord] = useState<boolean>(false);
+
+  // Track which fields the user has manually edited (NEVER overwrite these)
+  const userEditedFields = useRef<Set<string>>(new Set());
+
+  // Track newly auto-filled fields for visual feedback
+  const [highlightedFields, setHighlightedFields] = useState<Set<string>>(new Set());
+
+  // Non-blocking debounced field validation errors
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
   // Extract initial values cleanly
   const rawPrice =
@@ -159,6 +174,124 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
 
+  // Progressive auto-fill syncing: when initialData updates (e.g. from AI extraction resolving),
+  // update only fields that the user has not manually modified
+  useEffect(() => {
+    const updated = new Set<string>();
+
+    if (!userEditedFields.current.has('productName') && initialData.productName && initialData.productName !== productName) {
+      setProductName(initialData.productName);
+      updated.add('productName');
+    }
+
+    const newPrice = 'price' in initialData && initialData.price !== null && initialData.price !== undefined
+      ? String(initialData.price)
+      : 'mrp' in initialData && initialData.mrp
+      ? initialData.mrp.replace(/[^0-9.]/g, '')
+      : '';
+    if (!userEditedFields.current.has('price') && newPrice && newPrice !== price) {
+      setPrice(newPrice);
+      updated.add('price');
+    }
+
+    const newMfd = 'manufactureDate' in initialData && initialData.manufactureDate
+      ? initialData.manufactureDate
+      : 'manufacturingDate' in initialData
+      ? initialData.manufacturingDate || ''
+      : '';
+    if (!userEditedFields.current.has('manufactureDate') && newMfd && newMfd !== manufactureDate) {
+      setManufactureDate(newMfd);
+      updated.add('manufactureDate');
+    }
+
+    const newBb = 'bestBeforeMonths' in initialData && initialData.bestBeforeMonths !== null && initialData.bestBeforeMonths !== undefined
+      ? String(initialData.bestBeforeMonths)
+      : 'bestBefore' in initialData && initialData.bestBefore
+      ? initialData.bestBefore.replace(/[^0-9]/g, '')
+      : '';
+    if (!userEditedFields.current.has('bestBeforeMonths') && newBb && newBb !== bestBeforeMonths) {
+      setBestBeforeMonths(newBb);
+      updated.add('bestBeforeMonths');
+    }
+
+    if (!userEditedFields.current.has('expiryDate')) {
+      const newExp = initialData.expiryDate || '';
+      let calculatedExp = newExp;
+      const bNum = parseInt(newBb, 10);
+      if (newMfd && !isNaN(bNum) && bNum > 0) {
+        const c = addMonthsToDate(newMfd, bNum);
+        if (c) calculatedExp = c;
+      }
+      if (calculatedExp && calculatedExp !== expiryDate) {
+        setExpiryDate(calculatedExp);
+        if ('isCalculatedExpiry' in initialData) {
+          setIsCalculatedExpiry(Boolean(initialData.isCalculatedExpiry));
+        }
+        updated.add('expiryDate');
+      }
+    }
+
+    if (!userEditedFields.current.has('currency') && initialData.currency && initialData.currency !== currency) {
+      setCurrency(initialData.currency);
+      updated.add('currency');
+    }
+
+    if (!userEditedFields.current.has('unit') && initialData.unit && initialData.unit !== unit) {
+      setUnit(initialData.unit);
+      updated.add('unit');
+    }
+
+    if (!userEditedFields.current.has('detectedLanguage') && initialData.detectedLanguage && initialData.detectedLanguage !== detectedLanguage) {
+      setDetectedLanguage(initialData.detectedLanguage);
+      updated.add('detectedLanguage');
+    }
+
+    if (updated.size > 0) {
+      setHighlightedFields(updated);
+      const timer = setTimeout(() => {
+        setHighlightedFields(new Set());
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [initialData]);
+
+  // Debounced non-blocking field validation
+  const validateFieldDebounced = useCallback((fieldName: string, value: string) => {
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      if (fieldName === 'productName') {
+        if (!value.trim()) next.productName = 'Product name is required';
+        else delete next.productName;
+      } else if (fieldName === 'price') {
+        const num = parseFloat(value);
+        if (value && (isNaN(num) || num < 0)) next.price = 'Enter a valid price';
+        else delete next.price;
+      } else if (fieldName === 'manufactureDate' || fieldName === 'expiryDate') {
+        if (value.trim()) {
+          const parsed = parseProductDate(value);
+          if (!parsed.isValid) next[fieldName] = 'Check date format (e.g. DD/MM/YYYY)';
+          else delete next[fieldName];
+        } else {
+          delete next[fieldName];
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  const handleFieldChange = (fieldName: string, value: string, setter: (val: string) => void) => {
+    userEditedFields.current.add(fieldName);
+    setter(value);
+
+    // Debounce validation so keystrokes remain instantaneous
+    if (debounceTimers.current[fieldName]) {
+      clearTimeout(debounceTimers.current[fieldName]);
+    }
+    debounceTimers.current[fieldName] = setTimeout(() => {
+      validateFieldDebounced(fieldName, value);
+    }, 300);
+  };
+
   const confidence = initialData.confidence || {};
   const allImages = capturedImages.length > 0 ? capturedImages : imageThumbnail ? [imageThumbnail] : [];
 
@@ -167,7 +300,7 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
 
   // Interactive date calculation
   const handleMfdChange = (val: string) => {
-    setManufactureDate(val);
+    handleFieldChange('manufactureDate', val, setManufactureDate);
     const monthsNum = parseInt(bestBeforeMonths, 10);
     if (val.trim() && !isNaN(monthsNum) && monthsNum > 0) {
       const calcExp = addMonthsToDate(val.trim(), monthsNum);
@@ -184,7 +317,7 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
   };
 
   const handleBestBeforeChange = (val: string) => {
-    setBestBeforeMonths(val);
+    handleFieldChange('bestBeforeMonths', val, setBestBeforeMonths);
     const monthsNum = parseInt(val, 10);
     if (manufactureDate.trim() && !isNaN(monthsNum) && monthsNum > 0) {
       const calcExp = addMonthsToDate(manufactureDate.trim(), monthsNum);
@@ -207,7 +340,7 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
   };
 
   const handleExpiryDateChange = (val: string) => {
-    setExpiryDate(val);
+    handleFieldChange('expiryDate', val, setExpiryDate);
     setIsCalculatedExpiry(false);
     if (manufactureDate.trim() && val.trim()) {
       const diff = calculateMonthDifference(manufactureDate.trim(), val.trim());
@@ -381,8 +514,23 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
         )}
       </div>
 
+      {/* Live AI Extraction Status Banner */}
+      {isExtracting && (
+        <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-between text-indigo-900 animate-pulse">
+          <div className="flex items-center gap-2.5">
+            <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+            <span className="text-xs font-bold">
+              Extracting product details from photos... fields will auto-fill live as detected.
+            </span>
+          </div>
+          <span className="text-[11px] font-semibold text-indigo-600 bg-white px-2 py-0.5 rounded-md border border-indigo-200">
+            Streaming
+          </span>
+        </div>
+      )}
+
       {/* Warnings & Low Confidence Notice */}
-      {hasUncertainFields && (
+      {hasUncertainFields && !isExtracting && (
         <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-200 flex items-start gap-3 text-amber-900">
           <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="text-xs space-y-1">
@@ -405,9 +553,17 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                 <Tag className="w-3.5 h-3.5 text-emerald-600" />
                 1. Product Name <span className="text-rose-500">*</span>
               </label>
-              {isNameConfident ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Auto-Detected ({detectedLanguage})
+              {userEditedFields.current.has('productName') ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                  <Edit3 className="w-2.5 h-2.5" /> User Edited
+                </span>
+              ) : isNameConfident ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" /> Auto-Detected ({detectedLanguage})
+                </span>
+              ) : isExtracting ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200 flex items-center gap-1">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" /> Detecting...
                 </span>
               ) : (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
@@ -420,14 +576,21 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
               type="text"
               required
               value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              placeholder="e.g. दालमोठ / Organic Almond Milk / अमूल मक्खन"
+              onChange={(e) => handleFieldChange('productName', e.target.value, setProductName)}
+              placeholder={isExtracting && !productName ? "Extracting product name..." : "e.g. दालमोठ / Organic Almond Milk / अमूल मक्खन"}
               className={`w-full px-4 py-2.5 rounded-xl border text-sm font-medium transition-all focus:outline-none focus:ring-2 ${
-                !isNameConfident
+                highlightedFields.has('productName')
+                  ? 'ring-2 ring-emerald-400 bg-emerald-50/30 border-emerald-400'
+                  : fieldErrors.productName
+                  ? 'border-rose-300 bg-rose-50/30 focus:border-rose-500 focus:ring-rose-200'
+                  : !isNameConfident && productName
                   ? 'border-amber-300 bg-amber-50/30 focus:border-amber-500 focus:ring-amber-200'
                   : 'border-slate-300 bg-white focus:border-emerald-500 focus:ring-emerald-100'
               }`}
             />
+            {fieldErrors.productName && (
+              <p className="text-[11px] text-rose-600 font-semibold">{fieldErrors.productName}</p>
+            )}
             <p className="text-[11px] text-slate-400">
               Original label name preserved in printed script without translation.
             </p>
@@ -440,7 +603,11 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                 <Globe className="w-3.5 h-3.5 text-emerald-600" />
                 2. Label Language
               </label>
-              {isLanguageConfident ? (
+              {userEditedFields.current.has('detectedLanguage') ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                  <Edit3 className="w-2.5 h-2.5" /> User Edited
+                </span>
+              ) : isLanguageConfident ? (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                   Auto-Selected
                 </span>
@@ -453,7 +620,7 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
             <select
               id="field-language"
               value={detectedLanguage}
-              onChange={(e) => setDetectedLanguage(e.target.value)}
+              onChange={(e) => handleFieldChange('detectedLanguage', e.target.value, setDetectedLanguage)}
               className="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:border-emerald-500 focus:ring-emerald-100 cursor-pointer"
             >
               {SUPPORTED_LANGUAGES.map((lang) => (
@@ -471,7 +638,11 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                 <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
                 3. Price & Currency
               </label>
-              {isPriceConfident && isCurrencyConfident ? (
+              {userEditedFields.current.has('price') ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                  <Edit3 className="w-2.5 h-2.5" /> User Edited
+                </span>
+              ) : isPriceConfident && isCurrencyConfident ? (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                   Detected ({currency})
                 </span>
@@ -486,7 +657,7 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                 <select
                   id="field-currency"
                   value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
+                  onChange={(e) => handleFieldChange('currency', e.target.value, setCurrency)}
                   className="w-full px-2.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:border-emerald-500 focus:ring-emerald-100 cursor-pointer"
                 >
                   {SUPPORTED_CURRENCIES.map((c) => (
@@ -506,16 +677,23 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                   step="0.01"
                   min="0"
                   value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  placeholder="0.00"
+                  onChange={(e) => handleFieldChange('price', e.target.value, setPrice)}
+                  placeholder={isExtracting && !price ? "Extracting..." : "0.00"}
                   className={`w-full pl-8 pr-4 py-2.5 rounded-xl border text-sm font-semibold transition-all focus:outline-none focus:ring-2 ${
-                    !isPriceConfident
+                    highlightedFields.has('price')
+                      ? 'ring-2 ring-emerald-400 bg-emerald-50/30 border-emerald-400'
+                      : fieldErrors.price
+                      ? 'border-rose-300 bg-rose-50/30 focus:border-rose-500 focus:ring-rose-200'
+                      : !isPriceConfident && price
                       ? 'border-amber-300 bg-amber-50/30 focus:border-amber-500 focus:ring-amber-200'
                       : 'border-slate-300 bg-white focus:border-emerald-500 focus:ring-emerald-100'
                   }`}
                 />
               </div>
             </div>
+            {fieldErrors.price && (
+              <p className="text-[11px] text-rose-600 font-semibold">{fieldErrors.price}</p>
+            )}
           </div>
 
           {/* Field 4: Inventory Quantity & Unit (Package size vs Inventory Qty) */}
@@ -525,7 +703,11 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                 <Package className="w-3.5 h-3.5 text-emerald-600" />
                 4. Quantity & Unit
               </label>
-              {isUnitConfident ? (
+              {userEditedFields.current.has('unit') || userEditedFields.current.has('quantity') ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                  <Edit3 className="w-2.5 h-2.5" /> User Edited
+                </span>
+              ) : isUnitConfident ? (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                   Auto-Selected ({unit})
                 </span>
@@ -542,7 +724,7 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                   type="number"
                   min="1"
                   value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
+                  onChange={(e) => handleFieldChange('quantity', e.target.value, setQuantity)}
                   placeholder="Qty"
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold focus:outline-none focus:ring-2 focus:border-emerald-500 focus:ring-emerald-100"
                 />
@@ -551,7 +733,7 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                 <select
                   id="field-unit"
                   value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
+                  onChange={(e) => handleFieldChange('unit', e.target.value, setUnit)}
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:border-emerald-500 focus:ring-emerald-100 cursor-pointer"
                 >
                   {SUPPORTED_UNITS.map((grp) => (
@@ -578,9 +760,17 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                 <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                 5. Date of Manufacture (MFD)
               </label>
-              {isMfdConfident ? (
+              {userEditedFields.current.has('manufactureDate') ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                  <Edit3 className="w-2.5 h-2.5" /> User Edited
+                </span>
+              ) : isMfdConfident ? (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                   Detected
+                </span>
+              ) : isExtracting ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200 flex items-center gap-1">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" /> Detecting...
                 </span>
               ) : (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
@@ -593,13 +783,20 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
               type="text"
               value={manufactureDate}
               onChange={(e) => handleMfdChange(e.target.value)}
-              placeholder="DD/MM/YYYY or MM/YYYY"
+              placeholder={isExtracting && !manufactureDate ? "Extracting MFD..." : "DD/MM/YYYY or MM/YYYY"}
               className={`w-full px-4 py-2.5 rounded-xl border text-sm font-medium transition-all focus:outline-none focus:ring-2 ${
-                !isMfdConfident
+                highlightedFields.has('manufactureDate')
+                  ? 'ring-2 ring-emerald-400 bg-emerald-50/30 border-emerald-400'
+                  : fieldErrors.manufactureDate
+                  ? 'border-rose-300 bg-rose-50/30 focus:border-rose-500 focus:ring-rose-200'
+                  : !isMfdConfident && manufactureDate
                   ? 'border-amber-300 bg-amber-50/30 focus:border-amber-500 focus:ring-amber-200'
                   : 'border-slate-300 bg-white focus:border-emerald-500 focus:ring-emerald-100'
               }`}
             />
+            {fieldErrors.manufactureDate && (
+              <p className="text-[11px] text-rose-600 font-semibold">{fieldErrors.manufactureDate}</p>
+            )}
           </div>
 
           {/* Field 6: Date of Expiry (EXP) */}
@@ -621,9 +818,17 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
                     {isCalculatedExpiry ? 'Auto-calculated' : 'Auto Calculate'}
                   </button>
                 )}
-                {isExpConfident ? (
+                {userEditedFields.current.has('expiryDate') ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                    <Edit3 className="w-2.5 h-2.5" /> User Edited
+                  </span>
+                ) : isExpConfident ? (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                     Detected
+                  </span>
+                ) : isExtracting ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200 flex items-center gap-1">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" /> Detecting...
                   </span>
                 ) : (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
@@ -637,13 +842,20 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
               type="text"
               value={expiryDate}
               onChange={(e) => handleExpiryDateChange(e.target.value)}
-              placeholder="DD/MM/YYYY or MM/YYYY"
+              placeholder={isExtracting && !expiryDate ? "Extracting EXP..." : "DD/MM/YYYY or MM/YYYY"}
               className={`w-full px-4 py-2.5 rounded-xl border text-sm font-medium transition-all focus:outline-none focus:ring-2 ${
-                !isExpConfident
+                highlightedFields.has('expiryDate')
+                  ? 'ring-2 ring-emerald-400 bg-emerald-50/30 border-emerald-400'
+                  : fieldErrors.expiryDate
+                  ? 'border-rose-300 bg-rose-50/30 focus:border-rose-500 focus:ring-rose-200'
+                  : !isExpConfident && expiryDate
                   ? 'border-amber-300 bg-amber-50/30 focus:border-amber-500 focus:ring-amber-200'
                   : 'border-slate-300 bg-white focus:border-emerald-500 focus:ring-emerald-100'
               }`}
             />
+            {fieldErrors.expiryDate && (
+              <p className="text-[11px] text-rose-600 font-semibold">{fieldErrors.expiryDate}</p>
+            )}
           </div>
 
           {/* Field 7: Best Before (Months) */}

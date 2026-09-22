@@ -49,9 +49,30 @@ const STORAGE_KEYS = {
   SETTINGS: 'ais_app_settings_v1',
 };
 
+export interface InventoryValuation {
+  totalProducts: number;
+  totalStockQuantity: number;
+  totalPurchaseValue: number;
+  estimatedSellingValue: number;
+  expectedProfit: number;
+  lowStockCount: number;
+  expiringSoonCount: number;
+  expiredCount: number;
+}
+
 // Simple event-emitter listener for reactive updates
 type Listener = () => void;
 const listeners = new Set<Listener>();
+
+// In-memory caches to eliminate repeated localStorage I/O and JSON parsing
+const memoryStorageCache = new Map<string, any>();
+let cachedEnrichedProducts: SavedInventoryItem[] | null = null;
+let cachedValuation: InventoryValuation | null = null;
+
+export function invalidateStoreCache() {
+  cachedEnrichedProducts = null;
+  cachedValuation = null;
+}
 
 export function subscribeToStore(listener: Listener): () => void {
   listeners.add(listener);
@@ -61,6 +82,7 @@ export function subscribeToStore(listener: Listener): () => void {
 }
 
 function notifyListeners() {
+  invalidateStoreCache();
   listeners.forEach((l) => {
     try {
       l();
@@ -71,17 +93,28 @@ function notifyListeners() {
 }
 
 function getStoredArray<T>(key: string, defaultVal: T[] = []): T[] {
+  if (memoryStorageCache.has(key)) {
+    return memoryStorageCache.get(key) as T[];
+  }
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return defaultVal;
-    return JSON.parse(raw);
+    if (!raw) {
+      memoryStorageCache.set(key, defaultVal);
+      return defaultVal;
+    }
+    const parsed = JSON.parse(raw);
+    memoryStorageCache.set(key, parsed);
+    return parsed;
   } catch (err) {
     console.error(`Failed to read from localStorage (${key}):`, err);
+    memoryStorageCache.set(key, defaultVal);
     return defaultVal;
   }
 }
 
 function setStoredArray<T>(key: string, data: T[]) {
+  memoryStorageCache.set(key, data);
+  invalidateStoreCache();
   try {
     localStorage.setItem(key, JSON.stringify(data));
   } catch (err) {
@@ -245,13 +278,20 @@ export function enrichProductWithTurnoverAndReputation(
 }
 
 export function getProducts(): SavedInventoryItem[] {
+  if (cachedEnrichedProducts) {
+    return cachedEnrichedProducts;
+  }
   const items = getStoredArray<SavedInventoryItem>(STORAGE_KEYS.PRODUCTS);
   if (items.length === 0) {
     const initialSeed = getInitialCatalogSeed();
     setStoredArray(STORAGE_KEYS.PRODUCTS, initialSeed);
-    return initialSeed.map((i) => enrichProductWithTurnoverAndReputation(i));
+    const txns = getStoredArray<StockTransaction>(STORAGE_KEYS.STOCK_TRANSACTIONS);
+    cachedEnrichedProducts = initialSeed.map((i) => enrichProductWithTurnoverAndReputation(i, txns));
+    return cachedEnrichedProducts;
   }
-  return items.map((i) => enrichProductWithTurnoverAndReputation(i));
+  const txns = getStoredArray<StockTransaction>(STORAGE_KEYS.STOCK_TRANSACTIONS);
+  cachedEnrichedProducts = items.map((i) => enrichProductWithTurnoverAndReputation(i, txns));
+  return cachedEnrichedProducts;
 }
 
 export function saveProduct(productData: Partial<SavedInventoryItem>): SavedInventoryItem {
@@ -1211,6 +1251,9 @@ export function getAccountSummary(period: 'today' | 'week' | 'month' | 'all' = '
 }
 
 export function getInventoryValuation() {
+  if (cachedValuation) {
+    return cachedValuation;
+  }
   const products = getProducts();
   let totalStockQuantity = 0;
   let totalPurchaseValue = 0;
@@ -1234,7 +1277,7 @@ export function getInventoryValuation() {
     if (p.status === 'expired') expiredCount++;
   }
 
-  return {
+  cachedValuation = {
     totalProducts: products.length,
     totalStockQuantity,
     totalPurchaseValue,
@@ -1244,6 +1287,7 @@ export function getInventoryValuation() {
     expiringSoonCount,
     expiredCount,
   };
+  return cachedValuation;
 }
 
 /**

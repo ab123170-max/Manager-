@@ -1,0 +1,15 @@
+# Robots.txt for ScanMe AI (https://scanme-ai.vercel.app/)
+User-agent: *
+Allow: /
+Disallow: /api/
+
+User-agent: Googlebot
+Allow: /
+Disallow: /api/
+
+User-agent: Bingbot
+Allow: /
+Disallow: /api/
+
+# Sitemap reference
+Sitemap: https://scanme-ai.vercel.app/sitemap.xml

@@ -106,6 +106,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       low_stock: 'Low Stock Alerts',
       expiring_soon: 'Expiring Soon',
       expired: 'Expired Products',
+      expiry_alerts: 'Expiry Alerts & Notifications',
       categories: 'Categories',
       reports: 'Reports',
     };
@@ -161,10 +162,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 truncate">
                 <span className="font-extrabold text-sm sm:text-base text-slate-900 tracking-tight">
-                  SmartStock AI
+                  ScanMe AI
                 </span>
                 <span className="hidden md:inline-flex text-[10px] uppercase font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-200/60">
-                  Stock Control
+                  AI Product Scanner
                 </span>
               </div>
             </div>
@@ -582,6 +583,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       >
                         <FileText className="w-3 h-3 text-blue-500" />
                         <span className="truncate">Stock Ledger</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSelect('inventory', 'expiry_alerts')}
+                        className={`px-2 py-1.5 rounded-md text-[11px] font-semibold text-left flex items-center gap-1.5 transition-colors ${
+                          activeSection === 'inventory' && activeSubView === 'expiry_alerts'
+                            ? 'bg-amber-600 text-white font-bold'
+                            : 'bg-white hover:bg-slate-100 text-slate-800 border border-slate-200/80'
+                        }`}
+                      >
+                        <AlertTriangle className="w-3 h-3 text-amber-500" />
+                        <span className="truncate">Expiry Alerts</span>
                       </button>
                     </div>
                   </div>

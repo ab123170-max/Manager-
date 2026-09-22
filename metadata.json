@@ -1,6 +1,6 @@
 {
-  "name": "Image to Form Auto-Fill",
-  "description": "Two-Engine Barcode & OCR Inventory Scanner with stock-in receiving, stock-out dispatch, turnover velocity analytics, and product reputation management.",
+  "name": "ScanMe AI – AI Product Scanner, Image to Form & Product Data Extraction",
+  "description": "Scan products with AI and automatically extract product name, price, manufacture date, expiry date and other product information from images.",
   "requestFramePermissions": [
     "camera"
   ],

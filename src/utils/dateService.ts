@@ -90,12 +90,14 @@ export function interpretAmbiguousYear(yearInput: string | number): number {
   return parsed;
 }
 
+// Fast in-memory parse cache
+const parsedDateServiceCache = new Map<string, ParsedDateResult>();
+
 /**
  * 3. Centralized parseProductDate function without ambiguous JS Date parsing.
  */
 export function parseProductDate(rawDateStr: string): ParsedDateResult {
   const current = getCurrentLocalDateTime();
-  const fallbackDate = `${current.year}-01-01`;
 
   if (!rawDateStr || typeof rawDateStr !== 'string') {
     return {
@@ -112,7 +114,45 @@ export function parseProductDate(rawDateStr: string): ParsedDateResult {
   }
 
   const raw = rawDateStr.trim();
-  const clean = raw.replace(/[,\s]+/g, ' ').trim();
+  if (parsedDateServiceCache.has(raw)) {
+    return parsedDateServiceCache.get(raw)!;
+  }
+
+  let clean = raw.replace(/[,\s]+/g, ' ').trim();
+
+  // Strip common packaging prefix tags (e.g. "EXP 12/2027", "MFD 06/2026", "BB 12 MONTHS", "EXP.", "MFG:")
+  const prefixMatch = clean.match(/^(?:EXP(?:IRY)?|MFD|MFG|PROD(?:UCTION)?|PD|DOM|BEST\s+BEFORE|BB|B\.B\.|USE\s+BY|UB|BBD)\s*[:.\-]?\s+(.*)$/i);
+  if (prefixMatch) {
+    clean = prefixMatch[1].trim();
+  }
+
+  // Relative format check: "BB 12 MONTHS", "12 MONTHS", "6 MONTHS"
+  const relMonthsMatch = clean.match(/^(\d{1,3})\s*(?:MONTHS?|MON|M)\b/i);
+  if (relMonthsMatch) {
+    const months = parseInt(relMonthsMatch[1], 10);
+    if (months > 0 && months <= 120) {
+      const now = new Date();
+      const nowYear = now.getFullYear();
+      const nowMonth = now.getMonth() + 1;
+      const totalMonths = (nowYear * 12) + (nowMonth - 1) + months;
+      const targetYear = Math.floor(totalMonths / 12);
+      const targetMonth = (totalMonths % 12) + 1;
+      const iso = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
+      const formatted = `${MONTH_NAMES[targetMonth - 1]} ${targetYear}`;
+      const result: ParsedDateResult = {
+        raw,
+        formatted,
+        isoDate: iso,
+        year: targetYear,
+        month: targetMonth,
+        day: 1,
+        isValid: true,
+        confidence: 'high',
+      };
+      parsedDateServiceCache.set(raw, result);
+      return result;
+    }
+  }
 
   // Pattern A: YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
   const isoMatch = clean.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
@@ -123,7 +163,7 @@ export function parseProductDate(rawDateStr: string): ParsedDateResult {
     if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
       const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const formatted = `${d} ${MONTH_NAMES[m - 1]} ${y}`;
-      return {
+      const result: ParsedDateResult = {
         raw,
         formatted,
         isoDate: iso,
@@ -133,6 +173,8 @@ export function parseProductDate(rawDateStr: string): ParsedDateResult {
         isValid: true,
         confidence: 'high',
       };
+      parsedDateServiceCache.set(raw, result);
+      return result;
     }
   }
 
@@ -152,7 +194,7 @@ export function parseProductDate(rawDateStr: string): ParsedDateResult {
         const formatted = `${d} ${MONTH_NAMES[m - 1]} ${y}`;
         const confidence = rawYear.length === 2 ? 'medium' : 'high';
         const warning = rawYear.length === 2 ? 'Please confirm the year.' : undefined;
-        return {
+        const result: ParsedDateResult = {
           raw,
           formatted,
           isoDate: iso,
@@ -163,6 +205,8 @@ export function parseProductDate(rawDateStr: string): ParsedDateResult {
           confidence,
           warning,
         };
+        parsedDateServiceCache.set(raw, result);
+        return result;
       }
     }
   }
@@ -180,7 +224,7 @@ export function parseProductDate(rawDateStr: string): ParsedDateResult {
       const formatted = `${d} ${MONTH_NAMES[m - 1]} ${y}`;
       const confidence = rawYear.length === 2 ? 'medium' : 'high';
       const warning = rawYear.length === 2 ? 'Please confirm the year.' : undefined;
-      return {
+      const result: ParsedDateResult = {
         raw,
         formatted,
         isoDate: iso,
@@ -191,6 +235,32 @@ export function parseProductDate(rawDateStr: string): ParsedDateResult {
         confidence,
         warning,
       };
+      parsedDateServiceCache.set(raw, result);
+      return result;
+    }
+  }
+
+  // Pattern C2: MM/YYYY or MM-YYYY
+  const myMatch = clean.match(/^(\d{1,2})[\/\-\.](\d{2,4})$/);
+  if (myMatch) {
+    const m = parseInt(myMatch[1], 10);
+    const rawYear = myMatch[2];
+    const y = interpretAmbiguousYear(rawYear);
+    if (m >= 1 && m <= 12) {
+      const iso = `${y}-${String(m).padStart(2, '0')}-01`;
+      const formatted = `${MONTH_NAMES[m - 1]} ${y}`;
+      const result: ParsedDateResult = {
+        raw,
+        formatted,
+        isoDate: iso,
+        year: y,
+        month: m,
+        day: 1,
+        isValid: true,
+        confidence: 'high',
+      };
+      parsedDateServiceCache.set(raw, result);
+      return result;
     }
   }
 

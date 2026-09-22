@@ -61,6 +61,11 @@ function normalizeYear(rawYear: string | number): number {
   return y;
 }
 
+// Fast in-memory memoization caches to avoid repeated calculations
+const dateParseCache = new Map<string, DateParts | null>();
+const addMonthsCache = new Map<string, string>();
+const monthDiffCache = new Map<string, number | null>();
+
 /**
  * Parses any date string into structured date components preserving delimiter and format
  */
@@ -69,8 +74,41 @@ export function parseDateComponents(dateStr: string): DateParts | null {
   const raw = dateStr.trim();
   if (!raw) return null;
 
+  if (dateParseCache.has(raw)) {
+    return dateParseCache.get(raw)!;
+  }
+
   // Clean raw string for uniform token matching
-  const cleanStr = raw.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  let cleanStr = raw.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Strip common packaging prefix tags (e.g. "EXP 12/2027", "MFD 06/2026", "BB 12 MONTHS", "EXP.", "MFG:")
+  const prefixMatch = cleanStr.match(/^(?:EXP(?:IRY)?|MFD|MFG|PROD(?:UCTION)?|PD|DOM|BEST\s+BEFORE|BB|B\.B\.|USE\s+BY|UB|BBD)\s*[:.\-]?\s+(.*)$/i);
+  if (prefixMatch) {
+    cleanStr = prefixMatch[1].trim();
+  }
+
+  // Relative format check: "BB 12 MONTHS", "12 MONTHS", "6 MONTHS"
+  const relMonthsMatch = cleanStr.match(/^(\d{1,3})\s*(?:MONTHS?|MON|M)\b/i);
+  if (relMonthsMatch) {
+    const months = parseInt(relMonthsMatch[1], 10);
+    if (months > 0 && months <= 120) {
+      const now = new Date();
+      const nowYear = now.getFullYear();
+      const nowMonth = now.getMonth() + 1;
+      const totalMonths = (nowYear * 12) + (nowMonth - 1) + months;
+      const targetYear = Math.floor(totalMonths / 12);
+      const targetMonth = (totalMonths % 12) + 1;
+      const result: DateParts = {
+        month: targetMonth,
+        year: targetYear,
+        separator: '/',
+        order: 'MY',
+        raw,
+      };
+      dateParseCache.set(raw, result);
+      return result;
+    }
+  }
 
   // 1. Textual Month Format (e.g. "26 SEP 25", "26 SEP 2025", "26-SEP-25", "26/SEP/2025", "SEP 2025", "SEP 25", "SEPT 25")
   // Pattern A: Day-Month-Year (e.g., "26 SEP 25", "26-SEP-2025", "26.SEP.2025")
@@ -82,7 +120,9 @@ export function parseDateComponents(dateStr: string): DateParts | null {
     const year = normalizeYear(dmyTextMatch[3]);
 
     if (month && year >= 1990 && year <= 2100 && day >= 1 && day <= 31) {
-      return { day, month, year, separator: '/', order: 'DMY', isTextualMonth: true, monthText: dmyTextMatch[2], raw };
+      const result: DateParts = { day, month, year, separator: '/', order: 'DMY', isTextualMonth: true, monthText: dmyTextMatch[2], raw };
+      dateParseCache.set(raw, result);
+      return result;
     }
   }
 
@@ -94,7 +134,9 @@ export function parseDateComponents(dateStr: string): DateParts | null {
     const year = normalizeYear(myTextMatch[2]);
 
     if (month && year >= 1990 && year <= 2100) {
-      return { month, year, separator: '/', order: 'MY', isTextualMonth: true, monthText: myTextMatch[1], raw };
+      const result: DateParts = { month, year, separator: '/', order: 'MY', isTextualMonth: true, monthText: myTextMatch[1], raw };
+      dateParseCache.set(raw, result);
+      return result;
     }
   }
 
@@ -107,7 +149,9 @@ export function parseDateComponents(dateStr: string): DateParts | null {
     const day = parseInt(ymdTextMatch[3], 10);
 
     if (month && year >= 1990 && year <= 2100 && day >= 1 && day <= 31) {
-      return { day, month, year, separator: '/', order: 'YMD', isTextualMonth: true, monthText: ymdTextMatch[2], raw };
+      const result: DateParts = { day, month, year, separator: '/', order: 'YMD', isTextualMonth: true, monthText: ymdTextMatch[2], raw };
+      dateParseCache.set(raw, result);
+      return result;
     }
   }
 
@@ -119,7 +163,9 @@ export function parseDateComponents(dateStr: string): DateParts | null {
     const month = parseInt(ymdMatch[3], 10);
     const day = parseInt(ymdMatch[4], 10);
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1990 && year <= 2100) {
-      return { day, month, year, separator, order: 'YMD', raw };
+      const result: DateParts = { day, month, year, separator, order: 'YMD', raw };
+      dateParseCache.set(raw, result);
+      return result;
     }
   }
 
@@ -130,7 +176,9 @@ export function parseDateComponents(dateStr: string): DateParts | null {
     const separator = ymMatch[2] === ' ' ? '/' : ymMatch[2];
     const month = parseInt(ymMatch[3], 10);
     if (month >= 1 && month <= 12 && year >= 1990 && year <= 2100) {
-      return { month, year, separator, order: 'YM', raw };
+      const result: DateParts = { month, year, separator, order: 'YM', raw };
+      dateParseCache.set(raw, result);
+      return result;
     }
   }
 
@@ -143,7 +191,9 @@ export function parseDateComponents(dateStr: string): DateParts | null {
     const year = normalizeYear(dmyMatch[4]);
 
     if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 1990 && year <= 2100) {
-      return { day, month, year, separator, order: 'DMY', raw };
+      const result: DateParts = { day, month, year, separator, order: 'DMY', raw };
+      dateParseCache.set(raw, result);
+      return result;
     }
   }
 
@@ -155,10 +205,13 @@ export function parseDateComponents(dateStr: string): DateParts | null {
     const year = normalizeYear(myMatch[3]);
 
     if (month >= 1 && month <= 12 && year >= 1990 && year <= 2100) {
-      return { month, year, separator, order: 'MY', raw };
+      const result: DateParts = { month, year, separator, order: 'MY', raw };
+      dateParseCache.set(raw, result);
+      return result;
     }
   }
 
+  dateParseCache.set(raw, null);
   return null;
 }
 
@@ -167,6 +220,11 @@ export function parseDateComponents(dateStr: string): DateParts | null {
  */
 export function addMonthsToDate(dateStr: string, monthsToAdd: number): string {
   if (!dateStr || !monthsToAdd || isNaN(monthsToAdd) || monthsToAdd <= 0) return '';
+  const cacheKey = `${dateStr.trim()}::${monthsToAdd}`;
+  if (addMonthsCache.has(cacheKey)) {
+    return addMonthsCache.get(cacheKey)!;
+  }
+
   const parsed = parseDateComponents(dateStr);
   if (!parsed) return '';
 
@@ -177,34 +235,42 @@ export function addMonthsToDate(dateStr: string, monthsToAdd: number): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   const sep = parsed.separator === '-' || parsed.separator === '.' ? parsed.separator : '/';
 
+  let result = '';
   if (parsed.order === 'DMY' && parsed.day !== undefined) {
     // Determine max days in target month (e.g. Feb 28/29, Apr 30)
     const maxDays = new Date(newYear, newMonth, 0).getDate();
     const newDay = Math.min(parsed.day, maxDays);
-    return `${pad(newDay)}${sep}${pad(newMonth)}${sep}${newYear}`;
-  }
-
-  if (parsed.order === 'YMD' && parsed.day !== undefined) {
+    result = `${pad(newDay)}${sep}${pad(newMonth)}${sep}${newYear}`;
+  } else if (parsed.order === 'YMD' && parsed.day !== undefined) {
     const maxDays = new Date(newYear, newMonth, 0).getDate();
     const newDay = Math.min(parsed.day, maxDays);
-    return `${newYear}${sep}${pad(newMonth)}${sep}${pad(newDay)}`;
+    result = `${newYear}${sep}${pad(newMonth)}${sep}${pad(newDay)}`;
+  } else if (parsed.order === 'YM') {
+    result = `${newYear}${sep}${pad(newMonth)}`;
+  } else {
+    // Default / MY
+    result = `${pad(newMonth)}${sep}${newYear}`;
   }
 
-  if (parsed.order === 'YM') {
-    return `${newYear}${sep}${pad(newMonth)}`;
-  }
-
-  // Default / MY
-  return `${pad(newMonth)}${sep}${newYear}`;
+  addMonthsCache.set(cacheKey, result);
+  return result;
 }
 
 /**
  * Calculates duration in months between two date strings (MFD and EXP)
  */
 export function calculateMonthDifference(mfdStr: string, expStr: string): number | null {
+  const cacheKey = `${(mfdStr || '').trim()}::${(expStr || '').trim()}`;
+  if (monthDiffCache.has(cacheKey)) {
+    return monthDiffCache.get(cacheKey)!;
+  }
+
   const mfd = parseDateComponents(mfdStr);
   const exp = parseDateComponents(expStr);
-  if (!mfd || !exp) return null;
+  if (!mfd || !exp) {
+    monthDiffCache.set(cacheKey, null);
+    return null;
+  }
 
   let months = (exp.year - mfd.year) * 12 + (exp.month - mfd.month);
 
@@ -215,10 +281,9 @@ export function calculateMonthDifference(mfdStr: string, expStr: string): number
     }
   }
 
-  if (months > 0 && months <= 120) {
-    return months;
-  }
-  return null;
+  const result = (months > 0 && months <= 120) ? months : null;
+  monthDiffCache.set(cacheKey, result);
+  return result;
 }
 
 export interface ReconciledDates {

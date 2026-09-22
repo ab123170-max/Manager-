@@ -163,6 +163,12 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
           badge: effectiveBadges.expired ? effectiveBadges.expired : undefined,
           badgeColor: 'bg-rose-500 text-white',
         },
+        {
+          id: 'expiry_alerts',
+          label: 'Expiry Alerts',
+          icon: AlertTriangle,
+          badgeColor: 'bg-amber-600 text-white',
+        },
         { id: 'categories', label: 'Categories', icon: Tag },
         { id: 'reports', label: 'Inventory Reports', icon: BarChart3 },
       ],
@@ -190,10 +196,10 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
               </div>
               <div>
                 <h2 className="font-bold text-base tracking-tight text-white flex items-center gap-1.5">
-                  SmartStock AI
+                  ScanMe AI
                 </h2>
                 <p className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3 text-emerald-400" /> Inventory System
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" /> AI Product Scanner &amp; Inventory
                 </p>
               </div>
             </div>

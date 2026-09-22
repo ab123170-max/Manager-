@@ -34,6 +34,10 @@ import {
 } from 'lucide-react';
 import { tempImageManager } from './utils/smartLabelCropper';
 import { ToastContainer } from './components/common/ToastContainer';
+import { SeoLandingContent } from './components/seo/SeoLandingContent';
+import { AppFooter } from './components/navigation/AppFooter';
+import { HomeScreenActiveExpiryAlerts } from './components/scanner/HomeScreenActiveExpiryAlerts';
+import { expiryAlertManager } from './utils/expiryAlertManager';
 
 // ============================================================================
 // CODE-SPLIT / LAZY-LOADED HEAVY VIEW CHUNKS
@@ -100,6 +104,11 @@ const ExpiredProductsView = lazy(() =>
     default: m.ExpiredProductsView,
   }))
 );
+const ExpiryAlertsView = lazy(() =>
+  import('./components/inventory/ExpiryAlertsView').then((m) => ({
+    default: m.ExpiryAlertsView,
+  }))
+);
 const CategoriesView = lazy(() =>
   import('./components/inventory/CategoriesView').then((m) => ({ default: m.CategoriesView }))
 );
@@ -140,6 +149,7 @@ export default function App() {
   const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [extractedData, setExtractedData] = useState<ExtractedFormData | null>(null);
   const [productScanResult, setProductScanResult] = useState<ProductScanResult | null>(null);
+  const [isFormExtracting, setIsFormExtracting] = useState(false);
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [submittedData, setSubmittedData] = useState<ExtractedFormData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -152,13 +162,23 @@ export default function App() {
   const [products, setProducts] = useState(getProducts());
   const [valuation, setValuation] = useState(getInventoryValuation());
   const [scanHistory, setScanHistory] = useState(getScanHistory());
+  const [activeExpiryAlertsCount, setActiveExpiryAlertsCount] = useState<number>(() =>
+    expiryAlertManager.getActiveCount()
+  );
 
   useEffect(() => {
-    return subscribeToStore(() => {
+    const unsubStore = subscribeToStore(() => {
       setProducts(getProducts());
       setValuation(getInventoryValuation());
       setScanHistory(getScanHistory());
     });
+    const unsubAlerts = expiryAlertManager.subscribeAlerts((alerts) => {
+      setActiveExpiryAlertsCount(alerts.length);
+    });
+    return () => {
+      unsubStore();
+      unsubAlerts();
+    };
   }, []);
 
   const isScannerSubView = (sub: string) =>
@@ -201,12 +221,36 @@ export default function App() {
     if (!images || images.length === 0) return;
     setCapturedImages(images);
     setCapturedImage(images[0] || null);
-    setCurrentStage('processing');
     setExtractionError(null);
+
+    // Initial progressive draft to immediately show the AutoFill form without blocking
+    const initialDraft: ProductScanResult = {
+      productName: '',
+      price: null,
+      manufactureDate: null,
+      expiryDate: null,
+      bestBeforeMonths: null,
+      isCalculatedExpiry: false,
+      unit: 'pcs',
+      quantity: 1,
+      currency: 'USD',
+      detectedLanguage: 'English',
+      confidence: {},
+      warnings: [],
+      capturedImages: images,
+    };
+    setProductScanResult(initialDraft);
+    setIsFormExtracting(true);
+    setCurrentStage('ready');
 
     try {
       const result = await extractProduct5FieldsFromImages(images);
       setProductScanResult(result);
+      if (result.capturedImages && result.capturedImages.length > 0) {
+        setCapturedImages(result.capturedImages);
+        setCapturedImage(result.capturedImages[0]);
+      }
+      setIsFormExtracting(false);
 
       const currencySymbol = result.currency === 'NPR' ? 'Rs. ' : result.currency === 'INR' ? '₹' : result.currency === 'EUR' ? '€' : result.currency === 'GBP' ? '£' : '$';
 
@@ -245,15 +289,18 @@ export default function App() {
       };
 
       setExtractedData(data);
-      setCurrentStage('ready');
     } catch (err: unknown) {
+      setIsFormExtracting(false);
       const error = err as Error;
       console.error('Multi-shot extraction error:', error);
       setExtractionError(
         error.message ||
           'Failed to extract data. Please ensure the label photos are clear and try again.'
       );
-      setCurrentStage('error');
+      // Keep on form so user can still enter details manually, or switch to error if empty
+      if (!productScanResult?.productName) {
+        setCurrentStage('error');
+      }
     }
   };
 
@@ -310,7 +357,7 @@ export default function App() {
         onNavigate={handleNavigate}
         onToggleDrawer={() => setIsDrawerOpen(true)}
         inventoryCount={products.length}
-        alertCount={valuation.lowStockCount + valuation.expiredCount + valuation.expiringSoonCount}
+        alertCount={valuation.lowStockCount + activeExpiryAlertsCount}
       />
 
       {/* Android Nav Drawer */}
@@ -323,7 +370,7 @@ export default function App() {
         counts={{
           products: products.length,
           lowStock: valuation.lowStockCount,
-          expiring: valuation.expiringSoonCount,
+          expiring: activeExpiryAlertsCount,
           expired: valuation.expiredCount,
           scanHistory: scanHistory.length,
         }}
@@ -349,13 +396,13 @@ export default function App() {
                       Multi-Shot 5-Field Vision Engine Active · Inventory In
                     </span>
                   </div>
-                  <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">
                     {currentStage === 'ready'
                       ? 'Review & Modify 5-Field Product Data'
                       : currentStage === 'processing'
                       ? 'Synchronized Vision Analysis & Date Calculator'
                       : 'Multi-Shot Product Scanner'}
-                  </h1>
+                  </h2>
                   <p className="text-xs text-slate-500 mt-0.5">
                     Snap 1 to 5 photos (Front label, MFD/EXP stamps, Best before) to extract and calculate the 5 product fields.
                   </p>
@@ -388,6 +435,14 @@ export default function App() {
               {/* Stage Routing */}
               {currentStage === 'idle' && (
                 <div className="space-y-4">
+                  <HomeScreenActiveExpiryAlerts
+                    onNavigateToAlerts={() => handleNavigate('inventory', 'expiry_alerts')}
+                    onNavigateToStockOut={(prodId) => {
+                      const found = products.find((p) => p.id === prodId);
+                      if (found) setPosProduct(found);
+                      handleNavigate('inventory_out', 'stock_out');
+                    }}
+                  />
                   <MultiShotProductScanner onAnalyze={handleMultiShotAnalyze} disabled={false} />
                 </div>
               )}
@@ -435,6 +490,7 @@ export default function App() {
                   initialData={(productScanResult || extractedData)!}
                   imageThumbnail={capturedImage}
                   capturedImages={capturedImages}
+                  isExtracting={isFormExtracting}
                   onSubmit={handleFormSubmit}
                   onRetake={handleResetWorkflow}
                   onCleanupImages={() => {
@@ -580,6 +636,19 @@ export default function App() {
               <ExpiredProductsView />
             )}
 
+          {/* 2.7.5 Dedicated Expiry Alerts View */}
+          {navState.activeSection === 'inventory' &&
+            navState.activeSubView === 'expiry_alerts' && (
+              <ExpiryAlertsView
+                onResolveStockOut={(prodId) => {
+                  const found = products.find((p) => p.id === prodId);
+                  if (found) setPosProduct(found);
+                  handleNavigate('inventory_out', 'stock_out');
+                }}
+                onNavigateToCatalog={() => handleNavigate('inventory', 'inventory')}
+              />
+            )}
+
           {/* 2.8 Categories */}
           {navState.activeSection === 'inventory' &&
             navState.activeSubView === 'categories' && <CategoriesView />}
@@ -617,7 +686,13 @@ export default function App() {
               <StockTransactionsLedgerView defaultTypeFilter="out" />
             )}
         </Suspense>
+
+        {/* Crawlable Landing Page Content & SEO Knowledge Base */}
+        <SeoLandingContent onNavigate={handleNavigate} />
       </main>
+
+      {/* Semantic Site Footer */}
+      <AppFooter onNavigate={handleNavigate} />
 
       {/* Payload Modal */}
       <Suspense fallback={null}>
@@ -665,7 +740,10 @@ export default function App() {
       )}
 
       {/* Expiry Alert Toast System (30-day proactive warning) */}
-      <ToastContainer onNavigateToInventory={() => handleNavigate('inventory', 'inventory')} />
+      <ToastContainer
+        onNavigateToInventory={() => handleNavigate('inventory', 'inventory')}
+        onNavigateToAlerts={() => handleNavigate('inventory', 'expiry_alerts')}
+      />
     </div>
   );
 }
