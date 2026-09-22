@@ -3,7 +3,7 @@
  * Uses the Gemini REST generateContent endpoint directly so the model
  * identifier is placed in the URL exactly as Google expects.
  */
-const MODEL = "gemini-3.7-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 function sendJson(res: any, status: number, data: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -63,7 +63,7 @@ export default async function handler(req: any, res: any) {
   if (req.method === "OPTIONS") return sendJson(res, 204, {});
   if (req.method !== "POST") return sendJson(res, 405, { success: false, error: "POST required" });
 
-  let usedModel = "gemini-3.7-flash";
+  let usedModel = MODEL;
 
   try {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -130,7 +130,7 @@ ${cueText}`;
     // Try the configured primary model first. If Google returns a temporary
     // capacity/high-demand response, automatically retry with stable Flash
     // fallbacks so a temporary spike does not break product scanning.
-    const models = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"];
+    const models = [MODEL, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"].filter((model, index, list) => list.indexOf(model) === index);
     let googleJson: any = {};
     let googleResponse: Response | null = null;
     usedModel = models[0];
