@@ -13,31 +13,8 @@ export default defineConfig(() => {
     },
     build: {
       target: 'es2020',
-      minify: 'esbuild',
+      minify: 'esbuild' as const,
       cssMinify: true,
-      rollupOptions: {
-        output: {
-          manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('react') || id.includes('react-dom')) {
-                return 'vendor-react';
-              }
-              if (id.includes('lucide-react')) {
-                return 'vendor-icons';
-              }
-              if (id.includes('motion')) {
-                return 'vendor-motion';
-              }
-              if (id.includes('@zxing')) {
-                return 'vendor-zxing';
-              }
-              if (id.includes('tesseract.js')) {
-                return 'vendor-tesseract';
-              }
-            }
-          },
-        },
-      },
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

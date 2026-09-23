@@ -222,5 +222,24 @@
     "next": "Next Step",
     "getStarted": "Get Started Now",
     "continue": "Continue"
+  },
+  "sheets": {
+    "title": "Google Sheets Sync",
+    "subtitle": "Export catalog, backup movements, and import stock using Google Drive & Sheets",
+    "signInWithGoogle": "Sign in with Google",
+    "connected": "Connected to Google",
+    "disconnect": "Disconnect Account",
+    "exportTab": "Export to Sheets",
+    "importTab": "Import from Sheets",
+    "createNewSpreadsheet": "Create New Spreadsheet",
+    "selectExisting": "Select from Google Drive",
+    "openInSheets": "Open in Google Sheets",
+    "exportSuccess": "Exported successfully to Google Sheets!",
+    "importSuccess": "Imported products successfully into inventory!",
+    "confirmExportTitle": "Confirm Google Sheets Export",
+    "confirmExportDesc": "This will write your product catalog and data to the chosen Google Sheet.",
+    "confirmImportTitle": "Confirm Product Import",
+    "confirmImportDesc": "This will import products from the selected spreadsheet tab into your SmartStock AI catalog.",
+    "syncStockMovements": "Auto-sync stock movements to Google Sheets"
   }
 }

@@ -222,5 +222,24 @@
     "next": "अर्को चरण",
     "getStarted": "अहिले सुरु गर्नुहोस्",
     "continue": "जारी राख्नुहोस्"
+  },
+  "sheets": {
+    "title": "गुगल सिट्स सिङ्क",
+    "subtitle": "गुगल ड्राइभ र सिट्स प्रयोग गरी क्याटलग निर्यात, मुभमेन्ट ब्याकअप र स्टक आयात गर्नुहोस्",
+    "signInWithGoogle": "Google मार्फत साइन इन गर्नुहोस्",
+    "connected": "Google सँग जोडिएको छ",
+    "disconnect": "खाता विच्छेद गर्नुहोस्",
+    "exportTab": "सिट्समा निर्यात गर्नुहोस्",
+    "importTab": "सिट्सबाट आयात गर्नुहोस्",
+    "createNewSpreadsheet": "नयाँ स्प्रेडसिट सिर्जना गर्नुहोस्",
+    "selectExisting": "गुगल ड्राइभबाट छान्नुहोस्",
+    "openInSheets": "Google Sheets मा खोल्नुहोस्",
+    "exportSuccess": "Google Sheets मा सफलतापूर्वक निर्यात गरियो!",
+    "importSuccess": "इन्भेन्टरीमा सामानहरू सफलतापूर्वक आयात गरियो!",
+    "confirmExportTitle": "Google Sheets निर्यात पुष्टि गर्नुहोस्",
+    "confirmExportDesc": "यसले तपाईंको उत्पादन क्याटलग र डाटा छनोट गरिएको Google Sheet मा लेख्नेछ।",
+    "confirmImportTitle": "उत्पादन आयात पुष्टि गर्नुहोस्",
+    "confirmImportDesc": "यसले चयन गरिएको स्प्रेडसिटबाट उत्पादनहरू SmartStock AI मा आयात गर्नेछ।",
+    "syncStockMovements": "स्टक कारोबारहरू Google Sheets मा स्वतः सिङ्क गर्नुहोस्"
   }
 }

@@ -25,6 +25,7 @@ import {
   X,
   User,
   Settings,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { MenuSection, AppSubView, UserProfile } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
@@ -41,6 +42,7 @@ interface AppHeaderProps {
   userProfile?: UserProfile | null;
   onEditProfile?: () => void;
   onOpenSettings?: () => void;
+  onOpenGoogleSheets?: () => void;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -54,6 +56,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   userProfile,
   onEditProfile,
   onOpenSettings,
+  onOpenGoogleSheets,
 }) => {
   const { t } = useLanguage();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -648,6 +651,23 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
           {/* Language Selector Button */}
           <LanguageSelectorButton variant="pill" />
+
+          {/* Google Sheets Trigger Button */}
+          {onOpenGoogleSheets && (
+            <button
+              type="button"
+              onClick={onOpenGoogleSheets}
+              id="header-sheets-btn"
+              className="p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200/80 text-emerald-700 hover:text-emerald-900 transition-colors flex items-center gap-1.5"
+              title={t('sheets.title')}
+              aria-label={t('sheets.title')}
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span className="hidden xl:inline-block text-xs font-bold text-emerald-800">
+                Google Sheets
+              </span>
+            </button>
+          )}
 
           {/* Settings Trigger Button */}
           {onOpenSettings && (

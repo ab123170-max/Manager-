@@ -222,5 +222,24 @@
     "next": "अगला कदम",
     "getStarted": "अभी शुरू करें",
     "continue": "जारी रखें"
+  },
+  "sheets": {
+    "title": "Google Sheets सिंक",
+    "subtitle": "Google Drive और Sheets का उपयोग करके कैटलॉग निर्यात, गतिविधि बैकअप और स्टॉक आयात करें",
+    "signInWithGoogle": "Google के साथ साइन इन करें",
+    "connected": "Google से जुड़ा हुआ है",
+    "disconnect": "खाता डिस्कनेक्ट करें",
+    "exportTab": "Sheets में निर्यात करें",
+    "importTab": "Sheets से आयात करें",
+    "createNewSpreadsheet": "नई स्प्रेडशीट बनाएं",
+    "selectExisting": "Google Drive से चुनें",
+    "openInSheets": "Google Sheets में खोलें",
+    "exportSuccess": "Google Sheets में सफलतापूर्वक निर्यात किया गया!",
+    "importSuccess": "इन्वेंट्री में उत्पाद सफलतापूर्वक आयात किए गए!",
+    "confirmExportTitle": "Google Sheets निर्यात की पुष्टि करें",
+    "confirmExportDesc": "यह आपके उत्पाद कैटलॉग और डेटा को चुनी गई Google Sheet में लिखेगा।",
+    "confirmImportTitle": "उत्पाद आयात की पुष्टि करें",
+    "confirmImportDesc": "यह चयनित स्प्रेडशीट से उत्पादों को SmartStock AI कैटलॉग में आयात करेगा।",
+    "syncStockMovements": "स्टॉक लेनदेन को Google Sheets में स्वतः सिंक करें"
   }
 }

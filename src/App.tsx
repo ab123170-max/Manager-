@@ -153,6 +153,11 @@ const OnboardingModal = lazy(() =>
 const SettingsModal = lazy(() =>
   import('./components/settings/SettingsModal').then((m) => ({ default: m.SettingsModal }))
 );
+const GoogleSheetsSyncModal = lazy(() =>
+  import('./components/sheets/GoogleSheetsSyncModal').then((m) => ({
+    default: m.GoogleSheetsSyncModal,
+  }))
+);
 
 export default function App() {
   // Authentication & View Mode State
@@ -161,6 +166,7 @@ export default function App() {
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isEditingProfileModal, setIsEditingProfileModal] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
 
   const [rootMode, setRootMode] = useState<AppRootMode>(() => {
     const currentSession = authService.getSession();
@@ -520,6 +526,7 @@ export default function App() {
         userProfile={session?.profile}
         onEditProfile={() => setIsEditingProfileModal(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
       />
 
       {/* Android Nav Drawer */}
@@ -541,6 +548,7 @@ export default function App() {
         onShowOnboarding={() => setIsOnboardingOpen(true)}
         onLogout={handleLogout}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
       />
 
       {/* Main Container */}
@@ -751,6 +759,7 @@ export default function App() {
                 }}
                 onRecordSale={handleStartSaleForProduct}
                 onNavigateSection={handleNavigate}
+                onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
               />
             )}
 
@@ -948,6 +957,15 @@ export default function App() {
             setIsSettingsOpen(false);
             setIsEditingProfileModal(true);
           }}
+        />
+      </Suspense>
+
+      {/* Google Sheets Sync & Backup Modal */}
+      <Suspense fallback={null}>
+        <GoogleSheetsSyncModal
+          isOpen={isSheetsModalOpen}
+          onClose={() => setIsSheetsModalOpen(false)}
+          onProductsUpdated={() => setProducts(getProducts())}
         />
       </Suspense>
     </div>
