@@ -151,7 +151,28 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="startup-fallback" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#F5F7FA;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#092B4C;">
+        <div style="width:100%;max-width:520px;text-align:center;background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:28px;box-shadow:0 10px 30px rgba(9,43,76,.10);">
+          <div style="font-size:22px;font-weight:800;margin-bottom:8px;">ScanMe AI</div>
+          <div id="startup-status" style="color:#475569;">Starting application…</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.addEventListener('error', function (event) {
+        var root = document.getElementById('root');
+        if (!root) return;
+        var message = event && event.message ? event.message : 'JavaScript failed to load.';
+        root.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#F5F7FA;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif"><div style="max-width:560px;background:#fff;border:1px solid #fecaca;border-radius:20px;padding:24px"><h1 style="color:#991b1b;font-size:22px;margin:0 0 10px">ScanMe AI startup error</h1><pre style="white-space:pre-wrap;word-break:break-word;color:#7f1d1d;font-size:12px">' + String(message).replace(/</g,'&lt;') + '</pre></div></div>';
+      });
+      window.addEventListener('unhandledrejection', function (event) {
+        var root = document.getElementById('root');
+        if (!root) return;
+        var reason = event && event.reason ? (event.reason.message || String(event.reason)) : 'Unhandled promise rejection.';
+        root.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#F5F7FA;font-family:system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif"><div style="max-width:560px;background:#fff;border:1px solid #fecaca;border-radius:20px;padding:24px"><h1 style="color:#991b1b;font-size:22px;margin:0 0 10px">ScanMe AI startup error</h1><pre style="white-space:pre-wrap;word-break:break-word;color:#7f1d1d;font-size:12px">' + String(reason).replace(/</g,'&lt;') + '</pre></div></div>';
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
