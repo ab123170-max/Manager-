@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
+import { LanguageSelectorModal } from './components/common/LanguageSelectorModal';
 
 type LoadedApp = {
   App: React.ComponentType;
   LanguageProvider: React.ComponentType<React.PropsWithChildren>;
-  LanguageSelectorModal: React.ComponentType;
 };
 
 function StartupError({ error, retry }: { error: unknown; retry: () => void }) {
@@ -83,14 +83,12 @@ function Bootstrap() {
     Promise.all([
       import('./App.tsx'),
       import('./context/LanguageContext'),
-      import('./components/common/LanguageSelectorModal'),
     ])
-      .then(([appModule, languageModule, modalModule]) => {
+      .then(([appModule, languageModule]) => {
         if (!active) return;
         setLoaded({
           App: appModule.default,
           LanguageProvider: languageModule.LanguageProvider,
-          LanguageSelectorModal: modalModule.LanguageSelectorModal,
         });
         setError(null);
       })
@@ -130,7 +128,7 @@ function Bootstrap() {
     );
   }
 
-  const { App, LanguageProvider, LanguageSelectorModal } = loaded;
+  const { App, LanguageProvider } = loaded;
 
   return (
     <LanguageProvider>
