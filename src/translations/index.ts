@@ -3,10 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import enTranslations from './en.json';
-import neTranslations from './ne.json';
-import hiTranslations from './hi.json';
-
 export type SupportedLanguage = 'en' | 'ne' | 'hi';
 
 export interface LanguageOption {
@@ -45,11 +41,78 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
   },
 ];
 
-export const TRANSLATIONS_REGISTRY: Record<SupportedLanguage, Record<string, any>> = {
-  en: enTranslations,
-  ne: neTranslations,
-  hi: hiTranslations,
-};
+/**
+ * In-memory translations registry.
+ * Populated on-demand only for the active language.
+ */
+export const TRANSLATIONS_REGISTRY: Partial<Record<SupportedLanguage, Record<string, any>>> = {};
+
+// In-flight loading promises to prevent duplicate fetches
+const loadingPromises: Partial<Record<SupportedLanguage, Promise<Record<string, any>>>> = {};
+
+/**
+ * On-demand translation loader.
+ * Checks memory cache -> checks localStorage cache -> dynamically imports target language chunk.
+ */
+export async function loadLanguageTranslations(lang: SupportedLanguage): Promise<Record<string, any>> {
+  // 1. Memory Cache
+  if (TRANSLATIONS_REGISTRY[lang]) {
+    return TRANSLATIONS_REGISTRY[lang]!;
+  }
+
+  // 2. In-flight promise
+  if (loadingPromises[lang]) {
+    return loadingPromises[lang]!;
+  }
+
+  // 3. LocalStorage Cache
+  const storageKey = `smartstock_lang_dict_v1_${lang}`;
+  if (typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        TRANSLATIONS_REGISTRY[lang] = parsed;
+        return parsed;
+      }
+    } catch {}
+  }
+
+  // 4. Dynamic Import (Code-split language chunk)
+  const promise = (async () => {
+    let dict: Record<string, any>;
+    try {
+      if (lang === 'ne') {
+        const mod = await import('./ne.json');
+        dict = mod.default || mod;
+      } else if (lang === 'hi') {
+        const mod = await import('./hi.json');
+        dict = mod.default || mod;
+      } else {
+        const mod = await import('./en.json');
+        dict = mod.default || mod;
+      }
+    } catch (err) {
+      console.warn(`[translations] Failed to load language '${lang}':`, err);
+      // Fallback to empty dictionary if network fails
+      dict = {};
+    }
+
+    TRANSLATIONS_REGISTRY[lang] = dict;
+
+    // Cache locally for offline and instant subsequent access
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(dict));
+      } catch {}
+    }
+
+    return dict;
+  })();
+
+  loadingPromises[lang] = promise;
+  return promise;
+}
 
 /**
  * Normalizes any language string (e.g. "Nepali", "ne-NP", "Hindi", "hi_IN") to SupportedLanguage
@@ -92,7 +155,7 @@ export function detectBrowserLanguage(): SupportedLanguage {
 }
 
 /**
- * Safe translation lookup with nested dot notation and English fallback
+ * Safe translation lookup with nested dot notation and fallback
  */
 export function translateKey(
   lang: SupportedLanguage,
@@ -117,16 +180,17 @@ export function translateKey(
   };
 
   // 1. Try active language
-  let text = getNested(dictionary, key);
+  let text = dictionary ? getNested(dictionary, key) : null;
 
   // 2. Fall back to English if missing or empty
-  if (!text && lang !== 'en') {
+  if (!text && lang !== 'en' && fallbackDictionary) {
     text = getNested(fallbackDictionary, key);
   }
 
-  // 3. If still missing, return the key itself so UI never displays "undefined"
+  // 3. If still missing, return the human-friendly key leaf so UI remains informative
   if (!text) {
-    text = key;
+    const segments = key.split('.');
+    text = segments[segments.length - 1] || key;
   }
 
   // Parameter replacement: {paramName}

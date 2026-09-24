@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useCamera } from '../../hooks/useCamera';
 import { captureFrameFromVideo, fileToBase64 } from '../../utils/imageEncoder';
-import { SAMPLE_DOCUMENTS } from '../../data/sampleDocuments';
+import { SampleDoc } from '../../types';
 
 interface MultiShotProductScannerProps {
   onAnalyze: (images: string[]) => void;
@@ -49,6 +49,16 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
   const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'samples'>('camera');
   const [cameraStarted, setCameraStarted] = useState(true);
   const [isFlashActive, setIsFlashActive] = useState(false);
+  const [sampleDocs, setSampleDocs] = useState<SampleDoc[]>([]);
+
+  // Dynamically load sample packaged products on-demand
+  useEffect(() => {
+    if (activeTab === 'samples' && sampleDocs.length === 0) {
+      import('../../data/sampleDocuments').then((mod) => {
+        setSampleDocs(mod.SAMPLE_DOCUMENTS);
+      });
+    }
+  }, [activeTab, sampleDocs.length]);
 
   // Initialize camera lifecycle
   useEffect(() => {
@@ -346,7 +356,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
               Select one or multiple sample product packaging photos to test multi-shot extraction:
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              {SAMPLE_DOCUMENTS.map((sample) => (
+              {sampleDocs.map((sample) => (
                 <button
                   key={sample.id}
                   type="button"

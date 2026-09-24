@@ -4,7 +4,7 @@
  */
 
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
-import { SavedInventoryItem, StockTransaction } from '../types';
+import { SavedInventoryItem, StockTransaction, TransactionSource } from '../types';
 
 /**
  * UUID helper: Ensures ID is a valid RFC-4122 UUID for PostgreSQL uuid columns.
@@ -136,29 +136,55 @@ export function mapProductToDbRow(item: Partial<SavedInventoryItem>, userId: str
  * Database Data Service for Supabase PostgreSQL.
  */
 class SupabaseDataService {
+  private inFlightProducts = new Map<string, Promise<SavedInventoryItem[]>>();
+  private inFlightTransactions = new Map<string, Promise<StockTransaction[]>>();
+
   /**
-   * Fetches all products owned by the authenticated user with RLS enforcement.
+   * Fetches products owned by the authenticated user with RLS enforcement and explicit column selection.
    */
-  async fetchProducts(userId: string): Promise<SavedInventoryItem[]> {
+  async fetchProducts(
+    userId: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<SavedInventoryItem[]> {
     if (!isSupabaseConfigured() || !userId) return [];
 
-    try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('[supabaseDataService] fetchProducts error:', error.message);
-        return [];
-      }
-
-      return (data || []).map((row: DbProductRow) => mapDbRowToProduct(row));
-    } catch (e) {
-      console.error('[supabaseDataService] Network error in fetchProducts:', e);
-      return [];
+    const cacheKey = `${userId}_${options?.limit || 100}_${options?.offset || 0}`;
+    if (this.inFlightProducts.has(cacheKey)) {
+      return this.inFlightProducts.get(cacheKey)!;
     }
+
+    const fetchPromise = (async () => {
+      try {
+        const limit = options?.limit ?? 100;
+        const offset = options?.offset ?? 0;
+
+        let query = supabase
+          .from('products')
+          .select(
+            'id, user_id, name, barcode, price, purchase_price, quantity, manufacture_date, expiry_date, best_before_months, unit, description, category, batch_number, rack_location, supplier, mrp, min_stock_alert, created_at, updated_at'
+          )
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .range(offset, offset + limit - 1);
+
+        const { data, error } = await query;
+
+        if (error) {
+          console.error('[supabaseDataService] fetchProducts error:', error.message);
+          return [];
+        }
+
+        return (data || []).map((row: DbProductRow) => mapDbRowToProduct(row));
+      } catch (e) {
+        console.error('[supabaseDataService] Network error in fetchProducts:', e);
+        return [];
+      } finally {
+        this.inFlightProducts.delete(cacheKey);
+      }
+    })();
+
+    this.inFlightProducts.set(cacheKey, fetchPromise);
+    return fetchPromise;
   }
 
   /**
@@ -172,7 +198,9 @@ class SupabaseDataService {
       const { data, error } = await supabase
         .from('products')
         .upsert(dbRow)
-        .select()
+        .select(
+          'id, user_id, name, barcode, price, purchase_price, quantity, manufacture_date, expiry_date, best_before_months, unit, description, category, batch_number, rack_location, supplier, mrp, min_stock_alert, created_at, updated_at'
+        )
         .single();
 
       if (error) {
@@ -213,50 +241,71 @@ class SupabaseDataService {
   }
 
   /**
-   * Fetches user's inventory transactions.
+   * Fetches user's inventory transactions with explicit columns and batch limit.
    */
-  async fetchTransactions(userId: string): Promise<StockTransaction[]> {
+  async fetchTransactions(
+    userId: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<StockTransaction[]> {
     if (!isSupabaseConfigured() || !userId) return [];
 
-    try {
-      const { data, error } = await supabase
-        .from('inventory_transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('[supabaseDataService] fetchTransactions error:', error.message);
-        return [];
-      }
-
-      return (data || []).map((row: DbTransactionRow) => {
-        const isOut = row.transaction_type === 'OUT';
-        const qty = Number(row.quantity);
-        return {
-          id: row.id,
-          transactionId: `STK-${row.id.substring(0, 8).toUpperCase()}`,
-          productId: row.product_id || '',
-          productName: row.product_name || 'Inventory Item',
-          transactionType: isOut ? 'stock_out' : 'stock_in',
-          subType: (row.subtype as any) || (isOut ? 'sale' : 'purchase'),
-          quantity: qty,
-          unit: 'pcs',
-          previousStock: 0,
-          newStock: qty,
-          previousReservedStock: 0,
-          newReservedStock: 0,
-          source: isOut ? 'POS' : 'Purchase',
-          referenceId: row.reference_invoice || undefined,
-          dateTime: row.created_at,
-          timestamp: new Date(row.created_at).getTime() || Date.now(),
-          notes: row.notes || '',
-        };
-      });
-    } catch (e) {
-      console.error('[supabaseDataService] Network error in fetchTransactions:', e);
-      return [];
+    const cacheKey = `${userId}_${options?.limit || 100}_${options?.offset || 0}`;
+    if (this.inFlightTransactions.has(cacheKey)) {
+      return this.inFlightTransactions.get(cacheKey)!;
     }
+
+    const fetchPromise = (async () => {
+      try {
+        const limit = options?.limit ?? 100;
+        const offset = options?.offset ?? 0;
+
+        const { data, error } = await supabase
+          .from('inventory_transactions')
+          .select(
+            'id, user_id, product_id, product_name, transaction_type, subtype, quantity, price, total_amount, notes, reference_invoice, created_at'
+          )
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .range(offset, offset + limit - 1);
+
+        if (error) {
+          console.error('[supabaseDataService] fetchTransactions error:', error.message);
+          return [];
+        }
+
+        return (data || []).map((row: DbTransactionRow) => {
+          const isOut = row.transaction_type === 'OUT';
+          const qty = Number(row.quantity);
+          return {
+            id: row.id,
+            transactionId: `STK-${row.id.substring(0, 8).toUpperCase()}`,
+            productId: row.product_id || '',
+            productName: row.product_name || 'Inventory Item',
+            transactionType: (isOut ? 'stock_out' : 'stock_in') as StockTransaction['transactionType'],
+            subType: (row.subtype as any) || (isOut ? 'sale' : 'purchase'),
+            quantity: qty,
+            unit: 'pcs',
+            previousStock: 0,
+            newStock: qty,
+            previousReservedStock: 0,
+            newReservedStock: 0,
+            source: (isOut ? 'POS' : 'Purchase') as TransactionSource,
+            referenceId: row.reference_invoice || undefined,
+            dateTime: row.created_at,
+            timestamp: new Date(row.created_at).getTime() || Date.now(),
+            notes: row.notes || '',
+          };
+        });
+      } catch (e) {
+        console.error('[supabaseDataService] Network error in fetchTransactions:', e);
+        return [];
+      } finally {
+        this.inFlightTransactions.delete(cacheKey);
+      }
+    })();
+
+    this.inFlightTransactions.set(cacheKey, fetchPromise);
+    return fetchPromise;
   }
 
   /**

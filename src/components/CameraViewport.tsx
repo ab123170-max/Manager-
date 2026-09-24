@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { useCamera } from '../hooks/useCamera';
 import { captureFrameFromVideo, fileToBase64 } from '../utils/imageEncoder';
-import { SAMPLE_DOCUMENTS } from '../data/sampleDocuments';
 import { SampleDoc } from '../types';
 
 interface CameraViewportProps {
@@ -37,6 +36,16 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
   const [capturedPreview, setCapturedPreview] = useState<string | null>(null);
   const [selectedSample, setSelectedSample] = useState<SampleDoc | null>(null);
   const [cameraInitiated, setCameraInitiated] = useState(false);
+  const [sampleDocs, setSampleDocs] = useState<SampleDoc[]>([]);
+
+  // Dynamically load sample documents on-demand
+  useEffect(() => {
+    if (activeTab === 'samples' && sampleDocs.length === 0) {
+      import('../data/sampleDocuments').then((mod) => {
+        setSampleDocs(mod.SAMPLE_DOCUMENTS);
+      });
+    }
+  }, [activeTab, sampleDocs.length]);
 
   // Manage camera hardware lifecycle
   useEffect(() => {
@@ -426,7 +435,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {SAMPLE_DOCUMENTS.map((doc) => (
+                  {sampleDocs.map((doc) => (
                     <button
                       key={doc.id}
                       type="button"

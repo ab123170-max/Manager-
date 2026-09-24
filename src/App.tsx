@@ -5,9 +5,7 @@
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { AppHeader } from './components/navigation/AppHeader';
-import { AndroidNavDrawer } from './components/navigation/AndroidNavDrawer';
 import { ViewLoadingSkeleton } from './components/common/ViewLoadingSkeleton';
-import { extractProduct5FieldsFromImages, extractFormDataFromImage } from './services/geminiService';
 import {
   ExtractedFormData,
   ExtractionStage,
@@ -20,7 +18,6 @@ import {
   AppRootMode,
 } from './types';
 import { authService, subscribeAuth } from './services/authService';
-import { preprocessImageCanvas } from './utils/imagePreprocessing';
 import {
   getProducts,
   getInventoryValuation,
@@ -36,16 +33,33 @@ import {
   Plus,
   RotateCcw,
 } from 'lucide-react';
-import { tempImageManager } from './utils/smartLabelCropper';
-import { ToastContainer } from './components/common/ToastContainer';
-import { SeoLandingContent } from './components/seo/SeoLandingContent';
 import { AppFooter } from './components/navigation/AppFooter';
-import { HomeScreenActiveExpiryAlerts } from './components/scanner/HomeScreenActiveExpiryAlerts';
 import { expiryAlertManager } from './utils/expiryAlertManager';
+import { setPrivatePageSeo } from './utils/seoHelper';
 
 // ============================================================================
 // CODE-SPLIT / LAZY-LOADED HEAVY VIEW CHUNKS
 // ============================================================================
+const AndroidNavDrawer = lazy(() =>
+  import('./components/navigation/AndroidNavDrawer').then((m) => ({
+    default: m.AndroidNavDrawer,
+  }))
+);
+const ToastContainer = lazy(() =>
+  import('./components/common/ToastContainer').then((m) => ({
+    default: m.ToastContainer,
+  }))
+);
+const SeoLandingContent = lazy(() =>
+  import('./components/seo/SeoLandingContent').then((m) => ({
+    default: m.SeoLandingContent,
+  }))
+);
+const HomeScreenActiveExpiryAlerts = lazy(() =>
+  import('./components/scanner/HomeScreenActiveExpiryAlerts').then((m) => ({
+    default: m.HomeScreenActiveExpiryAlerts,
+  }))
+);
 const CameraViewport = lazy(() =>
   import('./components/CameraViewport').then((m) => ({ default: m.CameraViewport }))
 );
@@ -141,6 +155,21 @@ const ProductReputationView = lazy(() =>
 const LandingPage = lazy(() =>
   import('./components/landing/LandingPage').then((m) => ({ default: m.LandingPage }))
 );
+const PublicAiScannerPage = lazy(() =>
+  import('./components/seo/PublicAiScannerPage').then((m) => ({ default: m.PublicAiScannerPage }))
+);
+const PublicBarcodeScannerPage = lazy(() =>
+  import('./components/seo/PublicBarcodeScannerPage').then((m) => ({ default: m.PublicBarcodeScannerPage }))
+);
+const PublicExpiryDatePage = lazy(() =>
+  import('./components/seo/PublicExpiryDatePage').then((m) => ({ default: m.PublicExpiryDatePage }))
+);
+const PublicInventoryManagementPage = lazy(() =>
+  import('./components/seo/PublicInventoryManagementPage').then((m) => ({ default: m.PublicInventoryManagementPage }))
+);
+const PublicFaqPage = lazy(() =>
+  import('./components/seo/PublicFaqPage').then((m) => ({ default: m.PublicFaqPage }))
+);
 const AuthScreen = lazy(() =>
   import('./components/auth/AuthScreen').then((m) => ({ default: m.AuthScreen }))
 );
@@ -179,6 +208,26 @@ export default function App() {
     return 'dashboard';
   });
 
+  const [currentPath, setCurrentPath] = useState<string>(() => {
+    return typeof window !== 'undefined' ? window.location.pathname : '/';
+  });
+
+  useEffect(() => {
+    const onPopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const handlePublicNavigate = (path: string) => {
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', path);
+      setCurrentPath(path);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   useEffect(() => {
     const unsub = subscribeAuth((newSession) => {
       setSession(newSession);
@@ -200,6 +249,18 @@ export default function App() {
   });
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
+  useEffect(() => {
+    if (rootMode !== 'landing') {
+      const pageTitle =
+        rootMode === 'auth'
+          ? 'Sign In'
+          : rootMode === 'profile_setup'
+          ? 'Profile Setup'
+          : navState.activeSection.charAt(0).toUpperCase() + navState.activeSection.slice(1);
+      setPrivatePageSeo(pageTitle);
+    }
+  }, [rootMode, navState.activeSection]);
+
   // Scanner & AutoFill State
   const [prefilledBarcode, setPrefilledBarcode] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<SavedInventoryItem | null>(null);
@@ -217,15 +278,39 @@ export default function App() {
   // Selected item for POS/Sale or Product View
   const [posProduct, setPosProduct] = useState<SavedInventoryItem | null>(null);
 
-  // Store metrics for badge counts
-  const [products, setProducts] = useState(getProducts());
-  const [valuation, setValuation] = useState(getInventoryValuation());
-  const [scanHistory, setScanHistory] = useState(getScanHistory());
-  const [activeExpiryAlertsCount, setActiveExpiryAlertsCount] = useState<number>(() =>
-    expiryAlertManager.getActiveCount()
-  );
+  // Store metrics for badge counts - deferred until dashboard mode
+  const [products, setProducts] = useState<SavedInventoryItem[]>(() => {
+    return rootMode === 'dashboard' ? getProducts() : [];
+  });
+  const [valuation, setValuation] = useState(() => {
+    return rootMode === 'dashboard'
+      ? getInventoryValuation()
+      : {
+          totalInventoryValue: 0,
+          totalRetailValue: 0,
+          potentialProfit: 0,
+          marginPercent: 0,
+          totalUnits: 0,
+          productCount: 0,
+          lowStockCount: 0,
+          expiringCount: 0,
+          expiredCount: 0,
+        };
+  });
+  const [scanHistory, setScanHistory] = useState<any[]>(() => {
+    return rootMode === 'dashboard' ? getScanHistory() : [];
+  });
+  const [activeExpiryAlertsCount, setActiveExpiryAlertsCount] = useState<number>(0);
 
   useEffect(() => {
+    if (rootMode !== 'dashboard') return;
+
+    // Initialize metrics on entering dashboard
+    setProducts(getProducts());
+    setValuation(getInventoryValuation());
+    setScanHistory(getScanHistory());
+    setActiveExpiryAlertsCount(expiryAlertManager.getActiveCount());
+
     const unsubStore = subscribeToStore(() => {
       setProducts(getProducts());
       setValuation(getInventoryValuation());
@@ -238,7 +323,22 @@ export default function App() {
       unsubStore();
       unsubAlerts();
     };
-  }, []);
+  }, [rootMode]);
+
+  // On-demand data sync: fetch only when user opens relevant section
+  useEffect(() => {
+    if (rootMode !== 'dashboard' || !session?.user?.id) return;
+    if (navState.activeSection === 'inventory' || navState.activeSection === 'inventory_in') {
+      import('./utils/unifiedDataStore').then((m) => {
+        m.ensureProductsSynced(session.user.id);
+      });
+    } else if (navState.activeSection === 'inventory_out' || navState.activeSection === 'reports') {
+      import('./utils/unifiedDataStore').then((m) => {
+        m.ensureProductsSynced(session.user.id);
+        m.ensureTransactionsSynced(session.user.id);
+      });
+    }
+  }, [navState.activeSection, rootMode, session?.user?.id]);
 
   const isScannerSubView = (sub: string) =>
     [
@@ -264,7 +364,7 @@ export default function App() {
     const wasInScanner = isScannerSubView(navState.activeSubView);
     const willBeInScanner = isScannerSubView(subView);
     if (wasInScanner && !willBeInScanner) {
-      tempImageManager.clearAll();
+      import('./utils/smartLabelCropper').then((m) => m.tempImageManager.clearAll());
       setCapturedImage(null);
       setCapturedImages([]);
       setExtractionError(null);
@@ -275,6 +375,7 @@ export default function App() {
 
   /**
    * Multi-Shot Synchronized Analysis (1 to 5 photos of product packaging)
+   * AI module is loaded strictly on-demand when user initiates analysis
    */
   const handleMultiShotAnalyze = async (images: string[]) => {
     if (!images || images.length === 0) return;
@@ -303,6 +404,7 @@ export default function App() {
     setCurrentStage('ready');
 
     try {
+      const { extractProduct5FieldsFromImages } = await import('./services/geminiService');
       const result = await extractProduct5FieldsFromImages(images);
       setProductScanResult(result);
       if (result.capturedImages && result.capturedImages.length > 0) {
@@ -371,7 +473,7 @@ export default function App() {
   };
 
   const handleResetWorkflow = () => {
-    tempImageManager.clearAll();
+    import('./utils/smartLabelCropper').then((m) => m.tempImageManager.clearAll());
     setCapturedImage(null);
     setCapturedImages([]);
     setExtractedData(null);
@@ -455,15 +557,64 @@ export default function App() {
   };
 
   // ---------------------------------------------------------------------------
-  // 1. Landing Page View (Unauthenticated Users)
+  // 1. Landing Page & Public SEO Pages (Unauthenticated Users)
   // ---------------------------------------------------------------------------
   if (rootMode === 'landing') {
-    return (
-      <Suspense fallback={<ViewLoadingSkeleton label="Loading SmartStock AI..." />}>
+    let publicContent: React.ReactNode;
+
+    if (currentPath === '/ai-product-scanner') {
+      publicContent = (
+        <PublicAiScannerPage
+          onNavigatePath={handlePublicNavigate}
+          onLaunchApp={handleLandingGetStarted}
+          onLogin={handleLandingLogin}
+        />
+      );
+    } else if (currentPath === '/barcode-scanner') {
+      publicContent = (
+        <PublicBarcodeScannerPage
+          onNavigatePath={handlePublicNavigate}
+          onLaunchApp={handleLandingGetStarted}
+          onLogin={handleLandingLogin}
+        />
+      );
+    } else if (currentPath === '/expiry-date-scanner') {
+      publicContent = (
+        <PublicExpiryDatePage
+          onNavigatePath={handlePublicNavigate}
+          onLaunchApp={handleLandingGetStarted}
+          onLogin={handleLandingLogin}
+        />
+      );
+    } else if (currentPath === '/inventory-management') {
+      publicContent = (
+        <PublicInventoryManagementPage
+          onNavigatePath={handlePublicNavigate}
+          onLaunchApp={handleLandingGetStarted}
+          onLogin={handleLandingLogin}
+        />
+      );
+    } else if (currentPath === '/faq') {
+      publicContent = (
+        <PublicFaqPage
+          onNavigatePath={handlePublicNavigate}
+          onLaunchApp={handleLandingGetStarted}
+          onLogin={handleLandingLogin}
+        />
+      );
+    } else {
+      publicContent = (
         <LandingPage
           onGetStarted={handleLandingGetStarted}
           onLogin={handleLandingLogin}
+          onNavigatePath={handlePublicNavigate}
         />
+      );
+    }
+
+    return (
+      <Suspense fallback={<ViewLoadingSkeleton label="Loading ScanMe AI..." />}>
+        {publicContent}
         <OnboardingModal
           isOpen={isOnboardingOpen}
           onClose={() => setIsOnboardingOpen(false)}
@@ -529,27 +680,31 @@ export default function App() {
         onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
       />
 
-      {/* Android Nav Drawer */}
-      <AndroidNavDrawer
-        isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
-        activeSection={navState.activeSection}
-        activeSubView={navState.activeSubView}
-        onNavigate={handleNavigate}
-        counts={{
-          products: products.length,
-          lowStock: valuation.lowStockCount,
-          expiring: activeExpiryAlertsCount,
-          expired: valuation.expiredCount,
-          scanHistory: scanHistory.length,
-        }}
-        userProfile={session?.profile}
-        onEditProfile={() => setIsEditingProfileModal(true)}
-        onShowOnboarding={() => setIsOnboardingOpen(true)}
-        onLogout={handleLogout}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
-      />
+      {/* Android Nav Drawer - Loaded strictly when opened */}
+      {isDrawerOpen && (
+        <Suspense fallback={null}>
+          <AndroidNavDrawer
+            isOpen={true}
+            onClose={() => setIsDrawerOpen(false)}
+            activeSection={navState.activeSection}
+            activeSubView={navState.activeSubView}
+            onNavigate={handleNavigate}
+            counts={{
+              products: products.length,
+              lowStock: valuation.lowStockCount,
+              expiring: activeExpiryAlertsCount,
+              expired: valuation.expiredCount,
+              scanHistory: scanHistory.length,
+            }}
+            userProfile={session?.profile}
+            onEditProfile={() => setIsEditingProfileModal(true)}
+            onShowOnboarding={() => setIsOnboardingOpen(true)}
+            onLogout={handleLogout}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
+          />
+        </Suspense>
+      )}
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -610,14 +765,16 @@ export default function App() {
               {/* Stage Routing */}
               {currentStage === 'idle' && (
                 <div className="space-y-4">
-                  <HomeScreenActiveExpiryAlerts
-                    onNavigateToAlerts={() => handleNavigate('inventory', 'expiry_alerts')}
-                    onNavigateToStockOut={(prodId) => {
-                      const found = products.find((p) => p.id === prodId);
-                      if (found) setPosProduct(found);
-                      handleNavigate('inventory_out', 'stock_out');
-                    }}
-                  />
+                  <Suspense fallback={null}>
+                    <HomeScreenActiveExpiryAlerts
+                      onNavigateToAlerts={() => handleNavigate('inventory', 'expiry_alerts')}
+                      onNavigateToStockOut={(prodId) => {
+                        const found = products.find((p) => p.id === prodId);
+                        if (found) setPosProduct(found);
+                        handleNavigate('inventory_out', 'stock_out');
+                      }}
+                    />
+                  </Suspense>
                   <MultiShotProductScanner onAnalyze={handleMultiShotAnalyze} disabled={false} />
                 </div>
               )}
@@ -671,7 +828,7 @@ export default function App() {
                   onCleanupImages={() => {
                     setCapturedImage(null);
                     setCapturedImages([]);
-                    tempImageManager.clearAll();
+                    import('./utils/smartLabelCropper').then((m) => m.tempImageManager.clearAll());
                   }}
                 />
               )}
@@ -864,20 +1021,24 @@ export default function App() {
         </Suspense>
 
         {/* Crawlable Landing Page Content & SEO Knowledge Base */}
-        <SeoLandingContent onNavigate={handleNavigate} />
+        <Suspense fallback={null}>
+          <SeoLandingContent onNavigate={handleNavigate} />
+        </Suspense>
       </main>
 
       {/* Semantic Site Footer */}
       <AppFooter onNavigate={handleNavigate} />
 
-      {/* Payload Modal */}
-      <Suspense fallback={null}>
-        <PayloadModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          formData={submittedData}
-        />
-      </Suspense>
+      {/* Payload Modal - loaded on demand */}
+      {isModalOpen && (
+        <Suspense fallback={null}>
+          <PayloadModal
+            isOpen={true}
+            onClose={() => setIsModalOpen(false)}
+            formData={submittedData}
+          />
+        </Suspense>
+      )}
 
       {/* Help Modal */}
       {showHelpModal && (
@@ -916,10 +1077,12 @@ export default function App() {
       )}
 
       {/* Expiry Alert Toast System (30-day proactive warning) */}
-      <ToastContainer
-        onNavigateToInventory={() => handleNavigate('inventory', 'inventory')}
-        onNavigateToAlerts={() => handleNavigate('inventory', 'expiry_alerts')}
-      />
+      <Suspense fallback={null}>
+        <ToastContainer
+          onNavigateToInventory={() => handleNavigate('inventory', 'inventory')}
+          onNavigateToAlerts={() => handleNavigate('inventory', 'expiry_alerts')}
+        />
+      </Suspense>
 
       {/* Edit Profile Modal in Dashboard */}
       {isEditingProfileModal && session?.user && (
@@ -938,36 +1101,42 @@ export default function App() {
         </div>
       )}
 
-      {/* Feature Onboarding / Tour Reopened from Drawer */}
-      <Suspense fallback={null}>
-        <OnboardingModal
-          isOpen={isOnboardingOpen}
-          onClose={() => setIsOnboardingOpen(false)}
-          onFinish={() => setIsOnboardingOpen(false)}
-        />
-      </Suspense>
+      {/* Feature Onboarding / Tour Reopened from Drawer - Loaded strictly when opened */}
+      {isOnboardingOpen && (
+        <Suspense fallback={null}>
+          <OnboardingModal
+            isOpen={true}
+            onClose={() => setIsOnboardingOpen(false)}
+            onFinish={() => setIsOnboardingOpen(false)}
+          />
+        </Suspense>
+      )}
 
-      {/* Global Settings & Language Modal */}
-      <Suspense fallback={null}>
-        <SettingsModal
-          isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
-          userProfile={session?.profile}
-          onEditProfile={() => {
-            setIsSettingsOpen(false);
-            setIsEditingProfileModal(true);
-          }}
-        />
-      </Suspense>
+      {/* Global Settings & Language Modal - Loaded strictly when opened */}
+      {isSettingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal
+            isOpen={true}
+            onClose={() => setIsSettingsOpen(false)}
+            userProfile={session?.profile}
+            onEditProfile={() => {
+              setIsSettingsOpen(false);
+              setIsEditingProfileModal(true);
+            }}
+          />
+        </Suspense>
+      )}
 
-      {/* Google Sheets Sync & Backup Modal */}
-      <Suspense fallback={null}>
-        <GoogleSheetsSyncModal
-          isOpen={isSheetsModalOpen}
-          onClose={() => setIsSheetsModalOpen(false)}
-          onProductsUpdated={() => setProducts(getProducts())}
-        />
-      </Suspense>
+      {/* Google Sheets Sync & Backup Modal - Loaded strictly when opened */}
+      {isSheetsModalOpen && (
+        <Suspense fallback={null}>
+          <GoogleSheetsSyncModal
+            isOpen={true}
+            onClose={() => setIsSheetsModalOpen(false)}
+            onProductsUpdated={() => setProducts(getProducts())}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

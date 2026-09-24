@@ -15,6 +15,18 @@ export default defineConfig(() => {
       target: 'es2020',
       minify: 'esbuild' as const,
       cssMinify: true,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules/firebase')) {
+              return 'vendor-firebase';
+            }
+            if (id.includes('node_modules/@supabase')) {
+              return 'vendor-supabase';
+            }
+          },
+        },
+      },
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

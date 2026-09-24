@@ -77,6 +77,7 @@ function formatUserFriendlyError(err: any, defaultMsg: string): string {
 class AuthService {
   private activeSession: AuthSession | null = null;
   private isInitialized = false;
+  private profilePromises = new Map<string, Promise<UserProfile | null>>();
 
   constructor() {
     this.initSessionFromCache();
@@ -175,44 +176,61 @@ class AuthService {
   }
 
   /**
-   * Fetches user profile from Supabase profiles table.
+   * Fetches user profile from Supabase profiles table with explicit columns and in-flight deduplication.
    */
-  private async fetchProfileFromDb(authUserId: string): Promise<UserProfile | null> {
+  private async fetchProfileFromDb(authUserId: string, bypassCache = false): Promise<UserProfile | null> {
     if (!isSupabaseConfigured()) return null;
 
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('auth_user_id', authUserId)
-        .maybeSingle();
-
-      if (error) {
-        console.warn('[authService] fetchProfileFromDb error:', error.message);
-        return null;
-      }
-
-      if (!data) return null;
-
-      return {
-        id: data.id,
-        auth_user_id: data.auth_user_id,
-        full_name: data.full_name || '',
-        username: data.username || '',
-        email: data.email || '',
-        phone: data.phone || '',
-        profile_image_url: data.profile_image_url || '',
-        address: data.address || '',
-        language: data.language || 'English',
-        currency: data.currency || 'NPR',
-        created_at: data.created_at,
-        updated_at: data.updated_at,
-        is_profile_complete: Boolean(data.full_name && data.username),
-      };
-    } catch (e) {
-      console.error('[authService] fetchProfileFromDb exception:', e);
-      return null;
+    // Check if we already have the valid profile in activeSession
+    if (!bypassCache && this.activeSession?.profile?.auth_user_id === authUserId) {
+      return this.activeSession.profile;
     }
+
+    // Reuse in-flight request if present
+    if (this.profilePromises.has(authUserId)) {
+      return this.profilePromises.get(authUserId)!;
+    }
+
+    const promise = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, auth_user_id, full_name, username, email, phone, profile_image_url, address, language, currency, created_at, updated_at')
+          .eq('auth_user_id', authUserId)
+          .maybeSingle();
+
+        if (error) {
+          console.warn('[authService] fetchProfileFromDb error:', error.message);
+          return null;
+        }
+
+        if (!data) return null;
+
+        return {
+          id: data.id,
+          auth_user_id: data.auth_user_id,
+          full_name: data.full_name || '',
+          username: data.username || '',
+          email: data.email || '',
+          phone: data.phone || '',
+          profile_image_url: data.profile_image_url || '',
+          address: data.address || '',
+          language: data.language || 'English',
+          currency: data.currency || 'NPR',
+          created_at: data.created_at,
+          updated_at: data.updated_at,
+          is_profile_complete: Boolean(data.full_name && data.username),
+        };
+      } catch (e) {
+        console.error('[authService] fetchProfileFromDb exception:', e);
+        return null;
+      } finally {
+        this.profilePromises.delete(authUserId);
+      }
+    })();
+
+    this.profilePromises.set(authUserId, promise);
+    return promise;
   }
 
   /**

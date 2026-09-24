@@ -11,6 +11,7 @@ import {
   detectBrowserLanguage,
   normalizeLanguageCode,
   translateKey,
+  loadLanguageTranslations,
 } from '../translations';
 import { authService, subscribeAuth } from '../services/authService';
 
@@ -74,6 +75,18 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [language, setLanguageState] = useState<SupportedLanguage>(determineInitialLanguage);
   const [isLanguageSelectorOpen, setIsLanguageSelectorOpen] = useState<boolean>(false);
   const [lastLanguageChangeNotice, setLastLanguageChangeNotice] = useState<string | null>(null);
+  const [, setTranslationsVersion] = useState(0);
+
+  // Load translations on-demand for active language
+  useEffect(() => {
+    let active = true;
+    loadLanguageTranslations(language).then(() => {
+      if (active) setTranslationsVersion((v) => v + 1);
+    });
+    return () => {
+      active = false;
+    };
+  }, [language]);
 
   const activeOption = useMemo(() => {
     return SUPPORTED_LANGUAGES.find((l) => l.code === language) || SUPPORTED_LANGUAGES[1]; // default English
@@ -106,7 +119,9 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
   // Change language function
   const setLanguage = useCallback(
     async (newLang: SupportedLanguage) => {
+      await loadLanguageTranslations(newLang);
       setLanguageState(newLang);
+      setTranslationsVersion((v) => v + 1);
 
       // Persist locally
       try {

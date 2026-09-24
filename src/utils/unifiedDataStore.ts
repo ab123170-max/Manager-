@@ -108,21 +108,50 @@ function notifyListeners() {
   });
 }
 
+let lastProductsSyncTime = 0;
+let lastTransactionsSyncTime = 0;
+const SYNC_THROTTLE_MS = 60000; // 1 minute throttle to avoid repeated queries
+
 /**
- * Synchronizes local inventory store with Supabase PostgreSQL tables.
+ * On-demand synchronization of local products with Supabase PostgreSQL tables.
  */
-export async function syncWithSupabase(userId?: string): Promise<void> {
+export async function ensureProductsSynced(userId?: string, force = false): Promise<void> {
   const currentUserId = userId || authService.getCurrentUser()?.id;
   if (!currentUserId) return;
 
+  const now = Date.now();
+  if (!force && now - lastProductsSyncTime < SYNC_THROTTLE_MS) {
+    return;
+  }
+
   try {
+    lastProductsSyncTime = now;
     const remoteProducts = await supabaseDataService.fetchProducts(currentUserId);
     if (remoteProducts && remoteProducts.length > 0) {
       setStoredArray(STORAGE_KEYS.PRODUCTS, remoteProducts);
       invalidateStoreCache();
       notifyListeners();
     }
+  } catch (err) {
+    console.warn('[unifiedDataStore] Supabase products sync notice:', err);
+  }
+}
 
+/**
+ * On-demand synchronization of transactions with Supabase PostgreSQL tables.
+ * Only called when transaction/accounting screens are opened.
+ */
+export async function ensureTransactionsSynced(userId?: string, force = false): Promise<void> {
+  const currentUserId = userId || authService.getCurrentUser()?.id;
+  if (!currentUserId) return;
+
+  const now = Date.now();
+  if (!force && now - lastTransactionsSyncTime < SYNC_THROTTLE_MS) {
+    return;
+  }
+
+  try {
+    lastTransactionsSyncTime = now;
     const remoteTxns = await supabaseDataService.fetchTransactions(currentUserId);
     if (remoteTxns && remoteTxns.length > 0) {
       setStoredArray(STORAGE_KEYS.STOCK_TRANSACTIONS, remoteTxns);
@@ -130,17 +159,18 @@ export async function syncWithSupabase(userId?: string): Promise<void> {
       notifyListeners();
     }
   } catch (err) {
-    console.warn('[unifiedDataStore] Supabase sync notice:', err);
+    console.warn('[unifiedDataStore] Supabase transactions sync notice:', err);
   }
 }
 
-// Auto-subscribe to auth changes so the store synchronizes automatically upon sign-in
-if (typeof window !== 'undefined') {
-  subscribeAuth((session) => {
-    if (session?.user?.id) {
-      syncWithSupabase(session.user.id);
-    }
-  });
+/**
+ * Synchronizes local inventory store with Supabase PostgreSQL tables on-demand.
+ */
+export async function syncWithSupabase(userId?: string, force = false): Promise<void> {
+  await Promise.all([
+    ensureProductsSynced(userId, force),
+    ensureTransactionsSynced(userId, force),
+  ]);
 }
 
 function getStoredArray<T>(key: string, defaultVal: T[] = []): T[] {
