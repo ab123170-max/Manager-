@@ -61,7 +61,7 @@ export const LanguageSelectorModal: React.FC<LanguageSelectorModalProps> = ({
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: '100%', opacity: 0 }}
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-          className="relative w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 overflow-hidden z-10 pb-6 sm:pb-5"
+          className="relative w-full sm:max-w-md max-h-[calc(100dvh-1rem)] sm:max-h-[90dvh] bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 overflow-hidden z-10 pb-4 sm:pb-5 flex flex-col"
         >
           {/* Mobile Drag Pill */}
           <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mt-3 mb-1 sm:hidden" />
@@ -96,7 +96,7 @@ export const LanguageSelectorModal: React.FC<LanguageSelectorModalProps> = ({
           </div>
 
           {/* Language Options List */}
-          <div className="p-4 space-y-2">
+          <div className="p-4 space-y-2 overflow-y-auto overscroll-contain min-h-0">
             {supportedLanguages.map((item) => {
               const isSelected = language === item.code;
               return (
