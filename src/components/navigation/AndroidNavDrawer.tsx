@@ -239,7 +239,7 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
         </div>
 
         {/* Navigation Sections */}
-        <div className="flex-1 overflow-y-auto py-3 px-3 space-y-2">
+        <div className="flex-1 min-h-0 overflow-y-auto py-3 px-3 space-y-2 overscroll-contain">
           {menuSections.map((section) => {
             const isExpanded = expandedSection === section.id;
             const isCurrentSection =
@@ -379,7 +379,7 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
         </div>
 
         {/* User Account & Actions Footer */}
-        <div className="p-3.5 border-t border-slate-200 bg-slate-50 space-y-2.5">
+        <div className="shrink-0 p-3.5 border-t border-slate-200 bg-slate-50 space-y-2.5">
           {userProfile && (
             <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -478,7 +478,7 @@ export const AndroidNavDrawer: React.FC<AndroidNavDrawerProps> = ({
                   onClose();
                   onLogout();
                 }}
-                className="text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 transition-colors hover:bg-rose-50 px-2 py-1 rounded-lg"
+                className="w-full sm:w-auto justify-center text-[11px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 transition-colors hover:bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg bg-white"
               >
                 <LogOut className="w-3 h-3" />
                 <span>{t('auth.logout')}</span>
