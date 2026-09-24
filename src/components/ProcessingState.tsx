@@ -36,7 +36,7 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({
   const pipelineSteps = [
     { title: 'OpenCV Preprocessing', desc: 'Grayscale & contrast enhancement' },
     { title: 'Local OCR Extraction', desc: 'Analyzing local character & date cues' },
-    { title: `Gemini 3.7 Vision Supervisor`, desc: `Auditing OCR via model '${GEMINI_MODEL}'` },
+    { title: `Gemini Vision Supervisor`, desc: `Auditing OCR via model '${GEMINI_MODEL}'` },
     { title: 'Structured Field Mapping', desc: 'Resolving SKU, batch, dates & confidence' },
     { title: 'Validation & Auto-Fill', desc: 'Applying strict zero-hallucination rules' },
   ];

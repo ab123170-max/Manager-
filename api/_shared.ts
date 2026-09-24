@@ -14,14 +14,15 @@ dotenv.config();
  * CENTRALIZED MODEL CONFIGURATION & SANITIZATION
  * ============================================================================
  */
-export const VALID_GEMINI_MODEL_ID = "gemini-3.7-flash";
+export const VALID_GEMINI_MODEL_ID = "gemini-3.8-flash";
 
 export function resolveGeminiModel(candidate?: string): string {
   const DEFAULT_MODEL = VALID_GEMINI_MODEL_ID;
-  if (!candidate || typeof candidate !== "string") {
+  const raw = candidate || process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  if (!raw || typeof raw !== "string") {
     return DEFAULT_MODEL;
   }
-  let clean = candidate.trim();
+  let clean = raw.trim().replace(/^models\//, "");
   while (clean.startsWith("models/")) {
     clean = clean.replace(/^models\//, "");
   }
@@ -40,8 +41,8 @@ export function resolveGeminiModel(candidate?: string): string {
 export const GEMINI_MODEL = resolveGeminiModel(process.env.GEMINI_MODEL);
 
 export const VALID_VISION_MODELS = [
-  "gemini-3.7-flash",
   "gemini-3.8-flash",
+  "gemini-3.7-flash",
   "gemini-3.1-flash-lite",
 ];
 
@@ -267,9 +268,10 @@ Return strict JSON:
         let geminiRes: any = null;
         for (const candidate of candidates) {
           try {
+            const cleanCandidate = candidate.replace(/^models\//, "");
             geminiRes = await callGeminiWithBackoff(async () => {
               return await ai.models.generateContent({
-                model: candidate,
+                model: cleanCandidate,
                 contents: [
                   {
                     role: "user",
@@ -392,9 +394,10 @@ export async function handleScan(req: any, res: any) {
         let gemRes: any = null;
         for (const candidate of candidates) {
           try {
+            const cleanCandidate = candidate.replace(/^models\//, "");
             gemRes = await callGeminiWithBackoff(async () => {
               return await ai.models.generateContent({
-                model: candidate,
+                model: cleanCandidate,
                 contents: [
                   {
                     role: "user",
@@ -712,10 +715,11 @@ ${localCuesContext}`;
 
     for (const candidate of modelCandidates) {
       try {
-        usedModel = candidate;
+        const cleanCandidate = candidate.replace(/^models\//, "");
+        usedModel = cleanCandidate;
         response = await callGeminiWithBackoff(async () => {
           return await ai.models.generateContent({
-            model: candidate,
+            model: cleanCandidate,
             ...requestPayload,
           });
         }, 1);
@@ -1193,10 +1197,11 @@ Return strict JSON only matching the schema.`;
 
     for (const candidate of modelCandidates) {
       try {
-        usedModel = candidate;
+        const cleanCandidate = candidate.replace(/^models\//, "");
+        usedModel = cleanCandidate;
         response = await callGeminiWithBackoff(async () => {
           return await ai.models.generateContent({
-            model: candidate,
+            model: cleanCandidate,
             contents: [
               {
                 role: "user",

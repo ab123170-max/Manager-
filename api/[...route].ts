@@ -1,8 +1,8 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
 function modelName(): string {
-  const value = (process.env.GEMINI_MODEL || 'gemini-3.7-flash').trim();
-  let clean = value;
+  const value = (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim();
+  let clean = value.replace(/^models\//, '');
   while (clean.startsWith('models/')) {
     clean = clean.replace(/^models\//, '');
   }
@@ -12,7 +12,7 @@ function modelName(): string {
     /^gemini-(1\.5|2\.0|2\.5)/i.test(clean) ||
     !/^gemini-[a-z0-9.\-]+$/i.test(clean)
   ) {
-    return 'gemini-3.7-flash';
+    return 'gemini-3.8-flash';
   }
   return clean;
 }

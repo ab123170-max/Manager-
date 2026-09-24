@@ -1,9 +1,19 @@
 /**
  * Vercel serverless endpoint: POST /api/extract-form
- * Uses the Gemini REST generateContent endpoint directly so the model
- * identifier is placed in the URL exactly as Google expects.
+ * Official @google/genai SDK integration with strict model name formatting
  */
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+import { GoogleGenAI, Type } from "@google/genai";
+
+function cleanModelName(candidate?: string): string {
+  const raw = (candidate || process.env.GEMINI_MODEL || "gemini-3.8-flash").trim();
+  let clean = raw.replace(/^models\//, "");
+  while (clean.startsWith("models/")) {
+    clean = clean.replace(/^models\//, "");
+  }
+  return clean || "gemini-3.8-flash";
+}
+
+const MODEL = cleanModelName(process.env.GEMINI_MODEL || "gemini-3.8-flash");
 
 function sendJson(res: any, status: number, data: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -15,12 +25,22 @@ function sendJson(res: any, status: number, data: any) {
 
 async function getBody(req: any) {
   if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string") return JSON.parse(req.body);
+  if (typeof req.body === "string") {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      return {};
+    }
+  }
   return await new Promise<any>((resolve, reject) => {
     let raw = "";
     req.on("data", (chunk: any) => (raw += chunk));
     req.on("end", () => {
-      try { resolve(raw ? JSON.parse(raw) : {}); } catch (e) { reject(e); }
+      try {
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (e) {
+        reject(e);
+      }
     });
     req.on("error", reject);
   });
@@ -37,27 +57,190 @@ function cleanImage(value: unknown, fallbackMime = "image/jpeg") {
   return { data, mimeType };
 }
 
+function parseDateParts(dateStr: string) {
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const raw = dateStr.trim();
+  if (!raw) return null;
+  const dmy = raw.match(/^(\d{1,2})([/\-.])(\d{1,2})\2(\d{2,4})$/);
+  if (dmy) {
+    const d = parseInt(dmy[1], 10);
+    const m = parseInt(dmy[3], 10);
+    let y = dmy[4];
+    if (y.length === 2) y = `20${y}`;
+    if (d >= 1 && d <= 31 && m >= 1 && m <= 12) {
+      return { day: d, month: m, year: parseInt(y, 10), sep: dmy[2], format: "DMY" };
+    }
+  }
+  const my = raw.match(/^(\d{1,2})([/\-.])(\d{2,4})$/);
+  if (my) {
+    const m = parseInt(my[1], 10);
+    let y = my[3];
+    if (y.length === 2) y = `20${y}`;
+    if (m >= 1 && m <= 12) {
+      return { month: m, year: parseInt(y, 10), sep: my[2], format: "MY" };
+    }
+  }
+  const ymd = raw.match(/^(\d{4})([/\-.])(\d{1,2})\2(\d{1,2})$/);
+  if (ymd) {
+    const y = parseInt(ymd[1], 10);
+    const m = parseInt(ymd[3], 10);
+    const d = parseInt(ymd[4], 10);
+    if (d >= 1 && d <= 31 && m >= 1 && m <= 12) {
+      return { day: d, month: m, year: y, sep: ymd[2], format: "YMD" };
+    }
+  }
+  return null;
+}
+
+function addMonths(dateStr: string, monthsToAdd: number): string {
+  const p = parseDateParts(dateStr);
+  if (!p || !monthsToAdd || monthsToAdd <= 0) return "";
+  const totalMonths = p.month - 1 + monthsToAdd;
+  const newYear = p.year + Math.floor(totalMonths / 12);
+  const newMonth = (totalMonths % 12) + 1;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const sep = p.sep || "/";
+
+  if (p.format === "DMY" && p.day !== undefined) {
+    const maxD = new Date(newYear, newMonth, 0).getDate();
+    return `${pad(Math.min(p.day, maxD))}${sep}${pad(newMonth)}${sep}${newYear}`;
+  }
+  return `${pad(newMonth)}${sep}${newYear}`;
+}
+
+function diffMonths(mfdStr: string, expStr: string): number | null {
+  const m = parseDateParts(mfdStr);
+  const e = parseDateParts(expStr);
+  if (!m || !e) return null;
+  const d = (e.year - m.year) * 12 + (e.month - m.month);
+  return d > 0 && d <= 120 ? d : null;
+}
+
 function normalizeResult(raw: any) {
   const r = raw && typeof raw === "object" ? raw : {};
+  let price: number | null = null;
+  if (typeof r.price === "number" && !isNaN(r.price)) {
+    price = r.price;
+  } else if (typeof r.price === "string") {
+    const num = parseFloat(r.price.replace(/[^0-9.]/g, ""));
+    if (!isNaN(num)) price = num;
+  }
+
+  let mfd = typeof r.manufactureDate === "string" ? r.manufactureDate.trim() : "";
+  let exp = typeof r.expiryDate === "string" ? r.expiryDate.trim() : "";
+  let bbMonths: number | null = null;
+  if (typeof r.bestBeforeMonths === "number" && !isNaN(r.bestBeforeMonths) && r.bestBeforeMonths > 0) {
+    bbMonths = Math.round(r.bestBeforeMonths);
+  }
+
+  let isCalculatedExpiry = Boolean(r.isCalculatedExpiry);
+  if (mfd && bbMonths && !exp) {
+    const calc = addMonths(mfd, bbMonths);
+    if (calc) {
+      exp = calc;
+      isCalculatedExpiry = true;
+    }
+  } else if (mfd && exp && !bbMonths) {
+    bbMonths = diffMonths(mfd, exp);
+  }
+
+  let quantity = 1;
+  if (typeof r.quantity === "number" && r.quantity > 0) {
+    quantity = r.quantity;
+  } else if (typeof r.quantity === "string") {
+    const num = parseInt(r.quantity, 10);
+    if (!isNaN(num) && num > 0) quantity = num;
+  }
+
   return {
-    productName: typeof r.productName === "string" ? r.productName : "",
-    price: typeof r.price === "number" ? r.price : (r.price ? Number(r.price) || null : null),
-    currency: typeof r.currency === "string" ? r.currency : "",
-    manufactureDate: typeof r.manufactureDate === "string" ? r.manufactureDate : "",
-    expiryDate: typeof r.expiryDate === "string" ? r.expiryDate : "",
-    bestBeforeMonths: typeof r.bestBeforeMonths === "number" ? r.bestBeforeMonths : (r.bestBeforeMonths ? Number(r.bestBeforeMonths) || null : null),
-    quantity: typeof r.quantity === "number" ? r.quantity : (Number(r.quantity) || 1),
-    unit: typeof r.unit === "string" ? r.unit : "pcs",
-    detectedLanguage: typeof r.detectedLanguage === "string" ? r.detectedLanguage : "",
-    confidence: r.confidence && typeof r.confidence === "object" ? r.confidence : { overall: 0 },
+    productName: typeof r.productName === "string" ? r.productName.trim() : "",
+    price,
+    currency: typeof r.currency === "string" ? r.currency.trim().toUpperCase() : "",
+    manufactureDate: mfd,
+    expiryDate: exp,
+    bestBeforeMonths: bbMonths,
+    quantity,
+    unit: typeof r.unit === "string" && r.unit.trim() ? r.unit.trim() : "pcs",
+    detectedLanguage: typeof r.detectedLanguage === "string" && r.detectedLanguage.trim() ? r.detectedLanguage.trim() : "English",
+    isCalculatedExpiry,
+    confidence: r.confidence && typeof r.confidence === "object" ? r.confidence : {
+      productName: r.productName ? 0.95 : 0.0,
+      price: price !== null ? 0.90 : 0.0,
+      currency: r.currency ? 0.90 : 0.3,
+      manufactureDate: mfd ? 0.95 : 0.0,
+      expiryDate: exp ? 0.95 : 0.0,
+      bestBeforeMonths: bbMonths !== null ? 0.90 : 0.0,
+      quantity: 0.90,
+      unit: r.unit ? 0.90 : 0.3,
+      detectedLanguage: r.detectedLanguage ? 0.95 : 0.5,
+      overall: 0.92,
+    },
     warnings: Array.isArray(r.warnings) ? r.warnings : [],
   };
 }
 
-function extractJson(text: string) {
-  const cleaned = String(text || "").replace(/^\`\`\`json\s*/i, "").replace(/\s*\`\`\`$/i, "").trim();
-  return JSON.parse(cleaned);
-}
+const productExtractionSchema = {
+  type: Type.OBJECT,
+  properties: {
+    productName: {
+      type: Type.STRING,
+      description: "Complete product name exactly as printed on packaging without translation.",
+    },
+    price: {
+      type: Type.NUMBER,
+      description: "Numeric MRP or selling price value. Null if not visible.",
+    },
+    currency: {
+      type: Type.STRING,
+      description: "Detected currency code (e.g., NPR, INR, USD, EUR, GBP). Empty string if not found.",
+    },
+    manufactureDate: {
+      type: Type.STRING,
+      description: "Manufacture date (MFD/MFG/DOM/PKD) as printed.",
+    },
+    expiryDate: {
+      type: Type.STRING,
+      description: "Expiry date (EXP/EXD/USE BY) as printed or calculated.",
+    },
+    bestBeforeMonths: {
+      type: Type.NUMBER,
+      description: "Duration in months if printed as a best before period.",
+    },
+    quantity: {
+      type: Type.NUMBER,
+      description: "Inventory count (e.g., 1 for single package, 12 for 12-pack). Default 1.",
+    },
+    unit: {
+      type: Type.STRING,
+      description: "Standard unit: 'g', 'kg', 'mg', 'mL', 'L', 'pcs', 'bottles', 'cans', 'packets', 'boxes'.",
+    },
+    detectedLanguage: {
+      type: Type.STRING,
+      description: "Detected primary language on package (e.g., English, Nepali, Hindi).",
+    },
+    confidence: {
+      type: Type.OBJECT,
+      properties: {
+        productName: { type: Type.NUMBER },
+        price: { type: Type.NUMBER },
+        currency: { type: Type.NUMBER },
+        manufactureDate: { type: Type.NUMBER },
+        expiryDate: { type: Type.NUMBER },
+        bestBeforeMonths: { type: Type.NUMBER },
+        quantity: { type: Type.NUMBER },
+        unit: { type: Type.NUMBER },
+        detectedLanguage: { type: Type.NUMBER },
+        overall: { type: Type.NUMBER },
+      },
+    },
+    warnings: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: "Notices regarding uncertain fields or date calculations.",
+    },
+  },
+  required: ["productName", "manufactureDate", "expiryDate"],
+};
 
 export default async function handler(req: any, res: any) {
   if (req.method === "OPTIONS") return sendJson(res, 204, {});
@@ -66,24 +249,26 @@ export default async function handler(req: any, res: any) {
   let usedModel = MODEL;
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const body = await getBody(req);
+    const apiKey = body?.apiKey || process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return sendJson(res, 500, {
         success: false,
         code: "API_KEY_MISSING",
-        error: "GEMINI_API_KEY is not configured in Vercel.",
+        error: "GEMINI_API_KEY is not configured in Vercel environment or settings.",
       });
     }
 
-    const body = await getBody(req);
     const rawImages: any[] = Array.isArray(body?.images)
       ? body.images
       : (body?.imageBase64 ? [body.imageBase64] : []);
 
     const images = rawImages
-      .map((item) => typeof item === "string"
-        ? cleanImage(item, body?.mimeType || "image/jpeg")
-        : cleanImage(item?.imageBase64 || item?.dataUrl || "", item?.mimeType || body?.mimeType || "image/jpeg"))
+      .map((item) =>
+        typeof item === "string"
+          ? cleanImage(item, body?.mimeType || "image/jpeg")
+          : cleanImage(item?.imageBase64 || item?.dataUrl || "", item?.mimeType || body?.mimeType || "image/jpeg")
+      )
       .filter((x) => x.data);
 
     if (!images.length) {
@@ -111,10 +296,13 @@ Analyze all supplied photos as the SAME product.
 Extract ONLY:
 1. productName: exact printed product name.
 2. price: numeric printed MRP/price, null if not visible.
-3. currency: currency code only when supported by printed markings.
+3. currency: currency code only when supported by printed markings (e.g. NPR, INR, USD, EUR, GBP).
 4. manufactureDate: MFD/MFG/DOM/PKD date exactly as printed.
 5. expiryDate: EXP/EXD/USE BY date exactly as printed.
 6. bestBeforeMonths: duration in months if printed or reliably derivable from MFD and expiry.
+7. quantity: inventory count (default 1).
+8. unit: package unit (e.g., pcs, g, kg, mL, L).
+9. detectedLanguage: detected primary language on label.
 
 Rules:
 - Never invent or hallucinate information.
@@ -122,118 +310,79 @@ Rules:
 - If MFD + Best Before duration is visible and expiry is absent, calculate expiry.
 - Preserve the printed date format when possible.
 - Analyze all photos together as one product.
-- Return JSON only.
+- Return JSON strictly matching the schema.
 
 Local OCR cues (may be incomplete; verify against images):
 ${cueText}`;
 
-    // Try the configured primary model first. If Google returns a temporary
-    // capacity/high-demand response, automatically retry with stable Flash
-    // fallbacks so a temporary spike does not break product scanning.
-    const models = [MODEL, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"].filter((model, index, list) => list.indexOf(model) === index);
-    let googleJson: any = {};
-    let googleResponse: Response | null = null;
-    usedModel = models[0];
+    const ai = new GoogleGenAI({
+      apiKey,
+    });
 
-    for (const candidateModel of models) {
-      const endpoint =
-        `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const primaryModel = (process.env.GEMINI_MODEL || "gemini-3.8-flash").replace(/^models\//, "");
+    const model = cleanModelName(primaryModel);
 
-      const requestBody = {
-        contents: [{
-          role: "user",
-          parts: [
-            ...images.map((img) => ({
-              inline_data: {
-                mime_type: img.mimeType,
-                data: img.data,
-              },
-            })),
-            { text: prompt },
+    const candidateModels = [
+      model,
+      "gemini-3.7-flash",
+      "gemini-3.1-flash-lite",
+    ]
+      .map(cleanModelName)
+      .filter((m, index, list) => list.indexOf(m) === index);
+
+    const imageParts = images.map((img) => ({
+      inlineData: {
+        mimeType: img.mimeType,
+        data: img.data,
+      },
+    }));
+
+    let response: any = null;
+    let lastError: any = null;
+
+    for (const candidate of candidateModels) {
+      try {
+        usedModel = candidate;
+        response = await ai.models.generateContent({
+          model: candidate,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                ...imageParts,
+                { text: prompt },
+              ],
+            },
           ],
-        }],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
-      };
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: productExtractionSchema,
+            temperature: 0.1,
+          },
+        });
 
-      googleResponse = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      googleJson = await googleResponse.json().catch(() => ({}));
-      usedModel = candidateModel;
-
-      // Retry only transient capacity/rate-limit errors. Do not hide
-      // authentication, permission, malformed-request, or quota errors.
-      if (googleResponse.ok) break;
-
-      const status = googleResponse.status;
-      const apiStatus = String(googleJson?.error?.status || "").toUpperCase();
-      const message = String(googleJson?.error?.message || "").toLowerCase();
-      const transient =
-        status === 429 ||
-        status === 503 ||
-        apiStatus === "UNAVAILABLE" ||
-        message.includes("high demand") ||
-        message.includes("temporarily unavailable");
-
-      if (!transient) break;
+        if (response?.text) {
+          break;
+        }
+      } catch (candidateErr: any) {
+        lastError = candidateErr;
+        console.warn(`[extract-form] Model '${candidate}' failed:`, candidateErr?.message || candidateErr);
+        // Continue to fallback candidate
+      }
     }
 
-    if (!googleResponse) {
-      return sendJson(res, 502, {
+    if (!response?.text) {
+      const errMsg = lastError?.message || "Gemini returned an empty response.";
+      const status = lastError?.status || 500;
+      return sendJson(res, status >= 400 && status < 600 ? status : 500, {
         success: false,
-        code: "GEMINI_REQUEST_FAILED",
-        error: "Could not reach Gemini.",
-      });
-    }
-
-    if (!googleResponse.ok) {
-      const googleMessage =
-        googleJson?.error?.message ||
-        `Gemini API returned HTTP ${googleResponse.status}.`;
-
-      console.error("[extract-form] Gemini REST error:", googleJson);
-
-      return sendJson(res, googleResponse.status, {
-        success: false,
-        code: googleJson?.error?.status || "GEMINI_REQUEST_FAILED",
-        error: googleMessage,
-        model: usedModel,
-        attemptedModels: models,
-      });
-    }
-
-    const text =
-      googleJson?.candidates?.[0]?.content?.parts
-        ?.map((part: any) => part?.text || "")
-        .join("")
-        .trim() || "";
-
-    if (!text) {
-      return sendJson(res, 502, {
-        success: false,
-        code: "GEMINI_EMPTY_RESPONSE",
-        error: "Gemini returned no extraction result.",
+        code: lastError?.code || "EXTRACTION_FAILED",
+        error: errMsg,
         model: usedModel,
       });
     }
 
-    let parsed: any;
-    try {
-      parsed = extractJson(text);
-    } catch {
-      return sendJson(res, 502, {
-        success: false,
-        code: "JSON_PARSE_ERROR",
-        error: "Gemini returned an invalid JSON extraction result.",
-        model: usedModel,
-      });
-    }
-
+    const parsed = JSON.parse(response.text);
     return sendJson(res, 200, {
       success: true,
       model: usedModel,
@@ -241,11 +390,11 @@ ${cueText}`;
       data: normalizeResult(parsed),
     });
   } catch (err: any) {
-    console.error("[extract-form] Vercel handler error:", err);
+    console.error("[extract-form] Handler error:", err);
     return sendJson(res, 500, {
       success: false,
       code: "INTERNAL_SERVER_ERROR",
-      error: err?.message || "Gemini extraction failed on Vercel.",
+      error: err?.message || "Gemini extraction failed.",
       model: usedModel,
     });
   }
