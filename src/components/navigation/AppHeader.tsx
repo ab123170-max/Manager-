@@ -282,7 +282,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             {isDropdownOpen && (
               <div
                 id="header-nav-dropdown-panel"
-                className="absolute right-0 top-full mt-2 w-84 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200/90 p-3 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100"
+                className="fixed right-2 sm:right-4 top-[4.5rem] w-[calc(100vw-1rem)] max-w-[24rem] max-h-[calc(100dvh-5rem)] overflow-hidden bg-white rounded-2xl shadow-2xl border border-slate-200/90 p-3 z-[60] animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100"
               >
                 {/* Dropdown Header */}
                 <div className="pb-2.5 px-1 flex items-center justify-between">
@@ -306,7 +306,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 </div>
 
                 {/* Sub-Menus List */}
-                <div className="py-2.5 space-y-3 max-h-[75vh] overflow-y-auto pr-0.5">
+                <div className="py-2.5 space-y-3 max-h-[calc(100dvh-11rem)] overflow-y-auto pr-0.5 overscroll-contain">
                   {/* ========================================================= */}
                   {/* SUB-MENU 1: INVENTORY IN (With Scanner inside!)           */}
                   {/* ========================================================= */}
