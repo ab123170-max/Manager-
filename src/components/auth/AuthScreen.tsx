@@ -34,7 +34,7 @@ export type AuthScreenView =
   | 'register'
   | 'forgot_password'
   | 'reset_password'
-  | 'phone_otp';
+  | 'email_otp';
 
 interface AuthScreenProps {
   initialMode?: 'login' | 'signup' | 'forgot_password';
@@ -105,13 +105,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [showNewPassword, setShowNewPassword] = useState<boolean>(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState<boolean>(false);
 
-  // Phone OTP State
-  const [phoneCountryCode, setPhoneCountryCode] = useState<string>('+977');
-  const [phoneNumber, setPhoneNumber] = useState<string>('');
-  const [otpStep, setOtpStep] = useState<'enter_phone' | 'enter_otp'>('enter_phone');
+  // Email OTP State
+  const [otpEmail, setOtpEmail] = useState<string>('');
+  const [otpStep, setOtpStep] = useState<'enter_email' | 'enter_otp'>('enter_email');
   const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [resendTimer, setResendTimer] = useState<number>(0);
-  const [otpSentPhone, setOtpSentPhone] = useState<string>('');
 
   // Listen for Password Recovery events (e.g. user clicked recovery link in email)
   useEffect(() => {
@@ -416,49 +414,49 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   // ---------------------------------------------------------------------------
-  // 7. Phone OTP Flow
+  // 7. Email OTP Flow
   // ---------------------------------------------------------------------------
-  const handleSendPhoneOtp = async (e?: React.FormEvent) => {
+  const handleSendEmailOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     clearFeedback();
 
     if (!supabaseReady) {
       setErrorMessage(
-        `Supabase Phone Auth is not configured. Missing environment variables: ${missingVars.join(
+        `Supabase Email Auth is not configured. Missing environment variables: ${missingVars.join(
           ', '
         )}.`
       );
       return;
     }
 
-    const cleanNum = phoneNumber.replace(/[^0-9]/g, '');
-    if (cleanNum.length < 7) {
-      setErrorMessage('Please enter a valid phone number (at least 7 digits).');
+    const cleanEmail = otpEmail.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setErrorMessage('Please enter a valid email address.');
       return;
     }
 
     setIsLoading(true);
-    setLoadingText('Sending SMS verification code…');
+    setLoadingText('Sending email verification code…');
 
     try {
-      const res = await authService.sendPhoneOtp(phoneCountryCode, cleanNum);
+      const res = await authService.sendEmailOtp(cleanEmail);
       if (res.success) {
-        setOtpSentPhone(`${phoneCountryCode} ${cleanNum}`);
+        setOtpEmail(cleanEmail);
         setOtpStep('enter_otp');
         setResendTimer(60);
         setOtpDigits(['', '', '', '', '', '']);
         setSuccessMessage(res.message);
       } else {
-        setErrorMessage(res.message || res.error || 'Failed to send SMS verification code.');
+        setErrorMessage(res.message || res.error || 'Failed to send email verification code.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Network error while sending SMS code.');
+      setErrorMessage(err.message || 'Network error while sending email code.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleVerifyPhoneOtp = async (e?: React.FormEvent) => {
+  const handleVerifyEmailOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     clearFeedback();
 
@@ -469,7 +467,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
     const fullCode = otpDigits.join('');
     if (fullCode.length !== 6) {
-      setErrorMessage('Please enter the complete 6-digit code received on your phone.');
+      setErrorMessage('Please enter the complete 6-digit code received by email.');
       return;
     }
 
@@ -477,16 +475,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoadingText('Verifying code with Supabase…');
 
     try {
-      const cleanNum = phoneNumber.replace(/[^0-9]/g, '');
-      const res = await authService.verifyPhoneOtp(phoneCountryCode, cleanNum, fullCode);
+      const res = await authService.verifyEmailOtp(otpEmail, fullCode);
 
       if (res.success && res.session) {
-        setSuccessMessage('Phone verified! Loading your store…');
+        setSuccessMessage('Email verified! Loading your store…');
         setTimeout(() => {
           onSuccess(res.session!, res.isNewUser ?? false);
         }, 300);
       } else {
-        setErrorMessage(res.error || 'Invalid verification code. Please check and try again.');
+        setErrorMessage(res.error || 'Invalid or expired verification code. Please check and try again.');
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Verification failed.');
@@ -502,20 +499,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setOtpDigits(newDigits);
 
     if (digit && index < 5) {
-      const nextInput = document.getElementById(`phone-otp-input-${index + 1}`);
+      const nextInput = document.getElementById(`email-otp-input-${index + 1}`);
       nextInput?.focus();
     }
 
     if (digit && index === 5 && newDigits.every((d) => d !== '')) {
-      setTimeout(() => {
-        handleVerifyPhoneOtp();
-      }, 100);
+      setTimeout(() => handleVerifyEmailOtp(), 100);
     }
   };
 
   const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
-      const prevInput = document.getElementById(`phone-otp-input-${index - 1}`);
+      const prevInput = document.getElementById(`email-otp-input-${index - 1}`);
       prevInput?.focus();
     }
   };
@@ -532,7 +527,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setOtpDigits(newDigits);
 
     if (pasted.length === 6) {
-      setTimeout(() => handleVerifyPhoneOtp(), 100);
+      setTimeout(() => handleVerifyEmailOtp(), 100);
     }
   };
 
@@ -772,16 +767,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <span>Continue with Facebook</span>
                 </button>
 
-                {/* Phone Number OTP Button */}
+                {/* Email OTP Button */}
                 <button
                   type="button"
-                  onClick={() => switchView('phone_otp')}
+                  onClick={() => switchView('email_otp')}
                   disabled={isLoading}
-                  id="btn-login-phone"
+                  id="btn-login-email-otp"
                   className="w-full py-3 px-4 rounded-2xl bg-[#092B4C] hover:bg-slate-900 text-white font-bold text-xs flex items-center justify-center gap-3 transition-all active:scale-98 disabled:opacity-50 shadow-sm"
                 >
-                  <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Continue with Phone Number / OTP</span>
+                  <Mail className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Continue with Email OTP</span>
                 </button>
               </div>
 
@@ -1247,66 +1242,50 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           )}
 
           {/* ================================================================= */}
-          {/* VIEW 5: PHONE NUMBER OTP                                          */}
+          {/* VIEW 5: EMAIL OTP                                                 */}
           {/* ================================================================= */}
-          {view === 'phone_otp' && (
+          {view === 'email_otp' && (
             <div className="space-y-5">
               <div className="text-center space-y-1">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-2">
-                  <Phone className="w-6 h-6" />
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1473EA] flex items-center justify-center mx-auto mb-2">
+                  <Mail className="w-6 h-6" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-[#092B4C] tracking-tight">
-                  Sign In with Phone
+                  Sign In with Email OTP
                 </h2>
                 <p className="text-xs text-slate-500">
-                  {otpStep === 'enter_phone'
-                    ? 'We will send a 6-digit SMS verification code to your mobile number'
-                    : `Enter the 6-digit code sent to ${otpSentPhone}`}
+                  {otpStep === 'enter_email'
+                    ? 'We will send a 6-digit verification code to your email'
+                    : `Enter the 6-digit code sent to ${otpEmail}`}
                 </p>
               </div>
 
-              {otpStep === 'enter_phone' ? (
-                <form onSubmit={handleSendPhoneOtp} className="space-y-4">
+              {otpStep === 'enter_email' ? (
+                <form onSubmit={handleSendEmailOtp} className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
-                      Mobile Number
+                      Email Address
                     </label>
-                    <div className="flex gap-2">
-                      <div className="relative shrink-0">
-                        <select
-                          value={phoneCountryCode}
-                          onChange={(e) => setPhoneCountryCode(e.target.value)}
-                          className="appearance-none bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-xs font-bold text-slate-800 pr-8 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
-                        >
-                          {COUNTRY_CODES.map((c) => (
-                            <option key={c.code + c.country} value={c.code}>
-                              {c.flag} {c.code} ({c.country})
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      </div>
-
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       <input
-                        type="tel"
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
-                        placeholder="e.g. 9841234567"
+                        type="email"
+                        value={otpEmail}
+                        onChange={(e) => setOtpEmail(e.target.value)}
+                        placeholder="you@example.com"
                         autoFocus
+                        autoComplete="email"
                         disabled={isLoading}
-                        id="input-phone-number"
-                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
+                        id="input-email-otp"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-10 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
                       />
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Supports Nepal (+977) and international mobile formats.
-                    </p>
                   </div>
 
                   <button
                     type="submit"
-                    disabled={isLoading || !phoneNumber.trim()}
-                    id="btn-send-phone-otp"
+                    disabled={isLoading || !otpEmail.trim()}
+                    id="btn-send-email-otp"
                     className="w-full py-3.5 rounded-2xl bg-[#1473EA] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-[#1473EA]/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
                   >
                     {isLoading ? (
@@ -1316,7 +1295,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       </>
                     ) : (
                       <>
-                        <span>Send SMS Code</span>
+                        <span>Send OTP</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -1327,32 +1306,30 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     onClick={() => switchView('login')}
                     className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
                   >
-                    Return to Email Login
+                    Return to Login
                   </button>
                 </form>
               ) : (
-                /* Step 2: Enter 6-digit OTP */
-                <form onSubmit={handleVerifyPhoneOtp} className="space-y-4">
+                <form onSubmit={handleVerifyEmailOtp} className="space-y-4">
                   <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-                    <span>Sent to: <strong className="text-slate-800">{otpSentPhone}</strong></span>
+                    <span>Sent to: <strong className="text-slate-800">{otpEmail}</strong></span>
                     <button
                       type="button"
                       onClick={() => {
-                        setOtpStep('enter_phone');
+                        setOtpStep('enter_email');
                         clearFeedback();
                       }}
                       className="font-bold text-[#1473EA] hover:underline"
                     >
-                      Change Number
+                      Change Email
                     </button>
                   </div>
 
-                  {/* 6 Digit Inputs */}
                   <div className="flex items-center justify-center gap-2 py-2">
                     {otpDigits.map((digit, idx) => (
                       <input
                         key={idx}
-                        id={`phone-otp-input-${idx}`}
+                        id={`email-otp-input-${idx}`}
                         type="text"
                         inputMode="numeric"
                         maxLength={1}
@@ -1369,7 +1346,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <button
                     type="submit"
                     disabled={isLoading || otpDigits.some((d) => !d)}
-                    id="btn-verify-phone-otp"
+                    id="btn-verify-email-otp"
                     className="w-full py-3.5 rounded-2xl bg-[#1473EA] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-[#1473EA]/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
                   >
                     {isLoading ? (
@@ -1385,21 +1362,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     )}
                   </button>
 
-                  {/* Resend Section */}
                   <div className="text-center pt-1">
                     {resendTimer > 0 ? (
                       <span className="text-xs text-slate-400">
-                        Resend code in <strong className="text-slate-700">{resendTimer}s</strong>
+                        Resend available in <strong className="text-slate-700">{resendTimer}s</strong>
                       </span>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => handleSendPhoneOtp()}
+                        onClick={() => handleSendEmailOtp()}
                         disabled={isLoading}
                         className="text-xs font-bold text-[#1473EA] hover:underline flex items-center justify-center gap-1.5 mx-auto"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Resend SMS Code</span>
+                        <span>Resend OTP</span>
                       </button>
                     )}
                   </div>
@@ -1409,12 +1385,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     onClick={() => switchView('login')}
                     className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
                   >
-                    Return to Email Login
+                    Return to Login
                   </button>
                 </form>
               )}
             </div>
           )}
+
 
           {/* Security Note Footer */}
           <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-center gap-2 text-[11px] text-slate-400">

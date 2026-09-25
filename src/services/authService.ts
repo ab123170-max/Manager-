@@ -743,11 +743,10 @@ class AuthService {
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Mobile Phone + OTP Authentication (SMS)
+  // 5. Email OTP Authentication
   // ---------------------------------------------------------------------------
-  async sendPhoneOtp(
-    countryCode: string,
-    phone: string
+  async sendEmailOtp(
+    email: string
   ): Promise<{ success: boolean; message: string; error?: string }> {
     if (!isSupabaseConfigured()) {
       return {
@@ -757,47 +756,43 @@ class AuthService {
       };
     }
 
-    const cleanNum = phone.replace(/[^0-9]/g, '');
-    const cleanCode = countryCode.startsWith('+') ? countryCode : `+${countryCode}`;
-    const fullPhone = `${cleanCode}${cleanNum}`;
-
-    if (cleanNum.length < 7) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       return {
         success: false,
-        message: 'Please enter a valid phone number (at least 7 digits).',
-        error: 'INVALID_PHONE',
+        message: 'Please enter a valid email address.',
+        error: 'INVALID_EMAIL',
       };
     }
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
-        phone: fullPhone,
+        email: cleanEmail,
       });
 
       if (error) {
         return {
           success: false,
-          message: formatUserFriendlyError(error, 'Failed to send SMS verification code.'),
+          message: formatUserFriendlyError(error, 'Failed to send email verification code.'),
           error: error.message,
         };
       }
 
       return {
         success: true,
-        message: `Verification code successfully sent via SMS to ${fullPhone}.`,
+        message: `Verification code sent to ${cleanEmail}. Check your inbox and spam folder.`,
       };
     } catch (err: any) {
       return {
         success: false,
-        message: formatUserFriendlyError(err, 'Failed to send SMS code.'),
+        message: formatUserFriendlyError(err, 'Network error while sending email code.'),
         error: err.message,
       };
     }
   }
 
-  async verifyPhoneOtp(
-    countryCode: string,
-    phone: string,
+  async verifyEmailOtp(
+    email: string,
     otp: string
   ): Promise<AuthOperationResult> {
     if (!isSupabaseConfigured()) {
@@ -807,11 +802,14 @@ class AuthService {
       };
     }
 
-    const cleanNum = phone.replace(/[^0-9]/g, '');
-    const cleanCode = countryCode.startsWith('+') ? countryCode : `+${countryCode}`;
-    const fullPhone = `${cleanCode}${cleanNum}`;
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = otp.trim();
 
-    if (!otp || otp.trim().length !== 6) {
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return { success: false, error: 'Please enter a valid email address.' };
+    }
+
+    if (!/^\d{6}$/.test(cleanOtp)) {
       return {
         success: false,
         error: 'Please enter the complete 6-digit verification code.',
@@ -820,9 +818,9 @@ class AuthService {
 
     try {
       const { data, error } = await supabase.auth.verifyOtp({
-        phone: fullPhone,
-        token: otp.trim(),
-        type: 'sms',
+        email: cleanEmail,
+        token: cleanOtp,
+        type: 'email',
       });
 
       if (error) {
@@ -843,15 +841,16 @@ class AuthService {
 
       return {
         success: false,
-        error: 'Verification succeeded but session could not be established.',
+        error: 'Verification succeeded but session could not be established. Please try again.',
       };
     } catch (err: any) {
       return {
         success: false,
-        error: formatUserFriendlyError(err, 'Failed to verify OTP code.'),
+        error: formatUserFriendlyError(err, 'Network error while verifying OTP code.'),
       };
     }
   }
+
 
   // ---------------------------------------------------------------------------
   // 6. WhatsApp Status Check
