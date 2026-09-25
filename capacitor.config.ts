@@ -7,7 +7,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.martmartai.inventory',
-  appName: 'MartMart AI Inventory',
+  appName: 'ScanMe AI',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
