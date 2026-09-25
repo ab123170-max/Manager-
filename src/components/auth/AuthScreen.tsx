@@ -10,7 +10,6 @@ import {
   Eye,
   EyeOff,
   User,
-  Phone,
   ArrowLeft,
   ArrowRight,
   ShieldCheck,
@@ -110,6 +109,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [otpStep, setOtpStep] = useState<'enter_email' | 'enter_otp'>('enter_email');
   const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [resendTimer, setResendTimer] = useState<number>(0);
+  const [otpSentEmail, setOtpSentEmail] = useState<string>('');
 
   // Listen for Password Recovery events (e.g. user clicked recovery link in email)
   useEffect(() => {
@@ -221,7 +221,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
-    // Optional phone number formatting
+    // Optional phone number formatting for profile
     let cleanFullPhone: string | undefined = undefined;
     if (regPhoneNumber.trim()) {
       const cleanNum = regPhoneNumber.replace(/[^0-9]/g, '');
@@ -414,7 +414,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   // ---------------------------------------------------------------------------
-  // 7. Email OTP Flow
+  // 7. Email OTP Flow (Passwordless)
   // ---------------------------------------------------------------------------
   const handleSendEmailOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -422,35 +422,41 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
     if (!supabaseReady) {
       setErrorMessage(
-        `Supabase Email Auth is not configured. Missing environment variables: ${missingVars.join(
+        `Supabase Auth is not configured. Missing environment variables: ${missingVars.join(
           ', '
         )}.`
       );
       return;
     }
 
-    const cleanEmail = otpEmail.trim().toLowerCase();
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    const cleanEmail = (otpEmail || loginEmail || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      setErrorMessage('Please enter your email address.');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       setErrorMessage('Please enter a valid email address.');
       return;
     }
 
     setIsLoading(true);
-    setLoadingText('Sending email verification code…');
+    setLoadingText('Sending verification code…');
 
     try {
       const res = await authService.sendEmailOtp(cleanEmail);
       if (res.success) {
+        setOtpSentEmail(cleanEmail);
         setOtpEmail(cleanEmail);
         setOtpStep('enter_otp');
         setResendTimer(60);
         setOtpDigits(['', '', '', '', '', '']);
         setSuccessMessage(res.message);
       } else {
-        setErrorMessage(res.message || res.error || 'Failed to send email verification code.');
+        setErrorMessage(res.message || res.error || 'Failed to send verification code.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Network error while sending email code.');
+      setErrorMessage(err.message || 'Network error while sending verification code.');
     } finally {
       setIsLoading(false);
     }
@@ -465,9 +471,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
-    const fullCode = otpDigits.join('');
+    const targetEmail = (otpSentEmail || otpEmail || loginEmail || '').trim().toLowerCase();
+    if (!targetEmail) {
+      setErrorMessage('Email address missing. Please re-enter your email.');
+      setOtpStep('enter_email');
+      return;
+    }
+
+    const fullCode = otpDigits.join('').trim();
     if (fullCode.length !== 6) {
-      setErrorMessage('Please enter the complete 6-digit code received by email.');
+      setErrorMessage('Please enter the complete 6-digit verification code.');
       return;
     }
 
@@ -475,7 +488,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoadingText('Verifying code with Supabase…');
 
     try {
-      const res = await authService.verifyEmailOtp(otpEmail, fullCode);
+      const res = await authService.verifyEmailOtp(targetEmail, fullCode);
 
       if (res.success && res.session) {
         setSuccessMessage('Email verified! Loading your store…');
@@ -483,7 +496,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           onSuccess(res.session!, res.isNewUser ?? false);
         }, 300);
       } else {
-        setErrorMessage(res.error || 'Invalid or expired verification code. Please check and try again.');
+        setErrorMessage(res.error || 'Invalid or expired verification code. Please check your email and try again.');
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Verification failed.');
@@ -504,7 +517,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
 
     if (digit && index === 5 && newDigits.every((d) => d !== '')) {
-      setTimeout(() => handleVerifyEmailOtp(), 100);
+      setTimeout(() => {
+        handleVerifyEmailOtp();
+      }, 100);
     }
   };
 
@@ -724,6 +739,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
               {/* Social & Alternative Auth Methods */}
               <div className="space-y-2.5">
+                {/* Email OTP Button (Passwordless) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (loginEmail.trim()) {
+                      setOtpEmail(loginEmail.trim());
+                    }
+                    switchView('email_otp');
+                  }}
+                  disabled={isLoading}
+                  id="btn-login-email-otp"
+                  className="w-full py-3 px-4 rounded-2xl bg-[#092B4C] hover:bg-slate-900 text-white font-bold text-xs flex items-center justify-center gap-3 transition-all active:scale-98 disabled:opacity-50 shadow-sm"
+                >
+                  <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Continue with Email OTP</span>
+                </button>
+
                 {/* Google OAuth Button */}
                 <button
                   type="button"
@@ -765,18 +797,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
                   </svg>
                   <span>Continue with Facebook</span>
-                </button>
-
-                {/* Email OTP Button */}
-                <button
-                  type="button"
-                  onClick={() => switchView('email_otp')}
-                  disabled={isLoading}
-                  id="btn-login-email-otp"
-                  className="w-full py-3 px-4 rounded-2xl bg-[#092B4C] hover:bg-slate-900 text-white font-bold text-xs flex items-center justify-center gap-3 transition-all active:scale-98 disabled:opacity-50 shadow-sm"
-                >
-                  <Mail className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Continue with Email OTP</span>
                 </button>
               </div>
 
@@ -988,48 +1008,66 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </div>
               </div>
 
-              {/* Social Options on Register */}
-              <div className="grid grid-cols-2 gap-2.5">
+              {/* Social & Alternative Options on Register */}
+              <div className="space-y-2">
                 <button
                   type="button"
-                  onClick={handleGoogleLogin}
+                  onClick={() => {
+                    if (regEmail.trim()) {
+                      setOtpEmail(regEmail.trim());
+                    }
+                    switchView('email_otp');
+                  }}
                   disabled={isLoading}
-                  id="btn-register-google"
-                  className="py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 font-bold text-xs text-slate-800 flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
+                  id="btn-register-email-otp"
+                  className="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
                 >
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                    <path
-                      fill="#4285F4"
-                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    />
-                    <path
-                      fill="#34A853"
-                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    />
-                    <path
-                      fill="#FBBC05"
-                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    />
-                    <path
-                      fill="#EA4335"
-                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    />
-                  </svg>
-                  <span>Google</span>
+                  <KeyRound className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>Passwordless Email OTP</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleFacebookLogin}
-                  disabled={isLoading}
-                  id="btn-register-facebook"
-                  className="py-2.5 px-3 rounded-xl bg-[#1877F2] hover:bg-[#166fe5] text-white font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
-                >
-                  <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24">
-                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-                  </svg>
-                  <span>Facebook</span>
-                </button>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    disabled={isLoading}
+                    id="btn-register-google"
+                    className="py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 font-bold text-xs text-slate-800 flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
+                  >
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                      <path
+                        fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                      />
+                      <path
+                        fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                      />
+                    </svg>
+                    <span>Google</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleFacebookLogin}
+                    disabled={isLoading}
+                    id="btn-register-facebook"
+                    className="py-2.5 px-3 rounded-xl bg-[#1877F2] hover:bg-[#166fe5] text-white font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
+                  >
+                    <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24">
+                      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+                    </svg>
+                    <span>Facebook</span>
+                  </button>
+                </div>
               </div>
 
               {/* Link to Login */}
@@ -1242,44 +1280,49 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           )}
 
           {/* ================================================================= */}
-          {/* VIEW 5: EMAIL OTP                                                 */}
+          {/* VIEW 5: EMAIL OTP (Passwordless Authentication)                  */}
           {/* ================================================================= */}
           {view === 'email_otp' && (
             <div className="space-y-5">
               <div className="text-center space-y-1">
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1473EA] flex items-center justify-center mx-auto mb-2">
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-2">
                   <Mail className="w-6 h-6" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-[#092B4C] tracking-tight">
-                  Sign In with Email OTP
+                  {otpStep === 'enter_email' ? 'Email OTP Sign-In' : 'Enter verification code'}
                 </h2>
                 <p className="text-xs text-slate-500">
                   {otpStep === 'enter_email'
-                    ? 'We will send a 6-digit verification code to your email'
-                    : `Enter the 6-digit code sent to ${otpEmail}`}
+                    ? "Enter your email address and we'll send you a 6-digit verification code"
+                    : `We sent a verification code to your email.`}
                 </p>
               </div>
 
               {otpStep === 'enter_email' ? (
+                /* Step 1: User enters email address */
                 <form onSubmit={handleSendEmailOtp} className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
-                      Email Address
+                      Email address
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       <input
                         type="email"
-                        value={otpEmail}
-                        onChange={(e) => setOtpEmail(e.target.value)}
-                        placeholder="you@example.com"
+                        required
                         autoFocus
                         autoComplete="email"
+                        value={otpEmail}
+                        onChange={(e) => setOtpEmail(e.target.value)}
+                        placeholder="Enter your email"
                         disabled={isLoading}
-                        id="input-email-otp"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-10 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
+                        id="input-otp-email"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
                       />
                     </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      No password required. We will send a one-time 6-digit code to this address.
+                    </p>
                   </div>
 
                   <button
@@ -1291,7 +1334,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     {isLoading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>{loadingText || 'Sending code…'}</span>
+                        <span>{loadingText || 'Sending OTP…'}</span>
                       </>
                     ) : (
                       <>
@@ -1306,13 +1349,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     onClick={() => switchView('login')}
                     className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
                   >
-                    Return to Login
+                    Return to Password Login
                   </button>
                 </form>
               ) : (
+                /* Step 2: User enters 6-digit OTP */
                 <form onSubmit={handleVerifyEmailOtp} className="space-y-4">
                   <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-                    <span>Sent to: <strong className="text-slate-800">{otpEmail}</strong></span>
+                    <span>
+                      Sent to: <strong className="text-slate-800">{otpSentEmail}</strong>
+                    </span>
                     <button
                       type="button"
                       onClick={() => {
@@ -1325,6 +1371,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     </button>
                   </div>
 
+                  {/* 6 Digit Inputs */}
                   <div className="flex items-center justify-center gap-2 py-2">
                     {otpDigits.map((digit, idx) => (
                       <input
@@ -1356,23 +1403,27 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       </>
                     ) : (
                       <>
-                        <span>Verify & Sign In</span>
+                        <span>Verify OTP</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
                   </button>
 
-                  <div className="text-center pt-1">
+                  {/* Resend Section with 60s Countdown */}
+                  <div className="text-center pt-2 space-y-1">
+                    <p className="text-xs text-slate-500">Didn&apos;t receive the code?</p>
                     {resendTimer > 0 ? (
-                      <span className="text-xs text-slate-400">
-                        Resend available in <strong className="text-slate-700">{resendTimer}s</strong>
-                      </span>
+                      <p className="text-xs font-semibold text-slate-400">
+                        Resend available in{' '}
+                        <span className="text-slate-700 font-bold">{resendTimer}s</span>
+                      </p>
                     ) : (
                       <button
                         type="button"
                         onClick={() => handleSendEmailOtp()}
                         disabled={isLoading}
-                        className="text-xs font-bold text-[#1473EA] hover:underline flex items-center justify-center gap-1.5 mx-auto"
+                        id="btn-resend-email-otp"
+                        className="text-xs font-bold text-[#1473EA] hover:underline flex items-center justify-center gap-1.5 mx-auto transition-colors"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
                         <span>Resend OTP</span>
@@ -1380,18 +1431,29 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => switchView('login')}
-                    className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
-                  >
-                    Return to Login
-                  </button>
+                  <div className="pt-1 flex flex-col items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOtpStep('enter_email');
+                        clearFeedback();
+                      }}
+                      className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+                    >
+                      Return to email-entry screen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => switchView('login')}
+                      className="text-xs font-bold text-slate-400 hover:text-slate-700 transition-colors"
+                    >
+                      Back to Password Login
+                    </button>
+                  </div>
                 </form>
               )}
             </div>
           )}
-
 
           {/* Security Note Footer */}
           <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-center gap-2 text-[11px] text-slate-400">

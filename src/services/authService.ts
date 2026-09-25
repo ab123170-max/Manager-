@@ -79,11 +79,17 @@ export function formatUserFriendlyError(err: any, defaultMsg: string): string {
   if (msg.includes('user already registered') || msg.includes('already exists') || msg.includes('already registered')) {
     return 'An account with this email already exists. Please log in instead.';
   }
-  if (msg.includes('token has expired') || msg.includes('otp expired') || msg.includes('invalid otp')) {
-    return 'Verification code has expired or is invalid. Please request a new code.';
+  if (msg.includes('token has expired') || msg.includes('otp expired') || msg.includes('token expired')) {
+    return 'Verification code has expired. Please request a new code.';
   }
-  if (msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('security purposes')) {
-    return 'Too many requests. For security purposes, please wait a few moments before trying again.';
+  if (msg.includes('invalid otp') || msg.includes('token is invalid') || (msg.includes('token') && msg.includes('invalid'))) {
+    return 'Invalid verification code. Please check your email and try again.';
+  }
+  if (msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('security purposes') || msg.includes('over_email_send_rate_limit')) {
+    return 'Too many OTP requests. For security purposes, please wait a few moments before trying again.';
+  }
+  if (msg.includes('smtp') || msg.includes('email provider is not enabled') || msg.includes('email rate limit exceeded')) {
+    return 'Supabase email service is not configured or rate-limited. Please check Supabase Auth SMTP / Email settings.';
   }
   if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) {
     return 'Network connection error. Please check your internet connection and try again.';
@@ -93,9 +99,6 @@ export function formatUserFriendlyError(err: any, defaultMsg: string): string {
   }
   if (msg.includes('password should be at least 6')) {
     return 'Password must be at least 6 characters long.';
-  }
-  if (msg.includes('phone') && (msg.includes('format') || msg.includes('invalid'))) {
-    return 'Invalid phone number format. Please include country code (e.g. +977 for Nepal).';
   }
   return err.message || defaultMsg;
 }
@@ -743,7 +746,7 @@ class AuthService {
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Email OTP Authentication
+  // 5. Email OTP Authentication (Passwordless)
   // ---------------------------------------------------------------------------
   async sendEmailOtp(
     email: string
@@ -768,24 +771,27 @@ class AuthService {
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email: cleanEmail,
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
       });
 
       if (error) {
         return {
           success: false,
-          message: formatUserFriendlyError(error, 'Failed to send email verification code.'),
+          message: formatUserFriendlyError(error, 'Failed to send verification code to your email.'),
           error: error.message,
         };
       }
 
       return {
         success: true,
-        message: `Verification code sent to ${cleanEmail}. Check your inbox and spam folder.`,
+        message: `We sent a 6-digit verification code to ${cleanEmail}.`,
       };
     } catch (err: any) {
       return {
         success: false,
-        message: formatUserFriendlyError(err, 'Network error while sending email code.'),
+        message: formatUserFriendlyError(err, 'Failed to send OTP code to email.'),
         error: err.message,
       };
     }
@@ -803,13 +809,15 @@ class AuthService {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const cleanOtp = otp.trim();
-
     if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      return { success: false, error: 'Please enter a valid email address.' };
+      return {
+        success: false,
+        error: 'Please enter a valid email address.',
+      };
     }
 
-    if (!/^\d{6}$/.test(cleanOtp)) {
+    const cleanToken = otp.trim();
+    if (!cleanToken || cleanToken.length !== 6) {
       return {
         success: false,
         error: 'Please enter the complete 6-digit verification code.',
@@ -819,14 +827,14 @@ class AuthService {
     try {
       const { data, error } = await supabase.auth.verifyOtp({
         email: cleanEmail,
-        token: cleanOtp,
+        token: cleanToken,
         type: 'email',
       });
 
       if (error) {
         return {
           success: false,
-          error: formatUserFriendlyError(error, 'Invalid or expired verification code.'),
+          error: formatUserFriendlyError(error, 'Invalid or expired verification code. Please check your email and try again.'),
         };
       }
 
@@ -841,16 +849,15 @@ class AuthService {
 
       return {
         success: false,
-        error: 'Verification succeeded but session could not be established. Please try again.',
+        error: 'Verification succeeded but session could not be established.',
       };
     } catch (err: any) {
       return {
         success: false,
-        error: formatUserFriendlyError(err, 'Network error while verifying OTP code.'),
+        error: formatUserFriendlyError(err, 'Failed to verify OTP code.'),
       };
     }
   }
-
 
   // ---------------------------------------------------------------------------
   // 6. WhatsApp Status Check
@@ -858,7 +865,7 @@ class AuthService {
   async checkWhatsAppStatus(): Promise<{ success: boolean; message: string; error?: string }> {
     return {
       success: false,
-      message: 'WhatsApp Business API is not configured on this project. Please sign in with Email, Google, Facebook, or Mobile Phone SMS.',
+      message: 'WhatsApp Business API is not configured on this project. Please sign in with Email, Google, Facebook, or Email OTP.',
       error: 'WHATSAPP_UNAVAILABLE',
     };
   }
