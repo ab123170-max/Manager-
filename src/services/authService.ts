@@ -3,31 +3,51 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
+import { supabase, isSupabaseConfigured, getSupabaseMissingVars } from '../lib/supabaseClient';
 import { AuthSession, AuthUser, UserProfile, AuthProviderType } from '../types';
 
 const STORAGE_KEYS = {
-  SESSION_CACHE: 'ais_auth_session_cache_v1',
   ONBOARDING_COMPLETED: 'ais_onboarding_completed_v1',
   LAST_AVATAR_PATH: 'ais_last_avatar_path_v1',
+  SESSION_CACHE: 'ais_auth_session_cache_v1', // Kept for cleanup on signout
 };
 
 type AuthListener = (session: AuthSession | null) => void;
-const listeners = new Set<AuthListener>();
+const authListeners = new Set<AuthListener>();
+
+type RecoveryListener = (isRecovery: boolean) => void;
+const recoveryListeners = new Set<RecoveryListener>();
 
 export function subscribeAuth(listener: AuthListener): () => void {
-  listeners.add(listener);
+  authListeners.add(listener);
   return () => {
-    listeners.delete(listener);
+    authListeners.delete(listener);
   };
 }
 
-function notifyListeners(session: AuthSession | null) {
-  listeners.forEach((cb) => {
+export function subscribePasswordRecovery(listener: RecoveryListener): () => void {
+  recoveryListeners.add(listener);
+  return () => {
+    recoveryListeners.delete(listener);
+  };
+}
+
+function notifyAuthListeners(session: AuthSession | null) {
+  authListeners.forEach((cb) => {
     try {
       cb(session);
     } catch (e) {
-      console.error('[authService] listener error:', e);
+      console.error('[authService] auth listener error:', e);
+    }
+  });
+}
+
+function notifyRecoveryListeners(isRecovery: boolean) {
+  recoveryListeners.forEach((cb) => {
+    try {
+      cb(isRecovery);
+    } catch (e) {
+      console.error('[authService] recovery listener error:', e);
     }
   });
 }
@@ -49,55 +69,76 @@ function base64ToBlob(base64: string, defaultMime = 'image/jpeg'): { blob: Blob;
   return { blob: new Blob([ab], { type: mime }), mime };
 }
 
-function formatUserFriendlyError(err: any, defaultMsg: string): string {
+export function formatUserFriendlyError(err: any, defaultMsg: string): string {
   if (!err) return defaultMsg;
   const msg: string = String(err.message || err.error_description || err || '').toLowerCase();
 
   if (msg.includes('invalid credentials') || msg.includes('invalid login credentials')) {
     return 'Invalid email or password. Please verify and try again.';
   }
-  if (msg.includes('user already registered') || msg.includes('already exists')) {
+  if (msg.includes('user already registered') || msg.includes('already exists') || msg.includes('already registered')) {
     return 'An account with this email already exists. Please log in instead.';
   }
   if (msg.includes('token has expired') || msg.includes('otp expired') || msg.includes('invalid otp')) {
     return 'Verification code has expired or is invalid. Please request a new code.';
   }
-  if (msg.includes('rate limit') || msg.includes('too many requests')) {
-    return 'Too many attempts. Please wait a few moments before trying again.';
+  if (msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('security purposes')) {
+    return 'Too many requests. For security purposes, please wait a few moments before trying again.';
   }
   if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) {
     return 'Network connection error. Please check your internet connection and try again.';
   }
   if (msg.includes('row-level security') || msg.includes('rls') || msg.includes('policy')) {
-    return 'Storage or database permission denied. Please verify your account credentials.';
+    return 'Database permission error. Please verify account privileges.';
+  }
+  if (msg.includes('password should be at least 6')) {
+    return 'Password must be at least 6 characters long.';
+  }
+  if (msg.includes('phone') && (msg.includes('format') || msg.includes('invalid'))) {
+    return 'Invalid phone number format. Please include country code (e.g. +977 for Nepal).';
   }
   return err.message || defaultMsg;
+}
+
+export interface RegisterEmailParams {
+  fullName: string;
+  email: string;
+  password: string;
+  phone?: string;
+}
+
+export interface AuthOperationResult {
+  success: boolean;
+  session?: AuthSession;
+  isNewUser?: boolean;
+  emailConfirmationRequired?: boolean;
+  message?: string;
+  error?: string;
 }
 
 class AuthService {
   private activeSession: AuthSession | null = null;
   private isInitialized = false;
   private profilePromises = new Map<string, Promise<UserProfile | null>>();
+  private isPasswordRecovery = false;
 
   constructor() {
-    this.initSessionFromCache();
     this.setupSupabaseAuthListener();
+    this.checkInitialUrlHash();
   }
 
-  private initSessionFromCache(): void {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEYS.SESSION_CACHE);
-      if (raw) {
-        this.activeSession = JSON.parse(raw);
+  private checkInitialUrlHash() {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      if (window.location.hash.includes('type=recovery')) {
+        this.isPasswordRecovery = true;
+        setTimeout(() => notifyRecoveryListeners(true), 300);
       }
-    } catch {
-      this.activeSession = null;
     }
   }
 
   /**
    * Initializes and listens for Supabase Auth state changes:
-   * SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED.
+   * SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED, PASSWORD_RECOVERY.
    */
   private async setupSupabaseAuthListener(): Promise<void> {
     if (!isSupabaseConfigured()) {
@@ -105,22 +146,27 @@ class AuthService {
     }
 
     try {
-      // 1. Check existing session on startup
+      // 1. Check existing Supabase session on startup
       const { data: initialData, error: sessionErr } = await supabase.auth.getSession();
       if (!sessionErr && initialData?.session) {
         await this.handleSupabaseSession(initialData.session);
-      } else if (!initialData?.session && this.activeSession?.token.startsWith('sb_')) {
-        this.clearSession();
+      } else {
+        this.clearLocalSessionState();
       }
 
       // 2. Listen to real-time auth changes
       supabase.auth.onAuthStateChange(async (event, sbSession) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          this.isPasswordRecovery = true;
+          notifyRecoveryListeners(true);
+        }
+
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
           if (sbSession) {
             await this.handleSupabaseSession(sbSession);
           }
         } else if (event === 'SIGNED_OUT') {
-          this.clearSession();
+          this.clearLocalSessionState();
         }
       });
 
@@ -146,7 +192,11 @@ class AuthService {
         phone: sbUser.phone,
         provider,
         providerId: sbUser.id,
-        displayName: sbUser.user_metadata?.full_name || sbUser.user_metadata?.name || sbUser.email?.split('@')[0],
+        displayName:
+          sbUser.user_metadata?.full_name ||
+          sbUser.user_metadata?.name ||
+          sbUser.email?.split('@')[0] ||
+          'Shopkeeper',
         photoURL: sbUser.user_metadata?.avatar_url || sbUser.user_metadata?.picture || '',
         createdAt: sbUser.created_at || new Date().toISOString(),
         lastLoginAt: sbUser.last_sign_in_at || new Date().toISOString(),
@@ -155,19 +205,20 @@ class AuthService {
       // Fetch profile from public.profiles table
       let profile = await this.fetchProfileFromDb(sbUser.id);
 
-      // If profile does not exist, automatically create one in public.profiles table
+      // If profile does not exist, safely create one in public.profiles table
       if (!profile) {
         profile = await this.createDefaultProfile(sbUser);
       }
 
       const session: AuthSession = {
-        token: `sb_${sbSession.access_token}`,
+        token: sbSession.access_token,
         user: authUser,
         profile,
         expiresAt: sbSession.expires_at ? sbSession.expires_at * 1000 : Date.now() + 3600 * 1000,
       };
 
-      this.setSession(session);
+      this.activeSession = session;
+      notifyAuthListeners(session);
       return session;
     } catch (e) {
       console.error('[authService] Error handling Supabase session:', e);
@@ -176,17 +227,15 @@ class AuthService {
   }
 
   /**
-   * Fetches user profile from Supabase profiles table with explicit columns and in-flight deduplication.
+   * Fetches user profile from Supabase profiles table with explicit columns.
    */
   private async fetchProfileFromDb(authUserId: string, bypassCache = false): Promise<UserProfile | null> {
     if (!isSupabaseConfigured()) return null;
 
-    // Check if we already have the valid profile in activeSession
     if (!bypassCache && this.activeSession?.profile?.auth_user_id === authUserId) {
       return this.activeSession.profile;
     }
 
-    // Reuse in-flight request if present
     if (this.profilePromises.has(authUserId)) {
       return this.profilePromises.get(authUserId)!;
     }
@@ -234,7 +283,8 @@ class AuthService {
   }
 
   /**
-   * Creates an initial profile record in Supabase profiles table.
+   * Safely creates an initial profile record in Supabase profiles table.
+   * Handles concurrency where a database trigger might create the row simultaneously.
    */
   private async createDefaultProfile(sbUser: any): Promise<UserProfile | null> {
     if (!isSupabaseConfigured()) return null;
@@ -242,7 +292,7 @@ class AuthService {
     try {
       const now = new Date().toISOString();
       const meta = sbUser.user_metadata || {};
-      const defaultName = meta.full_name || meta.name || '';
+      const defaultName = (meta.full_name || meta.name || '').trim();
       const defaultUsername = (
         meta.username ||
         sbUser.email?.split('@')[0] ||
@@ -254,7 +304,7 @@ class AuthService {
         full_name: defaultName,
         username: defaultUsername,
         email: sbUser.email || '',
-        phone: sbUser.phone || '',
+        phone: sbUser.phone || meta.phone || '',
         profile_image_url: meta.avatar_url || meta.picture || '',
         address: '',
         language: 'English',
@@ -267,12 +317,17 @@ class AuthService {
         .from('profiles')
         .insert(initialData)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) {
-        console.warn('[authService] createDefaultProfile insert failed:', error.message);
+        console.warn('[authService] createDefaultProfile insert failed, checking if already created by DB trigger:', error.message);
+        // If a database trigger or another request already inserted the row, re-fetch
+        const fallback = await this.fetchProfileFromDb(sbUser.id, true);
+        if (fallback) return fallback;
         return null;
       }
+
+      if (!data) return null;
 
       return {
         id: data.id,
@@ -296,6 +351,14 @@ class AuthService {
   }
 
   // ---------------------------------------------------------------------------
+  // Helper for unconfigured Supabase error message
+  // ---------------------------------------------------------------------------
+  private getUnconfiguredError(): string {
+    const missing = getSupabaseMissingVars();
+    return `Supabase authentication is not configured. Missing required environment variables: ${missing.join(', ')}. Please configure them in your environment settings.`;
+  }
+
+  // ---------------------------------------------------------------------------
   // Session Getters & Setters
   // ---------------------------------------------------------------------------
   getSession(): AuthSession | null {
@@ -311,16 +374,20 @@ class AuthService {
 
   setSession(session: AuthSession): void {
     this.activeSession = session;
+    notifyAuthListeners(session);
+  }
+
+  private clearLocalSessionState(): void {
+    this.activeSession = null;
     try {
-      localStorage.setItem(STORAGE_KEYS.SESSION_CACHE, JSON.stringify(session));
-    } catch (e) {
-      console.error('[authService] setSession localStorage error:', e);
-    }
-    notifyListeners(session);
+      localStorage.removeItem(STORAGE_KEYS.SESSION_CACHE);
+    } catch {}
+    notifyAuthListeners(null);
   }
 
   async clearSession(): Promise<void> {
     this.activeSession = null;
+    this.isPasswordRecovery = false;
     try {
       localStorage.removeItem(STORAGE_KEYS.SESSION_CACHE);
     } catch {}
@@ -332,7 +399,7 @@ class AuthService {
         console.warn('[authService] Supabase signOut error:', e);
       }
     }
-    notifyListeners(null);
+    notifyAuthListeners(null);
   }
 
   isAuthenticated(): boolean {
@@ -364,54 +431,291 @@ class AuthService {
     }
   }
 
+  isRecoveryMode(): boolean {
+    return this.isPasswordRecovery;
+  }
+
+  setRecoveryMode(value: boolean): void {
+    this.isPasswordRecovery = value;
+    notifyRecoveryListeners(value);
+  }
+
   // ---------------------------------------------------------------------------
-  // 1. Google & Facebook OAuth Authentication
+  // 1. Email Registration (Sign Up)
+  // ---------------------------------------------------------------------------
+  async registerWithEmail({
+    fullName,
+    email,
+    password,
+    phone,
+  }: RegisterEmailParams): Promise<AuthOperationResult> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
+      };
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = fullName.trim();
+    const cleanPhone = phone?.trim() || undefined;
+
+    if (!cleanName) {
+      return { success: false, error: 'Please enter your full name.' };
+    }
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return { success: false, error: 'Please enter a valid email address.' };
+    }
+    if (!password || password.length < 6) {
+      return { success: false, error: 'Password must be at least 6 characters.' };
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: {
+          data: {
+            full_name: cleanName,
+            phone: cleanPhone,
+          },
+          emailRedirectTo: window.location.origin,
+        },
+      });
+
+      if (error) {
+        return {
+          success: false,
+          error: formatUserFriendlyError(error, 'Registration failed. Please try again.'),
+        };
+      }
+
+      // Case 1: Supabase email confirmation is enabled (data.user exists, but no active session)
+      if (data.user && !data.session) {
+        return {
+          success: true,
+          emailConfirmationRequired: true,
+          message:
+            'Registration successful! Please check your email inbox to confirm your account before logging in.',
+        };
+      }
+
+      // Case 2: Supabase returned an active session immediately
+      if (data.session) {
+        const appSession = await this.handleSupabaseSession(data.session);
+        return {
+          success: true,
+          session: appSession || undefined,
+          isNewUser: true,
+        };
+      }
+
+      return {
+        success: true,
+        emailConfirmationRequired: true,
+        message: 'Please check your email to complete registration.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: formatUserFriendlyError(err, 'An error occurred during registration.'),
+      };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2. Email Login (Sign In With Password)
+  // ---------------------------------------------------------------------------
+  async loginWithEmailPassword(
+    email: string,
+    password: string
+  ): Promise<AuthOperationResult> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
+      };
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return { success: false, error: 'Please enter a valid email address.' };
+    }
+    if (!password) {
+      return { success: false, error: 'Please enter your password.' };
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          error: formatUserFriendlyError(error, 'Invalid email or password.'),
+        };
+      }
+
+      if (data.session) {
+        const appSession = await this.handleSupabaseSession(data.session);
+        return {
+          success: true,
+          session: appSession || undefined,
+          isNewUser: !appSession?.profile?.is_profile_complete,
+        };
+      }
+
+      return {
+        success: false,
+        error: 'Unable to establish an authenticated session. Please try again.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: formatUserFriendlyError(err, 'Email login error.'),
+      };
+    }
+  }
+
+  // Backward compatible alias
+  async loginWithEmail(
+    email: string,
+    mode: 'login' | 'signup' = 'login',
+    password?: string
+  ): Promise<AuthOperationResult> {
+    if (mode === 'signup') {
+      return this.registerWithEmail({
+        fullName: email.split('@')[0],
+        email,
+        password: password || 'TempPass123!',
+      });
+    }
+    return this.loginWithEmailPassword(email, password || '');
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3. Forgot Password / Password Reset Flow
+  // ---------------------------------------------------------------------------
+  async resetPasswordForEmail(email: string): Promise<{ success: boolean; message: string; error?: string }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        message: this.getUnconfiguredError(),
+        error: 'SUPABASE_UNCONFIGURED',
+      };
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return {
+        success: false,
+        message: 'Please enter a valid email address.',
+        error: 'INVALID_EMAIL',
+      };
+    }
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: window.location.origin,
+      });
+
+      if (error) {
+        // Only surface network or rate limit errors; don't leak user existence
+        const msg = String(error.message || '').toLowerCase();
+        if (msg.includes('rate limit') || msg.includes('too many')) {
+          return {
+            success: false,
+            message: 'Too many requests. Please wait a few moments before trying again.',
+            error: error.message,
+          };
+        }
+        if (msg.includes('network') || msg.includes('fetch')) {
+          return {
+            success: false,
+            message: 'Network connection error. Please verify your connection.',
+            error: error.message,
+          };
+        }
+      }
+
+      return {
+        success: true,
+        message:
+          'If an account exists for this email, a password reset link has been sent. Please check your inbox and spam folder.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: formatUserFriendlyError(err, 'Failed to send password reset email.'),
+        error: err.message,
+      };
+    }
+  }
+
+  async updateUserPassword(newPassword: string): Promise<{ success: boolean; message: string; error?: string }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        message: this.getUnconfiguredError(),
+        error: 'SUPABASE_UNCONFIGURED',
+      };
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return {
+        success: false,
+        message: 'Password must be at least 6 characters long.',
+        error: 'PASSWORD_TOO_SHORT',
+      };
+    }
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          message: formatUserFriendlyError(error, 'Failed to update password.'),
+          error: error.message,
+        };
+      }
+
+      this.isPasswordRecovery = false;
+      notifyRecoveryListeners(false);
+
+      return {
+        success: true,
+        message: 'Your password has been successfully updated. You can now log in.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: formatUserFriendlyError(err, 'Password update error.'),
+        error: err.message,
+      };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4. Google & Facebook OAuth Authentication
   // ---------------------------------------------------------------------------
   async loginWithOAuth(
-    provider: 'google' | 'facebook',
-    metadata?: Record<string, any>
-  ): Promise<{ success: boolean; session?: AuthSession; isNewUser?: boolean; error?: string }> {
+    provider: 'google' | 'facebook'
+  ): Promise<{ success: boolean; error?: string }> {
     if (!isSupabaseConfigured()) {
-      // Local development fallback
-      const authUserId = `usr_${provider}_${Math.random().toString(36).substring(2, 9)}`;
-      const now = new Date().toISOString();
-      const fallbackUser: AuthUser = {
-        id: authUserId,
-        auth_user_id: authUserId,
-        provider,
-        displayName: metadata?.name || (provider === 'google' ? 'Google User' : 'Facebook User'),
-        email: metadata?.email || `${provider}_user@example.com`,
-        createdAt: now,
-        lastLoginAt: now,
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
       };
-      const fallbackProfile: UserProfile = {
-        id: `prf_${Date.now()}`,
-        auth_user_id: authUserId,
-        full_name: fallbackUser.displayName || '',
-        username: `${provider}_user`,
-        email: fallbackUser.email || '',
-        phone: '',
-        profile_image_url: '',
-        address: '',
-        language: 'English',
-        currency: 'NPR',
-        created_at: now,
-        updated_at: now,
-        is_profile_complete: false,
-      };
-      const fallbackSession: AuthSession = {
-        token: `mock_${provider}_${Date.now()}`,
-        user: fallbackUser,
-        profile: fallbackProfile,
-        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-      };
-      this.setSession(fallbackSession);
-      return { success: true, session: fallbackSession, isNewUser: true };
     }
 
     try {
       const redirectUrl = window.location.origin;
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo: redirectUrl,
@@ -439,21 +743,29 @@ class AuthService {
   }
 
   // ---------------------------------------------------------------------------
-  // 2. Mobile Phone + OTP Authentication
+  // 5. Mobile Phone + OTP Authentication (SMS)
   // ---------------------------------------------------------------------------
   async sendPhoneOtp(
     countryCode: string,
     phone: string
-  ): Promise<{ success: boolean; message: string; previewCode?: string; error?: string }> {
+  ): Promise<{ success: boolean; message: string; error?: string }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        message: this.getUnconfiguredError(),
+        error: 'SUPABASE_UNCONFIGURED',
+      };
+    }
+
     const cleanNum = phone.replace(/[^0-9]/g, '');
     const cleanCode = countryCode.startsWith('+') ? countryCode : `+${countryCode}`;
     const fullPhone = `${cleanCode}${cleanNum}`;
 
-    if (!isSupabaseConfigured()) {
+    if (cleanNum.length < 7) {
       return {
-        success: true,
-        message: `Verification code sent to ${fullPhone}. (Dev fallback: 123456)`,
-        previewCode: '123456',
+        success: false,
+        message: 'Please enter a valid phone number (at least 7 digits).',
+        error: 'INVALID_PHONE',
       };
     }
 
@@ -465,7 +777,7 @@ class AuthService {
       if (error) {
         return {
           success: false,
-          message: formatUserFriendlyError(error, 'Failed to send SMS code. Please try again.'),
+          message: formatUserFriendlyError(error, 'Failed to send SMS verification code.'),
           error: error.message,
         };
       }
@@ -487,45 +799,23 @@ class AuthService {
     countryCode: string,
     phone: string,
     otp: string
-  ): Promise<{ success: boolean; session?: AuthSession; isNewUser?: boolean; error?: string }> {
+  ): Promise<AuthOperationResult> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
+      };
+    }
+
     const cleanNum = phone.replace(/[^0-9]/g, '');
     const cleanCode = countryCode.startsWith('+') ? countryCode : `+${countryCode}`;
     const fullPhone = `${cleanCode}${cleanNum}`;
 
-    if (!isSupabaseConfigured()) {
-      const authUserId = `usr_ph_${cleanNum.substring(cleanNum.length - 6)}`;
-      const now = new Date().toISOString();
-      const fallbackUser: AuthUser = {
-        id: authUserId,
-        auth_user_id: authUserId,
-        provider: 'phone',
-        phone: fullPhone,
-        createdAt: now,
-        lastLoginAt: now,
+    if (!otp || otp.trim().length !== 6) {
+      return {
+        success: false,
+        error: 'Please enter the complete 6-digit verification code.',
       };
-      const fallbackProfile: UserProfile = {
-        id: `prf_${Date.now()}`,
-        auth_user_id: authUserId,
-        full_name: '',
-        username: `user_${cleanNum.slice(-4)}`,
-        email: '',
-        phone: fullPhone,
-        profile_image_url: '',
-        address: '',
-        language: 'English',
-        currency: 'NPR',
-        created_at: now,
-        updated_at: now,
-        is_profile_complete: false,
-      };
-      const fallbackSession: AuthSession = {
-        token: `mock_phone_${Date.now()}`,
-        user: fallbackUser,
-        profile: fallbackProfile,
-        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-      };
-      this.setSession(fallbackSession);
-      return { success: true, session: fallbackSession, isNewUser: true };
     }
 
     try {
@@ -564,152 +854,30 @@ class AuthService {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Email Authentication
-  // ---------------------------------------------------------------------------
-  async loginWithEmail(
-    email: string,
-    mode: 'login' | 'signup' = 'login',
-    password?: string
-  ): Promise<{ success: boolean; session?: AuthSession; isNewUser?: boolean; error?: string }> {
-    const cleanEmail = email.trim().toLowerCase();
-
-    if (!isSupabaseConfigured()) {
-      const authUserId = `usr_em_${cleanEmail.split('@')[0]}_${Math.random().toString(36).substring(2, 6)}`;
-      const now = new Date().toISOString();
-      const fallbackUser: AuthUser = {
-        id: authUserId,
-        auth_user_id: authUserId,
-        provider: 'email',
-        email: cleanEmail,
-        createdAt: now,
-        lastLoginAt: now,
-      };
-      const fallbackProfile: UserProfile = {
-        id: `prf_${Date.now()}`,
-        auth_user_id: authUserId,
-        full_name: '',
-        username: cleanEmail.split('@')[0],
-        email: cleanEmail,
-        phone: '',
-        profile_image_url: '',
-        address: '',
-        language: 'English',
-        currency: 'NPR',
-        created_at: now,
-        updated_at: now,
-        is_profile_complete: false,
-      };
-      const fallbackSession: AuthSession = {
-        token: `mock_email_${Date.now()}`,
-        user: fallbackUser,
-        profile: fallbackProfile,
-        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-      };
-      this.setSession(fallbackSession);
-      return { success: true, session: fallbackSession, isNewUser: mode === 'signup' };
-    }
-
-    try {
-      if (mode === 'signup') {
-        // If password not provided, use Magic Link OTP
-        if (!password) {
-          const { error } = await supabase.auth.signInWithOtp({
-            email: cleanEmail,
-            options: {
-              emailRedirectTo: window.location.origin,
-            },
-          });
-          if (error) {
-            return { success: false, error: formatUserFriendlyError(error, 'Sign up failed.') };
-          }
-          return {
-            success: true,
-            error: 'Check your email for the confirmation link to sign in.',
-          };
-        }
-
-        const { data, error } = await supabase.auth.signUp({
-          email: cleanEmail,
-          password,
-          options: {
-            emailRedirectTo: window.location.origin,
-          },
-        });
-
-        if (error) {
-          return { success: false, error: formatUserFriendlyError(error, 'Registration failed.') };
-        }
-
-        if (data.session) {
-          const appSession = await this.handleSupabaseSession(data.session);
-          return { success: true, session: appSession || undefined, isNewUser: true };
-        }
-
-        return {
-          success: true,
-          error: 'Please check your email to confirm your account before logging in.',
-        };
-      } else {
-        // Login mode
-        if (password) {
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email: cleanEmail,
-            password,
-          });
-
-          if (error) {
-            return { success: false, error: formatUserFriendlyError(error, 'Invalid email or password.') };
-          }
-
-          if (data.session) {
-            const appSession = await this.handleSupabaseSession(data.session);
-            return { success: true, session: appSession || undefined, isNewUser: false };
-          }
-        } else {
-          // Magic link fallback
-          const { error } = await supabase.auth.signInWithOtp({
-            email: cleanEmail,
-            options: {
-              emailRedirectTo: window.location.origin,
-            },
-          });
-          if (error) {
-            return { success: false, error: formatUserFriendlyError(error, 'Login request failed.') };
-          }
-          return {
-            success: true,
-            error: 'Check your email for the magic sign-in link.',
-          };
-        }
-      }
-
-      return { success: false, error: 'Authentication could not complete.' };
-    } catch (err: any) {
-      return {
-        success: false,
-        error: formatUserFriendlyError(err, 'Email authentication error.'),
-      };
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // 4. WhatsApp Status Check
+  // 6. WhatsApp Status Check
   // ---------------------------------------------------------------------------
   async checkWhatsAppStatus(): Promise<{ success: boolean; message: string; error?: string }> {
     return {
       success: false,
-      message: 'WhatsApp Business API is not configured on this project. Please sign in via Mobile SMS OTP, Google, or Email.',
+      message: 'WhatsApp Business API is not configured on this project. Please sign in with Email, Google, Facebook, or Mobile Phone SMS.',
       error: 'WHATSAPP_UNAVAILABLE',
     };
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Supabase Storage Profile Photo Upload & Replacement
+  // 7. Supabase Storage Profile Photo Upload & Replacement
   // ---------------------------------------------------------------------------
   async uploadAvatar(
     fileOrBase64: string | File | Blob,
     mimeType = 'image/jpeg'
   ): Promise<{ success: boolean; avatarUrl?: string; error?: string }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
+      };
+    }
+
     const session = this.getSession();
     const userId = session?.user?.id || session?.user?.auth_user_id;
 
@@ -744,18 +912,6 @@ class AuthService {
         success: false,
         error: 'Image is too large. Maximum size is 5MB.',
       };
-    }
-
-    // If Supabase is unconfigured, return data URL fallback for seamless demo
-    if (!isSupabaseConfigured()) {
-      if (typeof fileOrBase64 === 'string') {
-        return { success: true, avatarUrl: fileOrBase64 };
-      }
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve({ success: true, avatarUrl: reader.result as string });
-        reader.readAsDataURL(uploadBlob);
-      });
     }
 
     try {
@@ -815,11 +971,18 @@ class AuthService {
   }
 
   // ---------------------------------------------------------------------------
-  // 6. User Profile Update in Supabase profiles table
+  // 8. User Profile Update in Supabase profiles table
   // ---------------------------------------------------------------------------
   async saveProfile(
     profileData: Partial<UserProfile>
   ): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
+      };
+    }
+
     const session = this.getSession();
     if (!session || !session.user) {
       return { success: false, error: 'User is not authenticated.' };
@@ -829,7 +992,7 @@ class AuthService {
     const now = new Date().toISOString();
 
     const updatedProfile: UserProfile = {
-      id: session.profile?.id || `prf_${Date.now()}`,
+      id: session.profile?.id || '',
       auth_user_id: authUserId,
       full_name: (profileData.full_name ?? session.profile?.full_name ?? '').trim(),
       username: (profileData.username ?? session.profile?.username ?? '').trim().toLowerCase(),
@@ -844,11 +1007,11 @@ class AuthService {
       is_profile_complete: true,
     };
 
-    if (isSupabaseConfigured()) {
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .upsert({
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .upsert(
+          {
             auth_user_id: authUserId,
             full_name: updatedProfile.full_name,
             username: updatedProfile.username,
@@ -859,30 +1022,31 @@ class AuthService {
             language: updatedProfile.language,
             currency: updatedProfile.currency,
             updated_at: now,
-          }, { onConflict: 'auth_user_id' })
-          .select()
-          .single();
+          },
+          { onConflict: 'auth_user_id' }
+        )
+        .select()
+        .single();
 
-        if (error) {
-          console.error('[authService] saveProfile Supabase error:', error);
-          return {
-            success: false,
-            error: formatUserFriendlyError(error, 'Failed to save profile in database.'),
-          };
-        }
-
-        if (data) {
-          updatedProfile.id = data.id;
-          updatedProfile.created_at = data.created_at;
-          updatedProfile.updated_at = data.updated_at;
-        }
-      } catch (err: any) {
-        console.error('[authService] saveProfile network error:', err);
+      if (error) {
+        console.error('[authService] saveProfile Supabase error:', error);
         return {
           success: false,
-          error: formatUserFriendlyError(err, 'Network error saving profile.'),
+          error: formatUserFriendlyError(error, 'Failed to save profile in database.'),
         };
       }
+
+      if (data) {
+        updatedProfile.id = data.id;
+        updatedProfile.created_at = data.created_at;
+        updatedProfile.updated_at = data.updated_at;
+      }
+    } catch (err: any) {
+      console.error('[authService] saveProfile network error:', err);
+      return {
+        success: false,
+        error: formatUserFriendlyError(err, 'Network error saving profile.'),
+      };
     }
 
     // Update active session and notify subscribers
@@ -890,7 +1054,8 @@ class AuthService {
       ...session,
       profile: updatedProfile,
     };
-    this.setSession(newSession);
+    this.activeSession = newSession;
+    notifyAuthListeners(newSession);
 
     return {
       success: true,

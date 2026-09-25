@@ -22,6 +22,20 @@ export function isSupabaseConfigured(): boolean {
   );
 }
 
+/**
+ * Returns any missing environment variable names for Supabase configuration.
+ */
+export function getSupabaseMissingVars(): string[] {
+  const missing: string[] = [];
+  if (!supabaseUrl || !supabaseUrl.startsWith('https://')) {
+    missing.push('VITE_SUPABASE_URL');
+  }
+  if (!supabaseAnonKey || supabaseAnonKey.length <= 10) {
+    missing.push('VITE_SUPABASE_ANON_KEY');
+  }
+  return missing;
+}
+
 // Fallback placeholder credentials to prevent createClient crashes if env vars are unset
 const fallbackUrl = 'https://placeholder-project.supabase.co';
 const fallbackKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key';

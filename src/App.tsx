@@ -17,7 +17,7 @@ import {
   UserProfile,
   AppRootMode,
 } from './types';
-import { authService, subscribeAuth } from './services/authService';
+import { authService, subscribeAuth, subscribePasswordRecovery } from './services/authService';
 import {
   getProducts,
   getInventoryValuation,
@@ -191,7 +191,7 @@ const GoogleSheetsSyncModal = lazy(() =>
 export default function App() {
   // Authentication & View Mode State
   const [session, setSession] = useState<AuthSession | null>(() => authService.getSession());
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot_password'>('login');
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isEditingProfileModal, setIsEditingProfileModal] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -239,7 +239,18 @@ export default function App() {
         setRootMode('dashboard');
       }
     });
-    return unsub;
+
+    const unsubRecovery = subscribePasswordRecovery((isRecovery) => {
+      if (isRecovery) {
+        setAuthMode('forgot_password');
+        setRootMode('auth');
+      }
+    });
+
+    return () => {
+      unsub();
+      unsubRecovery();
+    };
   }, []);
 
   // Navigation State
@@ -511,12 +522,8 @@ export default function App() {
 
   // Authentication & Onboarding Navigation Handlers
   const handleLandingGetStarted = () => {
-    if (!authService.isOnboardingCompleted()) {
-      setIsOnboardingOpen(true);
-    } else {
-      setAuthMode('signup');
-      setRootMode('auth');
-    }
+    setAuthMode('login');
+    setRootMode('auth');
   };
 
   const handleLandingLogin = () => {
@@ -526,7 +533,7 @@ export default function App() {
 
   const handleOnboardingFinish = () => {
     setIsOnboardingOpen(false);
-    setAuthMode('signup');
+    setAuthMode('login');
     setRootMode('auth');
   };
 
