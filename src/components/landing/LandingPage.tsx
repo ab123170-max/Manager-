@@ -27,6 +27,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Package,
+  Info,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSelectorButton } from '../common/LanguageSelectorButton';
@@ -46,6 +47,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 }) => {
   const { t, languageOption, openLanguageSelector } = useLanguage();
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
+  const [isOverviewExpanded, setIsOverviewExpanded] = useState(false);
 
   useEffect(() => {
     updateDocumentSeo({
@@ -145,19 +147,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button
               type="button"
               onClick={onLogin}
-              className="px-3 sm:px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <LogIn className="w-3.5 h-3.5 text-indigo-600" />
               <span>{t('auth.login')}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onGetStarted}
-              className="px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-sm shadow-indigo-600/30 flex items-center gap-1.5 active:scale-95 cursor-pointer"
-            >
-              <span>{t('landing.getStarted')}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -175,21 +168,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             transition={{ duration: 0.4 }}
             className="lg:col-span-7 space-y-5 text-center lg:text-left"
           >
-            {/* Language Quick-Select Banner */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50/90 border border-indigo-200/80 text-indigo-900 text-xs font-bold shadow-2xs">
-              <span className="text-base leading-none">🌐</span>
-              <span>{t('settings.chooseLanguage')}:</span>
-              <button
-                type="button"
-                onClick={openLanguageSelector}
-                className="underline text-indigo-700 hover:text-indigo-950 ml-0.5 flex items-center gap-1 cursor-pointer font-extrabold"
-              >
-                <span>{languageOption.flag} {languageOption.name}</span>
-                <span className="text-[10px] text-indigo-500 font-normal">({t('common.edit')})</span>
-              </button>
-            </div>
-
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-semibold ml-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-semibold">
               <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
               <span>Multimodal Vision &amp; OCR Engine</span>
             </div>
@@ -199,9 +178,41 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               AI Product Scanner &amp; Inventory Manager
             </h1>
 
+            {/* Concise Subtitle */}
             <p className="text-sm sm:text-base text-slate-600 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-              <strong>ScanMe AI</strong> is an intelligent product scanner and small-business inventory management application. Scan retail packaging with AI to automatically extract product names, prices, manufacture dates, and expiry dates, scan barcodes and QR codes, and maintain a real-time stock ledger without manual typing.
+              {t('landing.heroSubtitle')}
             </p>
+
+            {/* On-Demand Collapsible Info - Only shown when user taps/requests it */}
+            <div className="flex flex-col items-center lg:items-start gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsOverviewExpanded(!isOverviewExpanded)}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/90 hover:bg-indigo-100/90 border border-indigo-200/60 px-3.5 py-1.5 rounded-full transition-all cursor-pointer shadow-2xs"
+                aria-expanded={isOverviewExpanded}
+              >
+                <Info className="w-3.5 h-3.5 text-indigo-500" />
+                <span>{isOverviewExpanded ? t('landing.hideDetails') : t('landing.showDetails')}</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-indigo-600 transition-transform duration-200 ${
+                    isOverviewExpanded ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {isOverviewExpanded && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="w-full max-w-xl bg-slate-50/95 border border-slate-200/90 p-3.5 rounded-2xl text-xs sm:text-sm text-slate-600 leading-relaxed text-left shadow-2xs"
+                >
+                  <p>
+                    <strong>ScanMe AI</strong> is an intelligent product scanner and small-business inventory management application. Scan retail packaging with AI to automatically extract product names, prices, manufacture dates, and expiry dates, scan barcodes and QR codes, and maintain a real-time stock ledger without manual typing.
+                  </p>
+                </motion.div>
+              )}
+            </div>
 
             {/* CTAs */}
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3">
@@ -217,19 +228,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
               <button
                 type="button"
-                onClick={openLanguageSelector}
-                className="w-full sm:w-auto px-5 py-3.5 rounded-2xl bg-white border border-slate-200/90 hover:bg-slate-50 text-slate-700 font-bold text-sm shadow-2xs transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Globe className="w-4 h-4 text-indigo-600" />
-                <span>{languageOption.flag} {languageOption.name}</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={onLogin}
                 id="btn-landing-login"
                 className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-900 hover:bg-slate-50 font-bold text-sm shadow-2xs transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
+                <LogIn className="w-4 h-4 text-indigo-600" />
                 <span>{t('auth.login')}</span>
               </button>
             </div>

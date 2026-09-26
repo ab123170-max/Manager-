@@ -12,10 +12,8 @@ import {
   FileSearch,
   Key,
   Layers,
-  Cpu,
   ShieldAlert,
 } from 'lucide-react';
-import { GEMINI_MODEL } from '../config/model';
 
 interface ProcessingStateProps {
   imagePreview: string | null;
@@ -32,13 +30,13 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({
 }) => {
   const [activeStep, setActiveStep] = useState(0);
 
-  // Reflects the full scanner pipeline specified in prompt requirement 6
+  // Multi-step scanning pipeline
   const pipelineSteps = [
-    { title: 'OpenCV Preprocessing', desc: 'Grayscale & contrast enhancement' },
-    { title: 'Local OCR Extraction', desc: 'Analyzing local character & date cues' },
-    { title: `Gemini Vision Supervisor`, desc: `Auditing OCR via model '${GEMINI_MODEL}'` },
-    { title: 'Structured Field Mapping', desc: 'Resolving SKU, batch, dates & confidence' },
-    { title: 'Validation & Auto-Fill', desc: 'Applying strict zero-hallucination rules' },
+    { title: 'Image Enhancement', desc: 'Optimizing contrast and sharpness' },
+    { title: 'Label Extraction', desc: 'Detecting date markings and text cues' },
+    { title: 'Vision Verification', desc: 'Validating package dates and codes' },
+    { title: 'Field Mapping', desc: 'Resolving product name, batch, and dates' },
+    { title: 'Accuracy Check', desc: 'Applying date validation formulas' },
   ];
 
   useEffect(() => {
@@ -155,9 +153,9 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({
           <div className="absolute bottom-2 left-2 right-2 bg-slate-900/85 backdrop-blur rounded px-2.5 py-1 text-[11px] text-cyan-300 font-mono flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <FileSearch className="w-3 h-3 text-cyan-400" />
-              Vision Supervisor
+              Vision Analysis
             </span>
-            <span className="text-[10px] text-slate-400 font-sans">{GEMINI_MODEL}</span>
+            <span className="text-[10px] text-emerald-400 font-sans font-bold">Scanning</span>
           </div>
         </div>
       )}
@@ -168,11 +166,11 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({
           <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
         </div>
         <h3 className="text-base font-bold text-slate-900 flex items-center justify-center gap-2">
-          <span>Processing Scanner Pipeline...</span>
+          <span>Analyzing Product Package...</span>
           <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
         </h3>
         <p className="text-xs text-slate-500 max-w-sm mx-auto">
-          Executing OpenCV enhancement, OCR cue audit, and Gemini 3.7 structured extraction.
+          Reading label stamps, expiry markings, and product details.
         </p>
       </div>
 

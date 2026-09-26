@@ -212,6 +212,8 @@
     "login": "Login",
     "features": "Core Capabilities",
     "chooseLanguageBanner": "Choose your language",
+    "showDetails": "How it works & features",
+    "hideDetails": "Hide details",
     "trustedBy": "Trusted by retail shopkeepers and inventory managers"
   },
   "onboarding": {

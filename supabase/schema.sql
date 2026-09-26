@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   auth_user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name TEXT,
+  business_name TEXT,
+  country TEXT,
   username TEXT,
   email TEXT,
   phone TEXT,
@@ -20,9 +22,15 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   address TEXT,
   language TEXT DEFAULT 'English',
   currency TEXT DEFAULT 'NPR',
+  onboarding_completed BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure newly added columns exist if table was created previously
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS business_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS country TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT false;
 
 -- Index for fast lookups by auth_user_id
 CREATE INDEX IF NOT EXISTS idx_profiles_auth_user_id ON public.profiles(auth_user_id);

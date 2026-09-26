@@ -12,7 +12,7 @@ import {
   AlertCircle,
   Loader2,
   User,
-  AtSign,
+  Building2,
   Phone,
   Mail,
   MapPin,
@@ -21,17 +21,23 @@ import {
   ArrowRight,
   ShieldCheck,
   X,
+  Store,
+  LogIn,
 } from 'lucide-react';
 import { authService } from '../../services/authService';
-import { UserProfile, AuthUser } from '../../types';
+import { UserProfile, AuthUser, PendingOnboardingProfile } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { SupportedLanguage } from '../../translations';
 
-interface ProfileSetupViewProps {
-  user: AuthUser;
+export interface ProfileSetupViewProps {
+  user?: AuthUser | null;
   initialProfile?: UserProfile | null;
+  initialPending?: PendingOnboardingProfile | null;
+  isPreAuthOnboarding?: boolean; // True when collecting profile details BEFORE authentication
   isInitialSetup?: boolean;
-  onProfileSaved: (profile: UserProfile) => void;
+  onContinueToAuth?: (pending: PendingOnboardingProfile) => void;
+  onProfileSaved?: (profile: UserProfile) => void;
+  onGoToLogin?: () => void;
   onCancel?: () => void;
 }
 
@@ -50,42 +56,69 @@ const CURRENCIES = [
   { code: 'AED', symbol: 'د.إ', label: 'AED - UAE Dirham' },
 ];
 
+const COUNTRIES = [
+  { name: 'Nepal', flag: '🇳🇵', currency: 'NPR' },
+  { name: 'India', flag: '🇮🇳', currency: 'INR' },
+  { name: 'United States', flag: '🇺🇸', currency: 'USD' },
+  { name: 'United Kingdom', flag: '🇬🇧', currency: 'GBP' },
+  { name: 'United Arab Emirates', flag: '🇦🇪', currency: 'AED' },
+  { name: 'Australia', flag: '🇦🇺', currency: 'AUD' },
+  { name: 'Canada', flag: '🇨🇦', currency: 'CAD' },
+  { name: 'Other Country', flag: '🌐', currency: 'USD' },
+];
+
 export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
   user,
   initialProfile,
+  initialPending,
+  isPreAuthOnboarding = false,
   isInitialSetup = true,
+  onContinueToAuth,
   onProfileSaved,
+  onGoToLogin,
   onCancel,
 }) => {
   const { language: appLang, setLanguage: setAppLanguage, t } = useLanguage();
 
+  // Pre-fill from pending draft or initial profile
+  const existingDraft = initialPending || authService.getPendingOnboardingProfile();
+
   // Form Fields
   const [fullName, setFullName] = useState<string>(
-    initialProfile?.full_name || user.displayName || ''
+    existingDraft?.fullName || initialProfile?.full_name || user?.displayName || ''
   );
-  const [username, setUsername] = useState<string>(() => {
-    if (initialProfile?.username) return initialProfile.username;
-    if (user.email) return user.email.split('@')[0].replace(/[^a-zA-Z0-9._-]/g, '').toLowerCase();
-    if (user.phone) return `user_${user.phone.slice(-4)}`;
-    return `user_${Math.random().toString(36).substring(2, 7)}`;
-  });
-  const [phone, setPhone] = useState<string>(initialProfile?.phone || user.phone || '');
-  const [email, setEmail] = useState<string>(initialProfile?.email || user.email || '');
-  const [address, setAddress] = useState<string>(initialProfile?.address || '');
+  const [businessName, setBusinessName] = useState<string>(
+    existingDraft?.businessName || initialProfile?.business_name || ''
+  );
+  const [country, setCountry] = useState<string>(
+    existingDraft?.country || initialProfile?.country || 'Nepal'
+  );
+  const [address, setAddress] = useState<string>(
+    existingDraft?.address || initialProfile?.address || ''
+  );
+  const [phone, setPhone] = useState<string>(
+    existingDraft?.phone || initialProfile?.phone || user?.phone || ''
+  );
+  const [email, setEmail] = useState<string>(
+    initialProfile?.email || user?.email || ''
+  );
   const [language, setLanguage] = useState<SupportedLanguage>(() => {
-    if (initialProfile?.language) {
-      const clean = initialProfile.language.toLowerCase();
+    const rawLang = existingDraft?.language || initialProfile?.language;
+    if (rawLang) {
+      const clean = rawLang.toLowerCase();
       if (clean.includes('nepal') || clean === 'ne') return 'ne';
       if (clean.includes('hindi') || clean === 'hi') return 'hi';
       return 'en';
     }
     return appLang;
   });
-  const [currency, setCurrency] = useState<string>(initialProfile?.currency || 'NPR');
+  const [currency, setCurrency] = useState<string>(
+    existingDraft?.currency || initialProfile?.currency || 'NPR'
+  );
 
   // Photo State
   const [avatarPreview, setAvatarPreview] = useState<string | null>(
-    initialProfile?.profile_image_url || user.photoURL || null
+    initialProfile?.profile_image_url || user?.photoURL || null
   );
   const [isUploadingPhoto, setIsUploadingPhoto] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -100,6 +133,15 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Auto-sync currency when user chooses country (if user hasn't explicitly customized yet)
+  const handleCountryChange = (newCountryName: string) => {
+    setCountry(newCountryName);
+    const matched = COUNTRIES.find((c) => c.name === newCountryName);
+    if (matched && matched.currency) {
+      setCurrency(matched.currency);
+    }
+  };
 
   // Compress & crop an image to a square JPEG before uploading
   const compressAndSquareImage = (file: File): Promise<string> => {
@@ -121,7 +163,6 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
             return;
           }
 
-          // Center crop calculation
           const startX = (img.width - size) / 2;
           const startY = (img.height - size) / 2;
 
@@ -161,12 +202,15 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
       setAvatarPreview(compressedDataUrl);
       setUploadProgress(60);
 
-      // Upload to server storage endpoint
-      const uploadRes = await authService.uploadAvatar(compressedDataUrl, 'image/jpeg');
-      setUploadProgress(100);
-
-      if (uploadRes.success && uploadRes.avatarUrl) {
-        setAvatarPreview(uploadRes.avatarUrl);
+      // Only attempt authenticated storage upload if user is already authenticated
+      if (user?.id) {
+        const uploadRes = await authService.uploadAvatar(compressedDataUrl, 'image/jpeg');
+        setUploadProgress(100);
+        if (uploadRes.success && uploadRes.avatarUrl) {
+          setAvatarPreview(uploadRes.avatarUrl);
+        }
+      } else {
+        setUploadProgress(100);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Error processing profile photo.');
@@ -228,16 +272,18 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
     handleStopCamera();
     setAvatarPreview(dataUrl);
 
-    setIsUploadingPhoto(true);
-    try {
-      const uploadRes = await authService.uploadAvatar(dataUrl, 'image/jpeg');
-      if (uploadRes.success && uploadRes.avatarUrl) {
-        setAvatarPreview(uploadRes.avatarUrl);
+    if (user?.id) {
+      setIsUploadingPhoto(true);
+      try {
+        const uploadRes = await authService.uploadAvatar(dataUrl, 'image/jpeg');
+        if (uploadRes.success && uploadRes.avatarUrl) {
+          setAvatarPreview(uploadRes.avatarUrl);
+        }
+      } catch {
+        // Direct dataUrl fallback
+      } finally {
+        setIsUploadingPhoto(false);
       }
-    } catch {
-      // Direct dataUrl fallback
-    } finally {
-      setIsUploadingPhoto(false);
     }
   };
 
@@ -245,45 +291,83 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
     setAvatarPreview(null);
   };
 
-  // Form Submit
+  // Form Submit Handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
     const cleanName = fullName.trim();
-    const cleanUsername = username.trim().replace(/[^a-zA-Z0-9._-]/g, '').toLowerCase();
+    const cleanBusiness = businessName.trim();
+    const cleanAddress = address.trim();
 
     if (cleanName.length < 2) {
       setErrorMessage('Please enter your full name (minimum 2 characters).');
       return;
     }
 
-    if (cleanUsername.length < 3) {
-      setErrorMessage('Please enter a username of at least 3 alphanumeric characters.');
+    if (cleanBusiness.length < 2) {
+      setErrorMessage('Please enter your business or shop name (minimum 2 characters).');
       return;
     }
 
-    setIsSaving(true);
+    if (cleanAddress.length < 2) {
+      setErrorMessage('Please enter your store address or city.');
+      return;
+    }
 
+    // SCENARIO 1: PRE-AUTH ONBOARDING (New User before Email Verification)
+    if (isPreAuthOnboarding) {
+      const pendingData: PendingOnboardingProfile = {
+        fullName: cleanName,
+        businessName: cleanBusiness,
+        country,
+        address: cleanAddress,
+        language,
+        currency,
+        phone: phone.trim(),
+        completedAt: Date.now(),
+      };
+
+      authService.setPendingOnboardingProfile(pendingData);
+      setSuccessMessage('Profile saved! Proceeding to email verification…');
+
+      setTimeout(() => {
+        if (onContinueToAuth) {
+          onContinueToAuth(pendingData);
+        }
+      }, 250);
+      return;
+    }
+
+    // SCENARIO 2: POST-AUTH PROFILE COMPLETION (Authenticated User saving profile to database)
+    setIsSaving(true);
     try {
+      const cleanUsername = (
+        cleanBusiness.toLowerCase().replace(/[^a-z0-9_]/g, '') ||
+        `user_${Date.now().toString(36)}`
+      );
+
       const res = await authService.saveProfile({
         full_name: cleanName,
+        business_name: cleanBusiness,
+        country,
         username: cleanUsername,
         phone: phone.trim(),
         email: email.trim().toLowerCase(),
-        address: address.trim(),
+        address: cleanAddress,
         language,
         currency,
         profile_image_url: avatarPreview || '',
+        onboarding_completed: true,
       });
 
       if (res.success && res.profile) {
-        setSuccessMessage('Profile saved successfully.');
+        setSuccessMessage('Profile saved successfully! Entering store…');
         setTimeout(() => {
-          onProfileSaved(res.profile!);
+          onProfileSaved?.(res.profile!);
         }, 350);
       } else {
-        setErrorMessage(res.error || 'Failed to save profile. Please try again.');
+        setErrorMessage(res.error || 'Failed to save profile. Please check connection and try again.');
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'An error occurred while saving profile.');
@@ -293,20 +377,55 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F7FA] py-8 px-4 sm:px-6 flex flex-col justify-center">
+    <div className="min-h-screen bg-[#F5F7FA] py-6 sm:py-10 px-4 sm:px-6 flex flex-col justify-center">
       <div className="max-w-xl w-full mx-auto">
-        <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-200/80 space-y-6">
-          {/* Header */}
-          <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+        <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-200/90 space-y-6">
+          {/* 1. Step Indicator for New Users */}
+          {isPreAuthOnboarding && (
+            <div className="flex items-center justify-between gap-2 px-1 pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-1.5 text-xs font-black text-indigo-600">
+                <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">
+                  1
+                </div>
+                <span>1. Store Profile</span>
+              </div>
+              <div className="h-0.5 flex-1 bg-slate-200 mx-1 rounded-full" />
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+                <div className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-bold">
+                  2
+                </div>
+                <span>2. Verify Email</span>
+              </div>
+              <div className="h-0.5 flex-1 bg-slate-200 mx-1 rounded-full" />
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+                <div className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-bold">
+                  3
+                </div>
+                <span>3. Ready</span>
+              </div>
+            </div>
+          )}
+
+          {/* 2. Header */}
+          <div className="flex items-start justify-between">
             <div>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#1473EA] bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
-                {isInitialSetup ? 'Onboarding Step' : 'User Settings'}
+              <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200/60 inline-flex items-center gap-1">
+                <Store className="w-3 h-3 text-indigo-600" />
+                {isPreAuthOnboarding
+                  ? 'Step 1 of 3: New User Registration'
+                  : isInitialSetup
+                  ? 'Complete Required Profile'
+                  : 'Store Profile Settings'}
               </span>
-              <h2 className="text-xl sm:text-2xl font-black text-[#092B4C] mt-1 tracking-tight">
-                {isInitialSetup ? 'Create Your Profile' : 'Edit Your Profile'}
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 mt-1.5 tracking-tight">
+                {isPreAuthOnboarding
+                  ? 'Create Your Store Profile'
+                  : 'Complete Your Business Profile'}
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Set up your store identity, contact info, and localized currency settings.
+              <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                {isPreAuthOnboarding
+                  ? 'Enter your shop details first. You will verify your email in the next step.'
+                  : 'Please complete your business details to access the AI scanner and inventory.'}
               </p>
             </div>
 
@@ -322,7 +441,7 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
             )}
           </div>
 
-          {/* Feedback Banners */}
+          {/* 3. Feedback Banners */}
           {errorMessage && (
             <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2.5 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
@@ -337,10 +456,10 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
             </div>
           )}
 
-          {/* Profile Photo Area */}
-          <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center space-y-3">
+          {/* 4. Optional Photo Upload */}
+          <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-center space-y-2.5">
             <div className="relative">
-              <div className="w-24 h-24 rounded-full overflow-hidden border-3 border-white shadow-md bg-slate-200 flex items-center justify-center">
+              <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-white shadow-md bg-slate-200 flex items-center justify-center">
                 {avatarPreview ? (
                   <img
                     src={avatarPreview}
@@ -348,19 +467,18 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <User className="w-10 h-10 text-slate-400" />
+                  <User className="w-8 h-8 text-slate-400" />
                 )}
               </div>
 
               {isUploadingPhoto && (
-                <div className="absolute inset-0 rounded-full bg-black/50 flex flex-col items-center justify-center text-white">
+                <div className="absolute inset-0 rounded-full bg-black/60 flex flex-col items-center justify-center text-white">
                   <Loader2 className="w-5 h-5 animate-spin" />
                   <span className="text-[9px] font-bold mt-1">{uploadProgress}%</span>
                 </div>
               )}
             </div>
 
-            {/* Hidden File Input */}
             <input
               ref={fileInputRef}
               type="file"
@@ -369,25 +487,22 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
               className="hidden"
             />
 
-            {/* Photo Action Buttons */}
             <div className="flex flex-wrap items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploadingPhoto}
-                id="btn-upload-photo"
-                className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs transition-colors flex items-center gap-1.5"
+                className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
               >
-                <Upload className="w-3.5 h-3.5 text-[#1473EA]" />
-                <span>Upload Photo</span>
+                <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Upload Logo / Photo</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleStartCamera}
                 disabled={isUploadingPhoto}
-                id="btn-take-photo"
-                className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs transition-colors flex items-center gap-1.5"
+                className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <Camera className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Take Photo</span>
@@ -398,8 +513,7 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
                   type="button"
                   onClick={handleRemovePhoto}
                   disabled={isUploadingPhoto}
-                  id="btn-remove-photo"
-                  className="px-3 py-1.5 rounded-xl text-rose-600 hover:bg-rose-50 text-xs font-bold transition-colors flex items-center gap-1"
+                  className="px-2.5 py-1.5 rounded-xl text-rose-600 hover:bg-rose-50 text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Remove</span>
@@ -407,16 +521,16 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
               )}
             </div>
             <p className="text-[10px] text-slate-400">
-              Square avatar automatically compressed and stored securely.
+              Optional store logo or shopkeeper photo (stored securely).
             </p>
           </div>
 
-          {/* Form Fields */}
+          {/* 5. Profile Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Full Name */}
+              {/* Full Name (Required) */}
               <div>
-                <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
                   Full Name <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
@@ -426,34 +540,58 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
                     required
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    placeholder="e.g. Ramesh Sharma"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
+                    placeholder="e.g. Ram Bahadur Shrestha"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
                   />
                 </div>
               </div>
 
-              {/* Username */}
+              {/* Business / Shop Name (Required) */}
               <div>
-                <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
-                  Username <span className="text-rose-500">*</span>
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  Business / Shop Name <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
-                  <AtSign className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value.toLowerCase())}
-                    placeholder="e.g. smart_retail"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    placeholder="e.g. Himalayan Grocery Store"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
                   />
                 </div>
               </div>
+            </div>
 
-              {/* Mobile Number */}
+            {/* Country & Address Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Country (Auto-detected default, editable) */}
               <div>
-                <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
-                  Mobile Number
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  Country <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <Globe className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <select
+                    value={country}
+                    onChange={(e) => handleCountryChange(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 cursor-pointer"
+                  >
+                    {COUNTRIES.map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.flag} {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Mobile Phone (Optional) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  Mobile Number <span className="text-slate-400 font-normal">(Optional)</span>
                 </label>
                 <div className="relative">
                   <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -462,50 +600,34 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="+977 98XXXXXXXX"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
-                  />
-                </div>
-              </div>
-
-              {/* Email Address */}
-              <div>
-                <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="store@domain.com"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Store Address / Location */}
+            {/* Store Location / Address (Required) */}
             <div>
-              <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
-                Store Location / Address
+              <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                Store Location / Address <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
                 <textarea
                   rows={2}
+                  required
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  placeholder="e.g. New Road, Kathmandu, Nepal"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA] resize-none"
+                  placeholder="e.g. New Road, Ward 22, Kathmandu"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 resize-none"
                 />
               </div>
             </div>
 
             {/* Language & Currency Preferences */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
                   {t('profile.language')}
                 </label>
                 <div className="relative">
@@ -517,7 +639,7 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
                       setLanguage(newCode);
                       setAppLanguage(newCode);
                     }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 cursor-pointer"
                   >
                     {LANGUAGES.map((l) => (
                       <option key={l.code} value={l.code}>
@@ -529,7 +651,7 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
                   {t('profile.currency')}
                 </label>
                 <div className="relative">
@@ -537,7 +659,7 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
                   <select
                     value={currency}
                     onChange={(e) => setCurrency(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-600 cursor-pointer"
                   >
                     {CURRENCIES.map((c) => (
                       <option key={c.code} value={c.code}>
@@ -549,33 +671,70 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
               </div>
             </div>
 
-            {/* Submit Action */}
-            <div className="pt-3">
+            {/* If user is already authenticated and completing profile, show email readonly */}
+            {!isPreAuthOnboarding && email && (
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  Authenticated Email Account
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="email"
+                    disabled
+                    value={email}
+                    className="w-full bg-slate-100 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-semibold text-slate-500 cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="pt-2 space-y-3">
               <button
                 type="submit"
                 disabled={isSaving}
                 id="btn-save-profile"
-                className="w-full py-3.5 rounded-2xl bg-[#1473EA] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-[#1473EA]/25 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-600/25 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 cursor-pointer"
               >
                 {isSaving ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Saving profile…</span>
+                    <span>Saving Profile Details…</span>
+                  </>
+                ) : isPreAuthOnboarding ? (
+                  <>
+                    <span>Continue to Email Verification</span>
+                    <ArrowRight className="w-4 h-4" />
                   </>
                 ) : (
                   <>
-                    <span>{isInitialSetup ? 'Complete Setup & Open Dashboard' : 'Save Changes'}</span>
+                    <span>Complete Profile &amp; Enter Main App</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </button>
+
+              {/* Already have an account? Login */}
+              {isPreAuthOnboarding && onGoToLogin && (
+                <div className="text-center pt-1">
+                  <button
+                    type="button"
+                    onClick={onGoToLogin}
+                    className="text-xs font-bold text-slate-600 hover:text-indigo-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <LogIn className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Already have an account? <strong>Log In</strong></span>
+                  </button>
+                </div>
+              )}
             </div>
           </form>
 
-          {/* Security Note */}
+          {/* Privacy & Security Note */}
           <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 pt-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
-            <span>Profile record tied securely to auth ID: {user.auth_user_id.slice(0, 12)}…</span>
+            <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
+            <span>Store profile data is private and secured by Supabase Row Level Security.</span>
           </div>
         </div>
       </div>
@@ -585,7 +744,7 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div className="bg-slate-900 rounded-3xl p-5 max-w-sm w-full border border-slate-700 text-white space-y-4 text-center">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-300">Take Profile Photo</span>
+              <span className="text-xs font-bold text-slate-300">Take Store Photo</span>
               <button
                 type="button"
                 onClick={handleStopCamera}
@@ -603,9 +762,8 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
                 muted
                 className="w-full h-full object-cover"
               />
-              {/* Circular framing overlay */}
               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-52 h-52 rounded-full border-2 border-[#1473EA] border-dashed shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]" />
+                <div className="w-52 h-52 rounded-full border-2 border-indigo-500 border-dashed shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]" />
               </div>
             </div>
 
@@ -620,7 +778,7 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
               <button
                 type="button"
                 onClick={handleCaptureCamera}
-                className="px-6 py-2.5 rounded-xl bg-[#1473EA] text-xs font-bold text-white hover:bg-blue-600 flex items-center gap-1.5 shadow-md shadow-[#1473EA]/30"
+                className="px-6 py-2.5 rounded-xl bg-indigo-600 text-xs font-bold text-white hover:bg-indigo-700 flex items-center gap-1.5 shadow-md shadow-indigo-600/30"
               >
                 <Camera className="w-4 h-4" />
                 <span>Capture</span>
@@ -632,3 +790,5 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
     </div>
   );
 };
+
+export default ProfileSetupView;

@@ -436,13 +436,10 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
       {/* ========================================================================= */}
       {(viewMode === 'cards' || viewMode === 'auto') && (
         <div className={viewMode === 'auto' ? 'block md:hidden space-y-3' : 'space-y-3'}>
-          {/* Mobile Gestures Discovery Hint */}
-          <div className="flex items-center justify-between px-2 py-1 bg-indigo-50/70 border border-indigo-100/80 rounded-xl text-[11px] text-indigo-900 font-semibold">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-              <span>Swipe any card left to delete item</span>
-            </span>
-            <span className="text-slate-500 font-normal">{filteredProducts.length} items</span>
+          {/* Mobile Product Count */}
+          <div className="flex items-center justify-between px-2 py-0.5 text-[11px] text-slate-500 font-medium">
+            <span>Products Catalog</span>
+            <span>{filteredProducts.length} items</span>
           </div>
 
           {filteredProducts.length > 0 ? (

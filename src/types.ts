@@ -676,6 +676,8 @@ export interface UserProfile {
   id: string;
   auth_user_id: string;
   full_name: string;
+  business_name?: string;
+  country?: string;
   username: string;
   email: string;
   phone: string;
@@ -685,7 +687,19 @@ export interface UserProfile {
   currency: string;
   created_at: string;
   updated_at: string;
+  onboarding_completed?: boolean;
   is_profile_complete?: boolean;
+}
+
+export interface PendingOnboardingProfile {
+  fullName: string;
+  businessName: string;
+  country: string;
+  address: string;
+  language: string;
+  currency: string;
+  phone?: string;
+  completedAt?: number;
 }
 
 export interface AuthSession {

@@ -199,6 +199,7 @@ export const HomeScreenActiveExpiryAlerts: React.FC<HomeScreenActiveExpiryAlerts
   onNavigateToStockOut,
 }) => {
   const [activeAlerts, setActiveAlerts] = useState<ExpiryAlertItem[]>([]);
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
   useEffect(() => {
     // Subscribe to active alerts from central manager
@@ -229,64 +230,75 @@ export const HomeScreenActiveExpiryAlerts: React.FC<HomeScreenActiveExpiryAlerts
     <section
       id="home-active-expiry-alerts-banner"
       aria-label="Active Expiry Alerts"
-      className="bg-white rounded-3xl p-4 sm:p-5 border border-amber-200 shadow-sm space-y-3 animate-in fade-in slide-in-from-top-2 duration-200"
+      className="bg-white rounded-2xl p-3 border border-amber-200 shadow-2xs space-y-2 transition-all"
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shadow-2xs">
-            <AlertTriangle className="w-4 h-4" />
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-7 h-7 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs">
+            <AlertTriangle className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 tracking-tight">
                 Active Expiry Alerts
               </h3>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">
-                {activeAlerts.length} {activeAlerts.length === 1 ? 'item' : 'items'}
+              <span className="text-[10px] font-black px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800">
+                {activeAlerts.length}
               </span>
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-500 truncate">
               {expiredCount > 0 && <span>{expiredCount} expired · </span>}
-              {soonCount > 0 && <span>{soonCount} expiring soon · </span>}
-              Swipe or click Dismiss to hide until status changes.
+              {soonCount > 0 && <span>{soonCount} expiring soon</span>}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {activeAlerts.length > 1 && (
-            <button
-              type="button"
-              onClick={handleDismissAll}
-              className="text-xs font-bold px-2.5 py-1 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
-            >
-              Dismiss All
-            </button>
-          )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsExpanded((prev) => !prev)}
+            className="text-xs font-semibold px-2 py-1 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            {isExpanded ? 'Hide' : 'Show details'}
+          </button>
 
           {onNavigateToAlerts && (
             <button
               type="button"
               onClick={onNavigateToAlerts}
-              className="text-xs font-bold px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors flex items-center gap-1 cursor-pointer"
+              className="text-xs font-bold px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors flex items-center gap-1 cursor-pointer"
             >
-              <span>Review All</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <span>Radar</span>
+              <ArrowRight className="w-3 h-3" />
             </button>
           )}
         </div>
       </div>
 
-      <div className="space-y-2 pt-1">
-        {activeAlerts.map((alert) => (
-          <AlertRow
-            key={alert.alertKey}
-            alert={alert}
-            onDismiss={handleDismiss}
-            onAction={onNavigateToStockOut}
-          />
-        ))}
-      </div>
+      {isExpanded && (
+        <div className="space-y-2 pt-2 border-t border-slate-100 animate-in fade-in duration-150">
+          <div className="flex items-center justify-between text-[11px] text-slate-500 pb-0.5">
+            <span>Tap dismiss to clear alert item</span>
+            {activeAlerts.length > 1 && (
+              <button
+                type="button"
+                onClick={handleDismissAll}
+                className="text-slate-600 hover:text-slate-900 font-bold"
+              >
+                Dismiss All
+              </button>
+            )}
+          </div>
+          {activeAlerts.map((alert) => (
+            <AlertRow
+              key={alert.alertKey}
+              alert={alert}
+              onDismiss={handleDismiss}
+              onAction={onNavigateToStockOut}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 };

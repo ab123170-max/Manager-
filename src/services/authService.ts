@@ -4,10 +4,11 @@
  */
 
 import { supabase, isSupabaseConfigured, getSupabaseMissingVars } from '../lib/supabaseClient';
-import { AuthSession, AuthUser, UserProfile, AuthProviderType } from '../types';
+import { AuthSession, AuthUser, UserProfile, AuthProviderType, PendingOnboardingProfile } from '../types';
 
 const STORAGE_KEYS = {
   ONBOARDING_COMPLETED: 'ais_onboarding_completed_v1',
+  PENDING_PROFILE_DRAFT: 'scanme_onboarding_pending_v1',
   LAST_AVATAR_PATH: 'ais_last_avatar_path_v1',
   SESSION_CACHE: 'ais_auth_session_cache_v1', // Kept for cleanup on signout
 };
@@ -17,6 +18,9 @@ const authListeners = new Set<AuthListener>();
 
 type RecoveryListener = (isRecovery: boolean) => void;
 const recoveryListeners = new Set<RecoveryListener>();
+
+type InitListener = (isReady: boolean) => void;
+const initListeners = new Set<InitListener>();
 
 export function subscribeAuth(listener: AuthListener): () => void {
   authListeners.add(listener);
@@ -29,6 +33,13 @@ export function subscribePasswordRecovery(listener: RecoveryListener): () => voi
   recoveryListeners.add(listener);
   return () => {
     recoveryListeners.delete(listener);
+  };
+}
+
+export function subscribeAuthInit(listener: InitListener): () => void {
+  initListeners.add(listener);
+  return () => {
+    initListeners.delete(listener);
   };
 }
 
@@ -48,6 +59,16 @@ function notifyRecoveryListeners(isRecovery: boolean) {
       cb(isRecovery);
     } catch (e) {
       console.error('[authService] recovery listener error:', e);
+    }
+  });
+}
+
+function notifyInitListeners(isReady: boolean) {
+  initListeners.forEach((cb) => {
+    try {
+      cb(isReady);
+    } catch (e) {
+      console.error('[authService] init listener error:', e);
     }
   });
 }
@@ -78,6 +99,10 @@ export function formatUserFriendlyError(err: any, defaultMsg: string): string {
   }
   if (msg.includes('user already registered') || msg.includes('already exists') || msg.includes('already registered')) {
     return 'An account with this email already exists. Please log in instead.';
+  }
+  // Handle token invalid / expired errors specifically
+  if (msg.includes('token has expired or is invalid') || msg.includes('token is expired or invalid')) {
+    return 'Invalid verification code. Please check your email and enter the latest 6-digit code.';
   }
   if (msg.includes('token has expired') || msg.includes('otp expired') || msg.includes('token expired')) {
     return 'Verification code has expired. Please request a new code.';
@@ -124,10 +149,54 @@ class AuthService {
   private isInitialized = false;
   private profilePromises = new Map<string, Promise<UserProfile | null>>();
   private isPasswordRecovery = false;
+  private pendingProfile: PendingOnboardingProfile | null = null;
 
   constructor() {
     this.setupSupabaseAuthListener();
     this.checkInitialUrlHash();
+  }
+
+  isAuthReady(): boolean {
+    return this.isInitialized;
+  }
+
+  /**
+   * Temporary Onboarding Profile Storage (Pre-Auth State)
+   */
+  getPendingOnboardingProfile(): PendingOnboardingProfile | null {
+    if (this.pendingProfile) return this.pendingProfile;
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = sessionStorage.getItem(STORAGE_KEYS.PENDING_PROFILE_DRAFT);
+        if (stored) {
+          this.pendingProfile = JSON.parse(stored);
+          return this.pendingProfile;
+        }
+      } catch (e) {
+        console.warn('[authService] failed to parse pending profile draft:', e);
+      }
+    }
+    return null;
+  }
+
+  setPendingOnboardingProfile(profile: PendingOnboardingProfile): void {
+    this.pendingProfile = profile;
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem(STORAGE_KEYS.PENDING_PROFILE_DRAFT, JSON.stringify(profile));
+      } catch (e) {
+        console.warn('[authService] failed to save pending profile draft:', e);
+      }
+    }
+  }
+
+  clearPendingOnboardingProfile(): void {
+    this.pendingProfile = null;
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem(STORAGE_KEYS.PENDING_PROFILE_DRAFT);
+      } catch {}
+    }
   }
 
   private checkInitialUrlHash() {
@@ -145,6 +214,8 @@ class AuthService {
    */
   private async setupSupabaseAuthListener(): Promise<void> {
     if (!isSupabaseConfigured()) {
+      this.isInitialized = true;
+      notifyInitListeners(true);
       return;
     }
 
@@ -174,8 +245,11 @@ class AuthService {
       });
 
       this.isInitialized = true;
+      notifyInitListeners(true);
     } catch (err) {
       console.warn('[authService] Supabase Auth initialization:', err);
+      this.isInitialized = true;
+      notifyInitListeners(true);
     }
   }
 
@@ -205,11 +279,29 @@ class AuthService {
         lastLoginAt: sbUser.last_sign_in_at || new Date().toISOString(),
       };
 
-      // Fetch profile from public.profiles table
+      // Fetch existing profile from public.profiles table
       let profile = await this.fetchProfileFromDb(sbUser.id);
 
-      // If profile does not exist, safely create one in public.profiles table
-      if (!profile) {
+      // Check if user has a pending onboarding profile draft from step 1
+      const pending = this.getPendingOnboardingProfile();
+      if (pending) {
+        const saved = await this.saveProfileDirect(sbUser.id, {
+          full_name: pending.fullName,
+          business_name: pending.businessName,
+          country: pending.country,
+          address: pending.address,
+          language: pending.language,
+          currency: pending.currency,
+          phone: pending.phone || sbUser.phone || '',
+          email: sbUser.email || '',
+          onboarding_completed: true,
+        });
+        if (saved) {
+          profile = saved;
+          this.clearPendingOnboardingProfile();
+        }
+      } else if (!profile) {
+        // Safe default profile creation if neither profile nor draft exists
         profile = await this.createDefaultProfile(sbUser);
       }
 
@@ -225,6 +317,81 @@ class AuthService {
       return session;
     } catch (e) {
       console.error('[authService] Error handling Supabase session:', e);
+      return null;
+    }
+  }
+
+  /**
+   * Directly creates or updates a profile by authUserId.
+   * Ensures the profile is committed immediately after auth verification.
+   */
+  async saveProfileDirect(authUserId: string, profileData: Partial<UserProfile>): Promise<UserProfile | null> {
+    if (!isSupabaseConfigured()) return null;
+    const now = new Date().toISOString();
+    const cleanFullName = (profileData.full_name || '').trim();
+    const cleanBusiness = (profileData.business_name || '').trim();
+    const cleanUsername = (
+      profileData.username ||
+      cleanBusiness.toLowerCase().replace(/[^a-z0-9_]/g, '') ||
+      `user_${authUserId.substring(0, 6)}`
+    ).toLowerCase();
+
+    const row = {
+      auth_user_id: authUserId,
+      full_name: cleanFullName,
+      business_name: cleanBusiness,
+      country: (profileData.country || 'Nepal').trim(),
+      username: cleanUsername,
+      email: (profileData.email || '').trim().toLowerCase(),
+      phone: (profileData.phone || '').trim(),
+      profile_image_url: profileData.profile_image_url || '',
+      address: (profileData.address || '').trim(),
+      language: profileData.language || 'English',
+      currency: profileData.currency || 'NPR',
+      onboarding_completed: true,
+      updated_at: now,
+    };
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .upsert(row, { onConflict: 'auth_user_id' })
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        console.error('[authService] saveProfileDirect error:', error);
+        return null;
+      }
+      if (!data) return null;
+
+      const profile: UserProfile = {
+        id: data.id,
+        auth_user_id: data.auth_user_id,
+        full_name: data.full_name || row.full_name,
+        business_name: data.business_name || row.business_name,
+        country: data.country || row.country,
+        username: data.username || row.username,
+        email: data.email || row.email,
+        phone: data.phone || row.phone,
+        profile_image_url: data.profile_image_url || '',
+        address: data.address || row.address,
+        language: data.language || row.language,
+        currency: data.currency || row.currency,
+        onboarding_completed: true,
+        created_at: data.created_at || now,
+        updated_at: data.updated_at || now,
+        is_profile_complete: Boolean(data.full_name && (data.business_name || data.username)),
+      };
+
+      if (this.activeSession && this.activeSession.user.id === authUserId) {
+        this.activeSession.profile = profile;
+        notifyAuthListeners(this.activeSession);
+      }
+
+      return profile;
+    } catch (e) {
+      console.error('[authService] saveProfileDirect exception:', e);
       return null;
     }
   }
@@ -247,7 +414,7 @@ class AuthService {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, auth_user_id, full_name, username, email, phone, profile_image_url, address, language, currency, created_at, updated_at')
+          .select('id, auth_user_id, full_name, business_name, country, username, email, phone, profile_image_url, address, language, currency, onboarding_completed, created_at, updated_at')
           .eq('auth_user_id', authUserId)
           .maybeSingle();
 
@@ -258,10 +425,19 @@ class AuthService {
 
         if (!data) return null;
 
+        const isComplete = Boolean(
+          data.full_name &&
+          data.full_name.trim().length >= 2 &&
+          (data.business_name || data.username) &&
+          (data.address || data.country || data.onboarding_completed)
+        );
+
         return {
           id: data.id,
           auth_user_id: data.auth_user_id,
           full_name: data.full_name || '',
+          business_name: data.business_name || '',
+          country: data.country || 'Nepal',
           username: data.username || '',
           email: data.email || '',
           phone: data.phone || '',
@@ -269,9 +445,10 @@ class AuthService {
           address: data.address || '',
           language: data.language || 'English',
           currency: data.currency || 'NPR',
+          onboarding_completed: Boolean(data.onboarding_completed),
           created_at: data.created_at,
           updated_at: data.updated_at,
-          is_profile_complete: Boolean(data.full_name && data.username),
+          is_profile_complete: isComplete,
         };
       } catch (e) {
         console.error('[authService] fetchProfileFromDb exception:', e);
@@ -296,8 +473,11 @@ class AuthService {
       const now = new Date().toISOString();
       const meta = sbUser.user_metadata || {};
       const defaultName = (meta.full_name || meta.name || '').trim();
+      const defaultBusiness = (meta.business_name || meta.shop_name || '').trim();
+      const defaultCountry = (meta.country || 'Nepal').trim();
       const defaultUsername = (
         meta.username ||
+        defaultBusiness.toLowerCase().replace(/[^a-z0-9_]/g, '') ||
         sbUser.email?.split('@')[0] ||
         `user_${sbUser.id.substring(0, 6)}`
       ).toLowerCase().replace(/[^a-zA-Z0-9_]/g, '');
@@ -305,6 +485,8 @@ class AuthService {
       const initialData = {
         auth_user_id: sbUser.id,
         full_name: defaultName,
+        business_name: defaultBusiness,
+        country: defaultCountry,
         username: defaultUsername,
         email: sbUser.email || '',
         phone: sbUser.phone || meta.phone || '',
@@ -312,6 +494,7 @@ class AuthService {
         address: '',
         language: 'English',
         currency: 'NPR',
+        onboarding_completed: Boolean(defaultName && defaultBusiness),
         created_at: now,
         updated_at: now,
       };
@@ -336,6 +519,8 @@ class AuthService {
         id: data.id,
         auth_user_id: data.auth_user_id,
         full_name: data.full_name || '',
+        business_name: data.business_name || '',
+        country: data.country || 'Nepal',
         username: data.username || '',
         email: data.email || '',
         phone: data.phone || '',
@@ -343,9 +528,10 @@ class AuthService {
         address: data.address || '',
         language: data.language || 'English',
         currency: data.currency || 'NPR',
+        onboarding_completed: Boolean(data.onboarding_completed),
         created_at: data.created_at,
         updated_at: data.updated_at,
-        is_profile_complete: Boolean(data.full_name && data.username),
+        is_profile_complete: Boolean(data.full_name && (data.business_name || data.username)),
       };
     } catch (e) {
       console.error('[authService] createDefaultProfile exception:', e);
@@ -391,6 +577,7 @@ class AuthService {
   async clearSession(): Promise<void> {
     this.activeSession = null;
     this.isPasswordRecovery = false;
+    this.clearPendingOnboardingProfile();
     try {
       localStorage.removeItem(STORAGE_KEYS.SESSION_CACHE);
     } catch {}
@@ -403,6 +590,10 @@ class AuthService {
       }
     }
     notifyAuthListeners(null);
+  }
+
+  async logout(): Promise<void> {
+    await this.clearSession();
   }
 
   isAuthenticated(): boolean {
@@ -769,11 +960,8 @@ class AuthService {
     }
 
     try {
-      const { error } = await supabase.auth.signInWithOtp({
+      const { data, error } = await supabase.auth.signInWithOtp({
         email: cleanEmail,
-        options: {
-          emailRedirectTo: window.location.origin,
-        },
       });
 
       if (error) {
@@ -816,8 +1004,8 @@ class AuthService {
       };
     }
 
-    const cleanToken = otp.trim();
-    if (!cleanToken || cleanToken.length !== 6) {
+    const cleanToken = otp.replace(/\D/g, '').slice(0, 6);
+    if (cleanToken.length !== 6) {
       return {
         success: false,
         error: 'Please enter the complete 6-digit verification code.',
@@ -997,17 +1185,28 @@ class AuthService {
     const authUserId = session.user.id || session.user.auth_user_id;
     const now = new Date().toISOString();
 
+    const cleanBusiness = (profileData.business_name ?? session.profile?.business_name ?? '').trim();
+    const cleanCountry = (profileData.country ?? session.profile?.country ?? 'Nepal').trim();
+    const cleanUsername = (
+      profileData.username ??
+      session.profile?.username ??
+      (cleanBusiness.toLowerCase().replace(/[^a-z0-9_]/g, '') || `user_${authUserId.substring(0, 6)}`)
+    ).trim().toLowerCase();
+
     const updatedProfile: UserProfile = {
       id: session.profile?.id || '',
       auth_user_id: authUserId,
       full_name: (profileData.full_name ?? session.profile?.full_name ?? '').trim(),
-      username: (profileData.username ?? session.profile?.username ?? '').trim().toLowerCase(),
+      business_name: cleanBusiness,
+      country: cleanCountry,
+      username: cleanUsername,
       email: (profileData.email ?? session.profile?.email ?? session.user.email ?? '').trim().toLowerCase(),
       phone: (profileData.phone ?? session.profile?.phone ?? session.user.phone ?? '').trim(),
       profile_image_url: profileData.profile_image_url ?? session.profile?.profile_image_url ?? '',
       address: (profileData.address ?? session.profile?.address ?? '').trim(),
       language: profileData.language ?? session.profile?.language ?? 'English',
       currency: profileData.currency ?? session.profile?.currency ?? 'NPR',
+      onboarding_completed: true,
       created_at: session.profile?.created_at || now,
       updated_at: now,
       is_profile_complete: true,
@@ -1020,6 +1219,8 @@ class AuthService {
           {
             auth_user_id: authUserId,
             full_name: updatedProfile.full_name,
+            business_name: updatedProfile.business_name,
+            country: updatedProfile.country,
             username: updatedProfile.username,
             email: updatedProfile.email,
             phone: updatedProfile.phone,
@@ -1027,6 +1228,7 @@ class AuthService {
             address: updatedProfile.address,
             language: updatedProfile.language,
             currency: updatedProfile.currency,
+            onboarding_completed: true,
             updated_at: now,
           },
           { onConflict: 'auth_user_id' }

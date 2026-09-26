@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   ChevronDown,
   KeyRound,
+  Clock,
 } from 'lucide-react';
 import { authService, subscribePasswordRecovery } from '../../services/authService';
 import { isSupabaseConfigured, getSupabaseMissingVars } from '../../lib/supabaseClient';
@@ -56,6 +57,10 @@ const COUNTRY_CODES: CountryCode[] = [
   { country: 'Australia', code: '+61', flag: '🇦🇺' },
   { country: 'Canada', code: '+1', flag: '🇨🇦' },
 ];
+
+// Supabase Email OTP Configuration
+const OTP_DURATION_MS = 5 * 60 * 1000; // 5-minute visual countdown
+const RESEND_COOLDOWN_MS = 60 * 1000; // 60-second minimum cooldown before resend
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   initialMode = 'login',
@@ -108,8 +113,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [otpEmail, setOtpEmail] = useState<string>('');
   const [otpStep, setOtpStep] = useState<'enter_email' | 'enter_otp'>('enter_email');
   const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
-  const [resendTimer, setResendTimer] = useState<number>(0);
   const [otpSentEmail, setOtpSentEmail] = useState<string>('');
+  const [otpExpiresAt, setOtpExpiresAt] = useState<number | null>(null);
+  const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
+  const [otpRemainingMs, setOtpRemainingMs] = useState<number>(0);
+  const [resendRemainingMs, setResendRemainingMs] = useState<number>(0);
 
   // Listen for Password Recovery events (e.g. user clicked recovery link in email)
   useEffect(() => {
@@ -122,16 +130,32 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     return unsub;
   }, []);
 
-  // OTP Countdown timer
+  // Single unified timer effect for OTP 5-minute countdown and 60-second resend cooldown
   useEffect(() => {
-    let interval: any;
-    if (resendTimer > 0) {
-      interval = setInterval(() => {
-        setResendTimer((prev) => (prev > 0 ? prev - 1 : 0));
-      }, 1000);
+    if (view !== 'email_otp' || otpStep !== 'enter_otp' || !otpExpiresAt) {
+      return;
     }
-    return () => clearInterval(interval);
-  }, [resendTimer]);
+
+    const updateTimers = () => {
+      const now = Date.now();
+      const remOtp = Math.max(0, otpExpiresAt - now);
+      setOtpRemainingMs(remOtp);
+
+      if (resendAvailableAt) {
+        const remResend = Math.max(0, resendAvailableAt - now);
+        setResendRemainingMs(remResend);
+      } else {
+        setResendRemainingMs(0);
+      }
+    };
+
+    updateTimers();
+    const intervalId = setInterval(updateTimers, 250);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [view, otpStep, otpExpiresAt, resendAvailableAt]);
 
   const clearFeedback = () => {
     setErrorMessage(null);
@@ -141,8 +165,26 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   const switchView = (newView: AuthScreenView) => {
     clearFeedback();
+    if (newView !== 'email_otp') {
+      setOtpExpiresAt(null);
+      setResendAvailableAt(null);
+      setOtpRemainingMs(0);
+      setResendRemainingMs(0);
+      setOtpDigits(['', '', '', '', '', '']);
+    }
     setView(newView);
   };
+
+  // Helper formatting 5-minute countdown as MM:SS (e.g. 05:00, 04:59 ... 00:00)
+  const formatTimer = (ms: number): string => {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  const isOtpExpired = otpExpiresAt !== null && otpRemainingMs <= 0;
+  const resendSecondsLeft = Math.ceil(resendRemainingMs / 1000);
 
   // ---------------------------------------------------------------------------
   // 1. Email + Password Login
@@ -414,7 +456,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   // ---------------------------------------------------------------------------
-  // 7. Email OTP Flow (Passwordless)
+  // 7. Email OTP Flow (Passwordless Authentication via Supabase Auth)
   // ---------------------------------------------------------------------------
   const handleSendEmailOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -429,13 +471,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
-    const cleanEmail = (otpEmail || loginEmail || '').trim().toLowerCase();
-    if (!cleanEmail) {
+    const normalizedEmail = (otpEmail || loginEmail || '').trim().toLowerCase();
+    if (!normalizedEmail) {
       setErrorMessage('Please enter your email address.');
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       setErrorMessage('Please enter a valid email address.');
       return;
     }
@@ -444,19 +486,65 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoadingText('Sending verification code…');
 
     try {
-      const res = await authService.sendEmailOtp(cleanEmail);
+      const res = await authService.sendEmailOtp(normalizedEmail);
       if (res.success) {
-        setOtpSentEmail(cleanEmail);
-        setOtpEmail(cleanEmail);
+        setOtpSentEmail(normalizedEmail);
+        setOtpEmail(normalizedEmail);
         setOtpStep('enter_otp');
-        setResendTimer(60);
+        const now = Date.now();
+        setOtpExpiresAt(now + OTP_DURATION_MS);
+        setResendAvailableAt(now + RESEND_COOLDOWN_MS);
+        setOtpRemainingMs(OTP_DURATION_MS);
+        setResendRemainingMs(RESEND_COOLDOWN_MS);
         setOtpDigits(['', '', '', '', '', '']);
         setSuccessMessage(res.message);
+        setTimeout(() => {
+          document.getElementById('email-otp-input-0')?.focus();
+        }, 100);
       } else {
         setErrorMessage(res.message || res.error || 'Failed to send verification code.');
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Network error while sending verification code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (isLoading || resendRemainingMs > 0) return;
+    clearFeedback();
+
+    const normalizedEmail = (otpSentEmail || otpEmail || loginEmail || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      setErrorMessage('Email address missing. Please re-enter your email.');
+      setOtpStep('enter_email');
+      return;
+    }
+
+    setIsLoading(true);
+    setLoadingText('Resending verification code…');
+
+    try {
+      const res = await authService.sendEmailOtp(normalizedEmail);
+      if (res.success) {
+        // Reset 5-minute countdown and 60-second cooldown ONLY on success
+        const now = Date.now();
+        setOtpExpiresAt(now + OTP_DURATION_MS);
+        setResendAvailableAt(now + RESEND_COOLDOWN_MS);
+        setOtpRemainingMs(OTP_DURATION_MS);
+        setResendRemainingMs(RESEND_COOLDOWN_MS);
+        setOtpDigits(['', '', '', '', '', '']);
+        setSuccessMessage('A new 6-digit verification code has been sent to your email.');
+        setTimeout(() => {
+          document.getElementById('email-otp-input-0')?.focus();
+        }, 100);
+      } else {
+        // On error, do NOT reset timers as though a new OTP was sent
+        setErrorMessage(res.message || res.error || 'Failed to resend verification code.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Network error while resending verification code.');
     } finally {
       setIsLoading(false);
     }
@@ -471,15 +559,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
-    const targetEmail = (otpSentEmail || otpEmail || loginEmail || '').trim().toLowerCase();
-    if (!targetEmail) {
+    if (isOtpExpired) {
+      setErrorMessage('Code expired. Please request a new code.');
+      return;
+    }
+
+    const normalizedEmail = (otpSentEmail || otpEmail || loginEmail || '').trim().toLowerCase();
+    if (!normalizedEmail) {
       setErrorMessage('Email address missing. Please re-enter your email.');
       setOtpStep('enter_email');
       return;
     }
 
-    const fullCode = otpDigits.join('').trim();
-    if (fullCode.length !== 6) {
+    const cleanOtp = otpDigits.join('').replace(/\D/g, '').slice(0, 6);
+    if (cleanOtp.length !== 6) {
       setErrorMessage('Please enter the complete 6-digit verification code.');
       return;
     }
@@ -488,15 +581,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoadingText('Verifying code with Supabase…');
 
     try {
-      const res = await authService.verifyEmailOtp(targetEmail, fullCode);
+      const res = await authService.verifyEmailOtp(normalizedEmail, cleanOtp);
 
       if (res.success && res.session) {
+        // Clear all timers on successful authentication
+        setOtpExpiresAt(null);
+        setResendAvailableAt(null);
+        setOtpRemainingMs(0);
+        setResendRemainingMs(0);
         setSuccessMessage('Email verified! Loading your store…');
         setTimeout(() => {
           onSuccess(res.session!, res.isNewUser ?? false);
         }, 300);
       } else {
-        setErrorMessage(res.error || 'Invalid or expired verification code. Please check your email and try again.');
+        setErrorMessage(res.error || 'Invalid verification code. Please check your email and try again.');
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Verification failed.');
@@ -506,7 +604,27 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   const handleOtpDigitChange = (index: number, val: string) => {
-    const digit = val.replace(/[^0-9]/g, '').slice(-1);
+    const cleaned = val.replace(/\D/g, '');
+
+    // Multi-digit paste or autofill in a single field
+    if (cleaned.length > 1) {
+      const chars = cleaned.slice(0, 6).split('');
+      const newDigits = [...otpDigits];
+      chars.forEach((c, i) => {
+        if (index + i < 6) {
+          newDigits[index + i] = c;
+        }
+      });
+      setOtpDigits(newDigits);
+      const nextIdx = Math.min(5, index + chars.length);
+      document.getElementById(`email-otp-input-${nextIdx}`)?.focus();
+      if (newDigits.every((d) => d !== '') && !isOtpExpired) {
+        setTimeout(() => handleVerifyEmailOtp(), 100);
+      }
+      return;
+    }
+
+    const digit = cleaned.slice(-1);
     const newDigits = [...otpDigits];
     newDigits[index] = digit;
     setOtpDigits(newDigits);
@@ -516,7 +634,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       nextInput?.focus();
     }
 
-    if (digit && index === 5 && newDigits.every((d) => d !== '')) {
+    if (digit && index === 5 && newDigits.every((d) => d !== '') && !isOtpExpired) {
       setTimeout(() => {
         handleVerifyEmailOtp();
       }, 100);
@@ -532,16 +650,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
     if (!pasted) return;
 
-    const newDigits = [...otpDigits];
+    const newDigits = ['', '', '', '', '', ''];
     for (let i = 0; i < pasted.length; i++) {
       newDigits[i] = pasted[i];
     }
     setOtpDigits(newDigits);
 
-    if (pasted.length === 6) {
+    const focusIdx = Math.min(5, pasted.length);
+    document.getElementById(`email-otp-input-${focusIdx}`)?.focus();
+
+    if (pasted.length === 6 && !isOtpExpired) {
       setTimeout(() => handleVerifyEmailOtp(), 100);
     }
   };
@@ -1363,13 +1484,44 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       type="button"
                       onClick={() => {
                         setOtpStep('enter_email');
+                        setOtpExpiresAt(null);
+                        setResendAvailableAt(null);
+                        setOtpRemainingMs(0);
+                        setResendRemainingMs(0);
+                        setOtpDigits(['', '', '', '', '', '']);
                         clearFeedback();
                       }}
-                      className="font-bold text-[#1473EA] hover:underline"
+                      className="font-bold text-[#1473EA] hover:underline cursor-pointer"
                     >
                       Change Email
                     </button>
                   </div>
+
+                  {/* 5-minute OTP countdown badge */}
+                  <div className="flex items-center justify-between px-3 py-2 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Clock className={`w-4 h-4 ${isOtpExpired ? 'text-rose-500' : 'text-[#1473EA]'}`} />
+                      <span className="text-slate-600 font-semibold">Code valid for:</span>
+                    </div>
+                    <div
+                      id="otp-countdown-display"
+                      className={`font-mono font-black text-sm tracking-wider ${
+                        isOtpExpired ? 'text-rose-600' : 'text-[#092B4C]'
+                      }`}
+                    >
+                      {formatTimer(otpRemainingMs)}
+                    </div>
+                  </div>
+
+                  {/* Visual warning when local countdown expires */}
+                  {isOtpExpired && (
+                    <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5 animate-in fade-in">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="flex-1 font-semibold">
+                        Code expired. Please request a new code.
+                      </div>
+                    </div>
+                  )}
 
                   {/* 6 Digit Inputs */}
                   <div className="flex items-center justify-center gap-2 py-2">
@@ -1381,20 +1533,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         inputMode="numeric"
                         maxLength={1}
                         value={digit}
+                        disabled={isLoading || isOtpExpired}
                         onChange={(e) => handleOtpDigitChange(idx, e.target.value)}
                         onKeyDown={(e) => handleOtpKeyDown(idx, e)}
                         onPaste={idx === 0 ? handleOtpPaste : undefined}
                         autoFocus={idx === 0}
-                        className="w-11 h-13 text-center text-lg font-black bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1473EA] text-[#092B4C]"
+                        className={`w-11 h-13 text-center text-lg font-black rounded-xl border focus:outline-none focus:ring-2 focus:ring-[#1473EA] text-[#092B4C] transition-all ${
+                          isOtpExpired
+                            ? 'bg-slate-100 border-slate-200 opacity-60 cursor-not-allowed'
+                            : 'bg-slate-50 border-slate-300'
+                        }`}
                       />
                     ))}
                   </div>
 
                   <button
                     type="submit"
-                    disabled={isLoading || otpDigits.some((d) => !d)}
+                    disabled={isLoading || otpDigits.some((d) => !d) || isOtpExpired}
                     id="btn-verify-email-otp"
-                    className="w-full py-3.5 rounded-2xl bg-[#1473EA] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-[#1473EA]/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                    className="w-full py-3.5 rounded-2xl bg-[#1473EA] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-[#1473EA]/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                   >
                     {isLoading ? (
                       <>
@@ -1409,24 +1566,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     )}
                   </button>
 
-                  {/* Resend Section with 60s Countdown */}
+                  {/* Resend Section with 60s Cooldown */}
                   <div className="text-center pt-2 space-y-1">
                     <p className="text-xs text-slate-500">Didn&apos;t receive the code?</p>
-                    {resendTimer > 0 ? (
+                    {resendRemainingMs > 0 ? (
                       <p className="text-xs font-semibold text-slate-400">
                         Resend available in{' '}
-                        <span className="text-slate-700 font-bold">{resendTimer}s</span>
+                        <span className="text-slate-700 font-bold">{resendSecondsLeft}s</span>
                       </p>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => handleSendEmailOtp()}
+                        onClick={handleResendOtp}
                         disabled={isLoading}
                         id="btn-resend-email-otp"
-                        className="text-xs font-bold text-[#1473EA] hover:underline flex items-center justify-center gap-1.5 mx-auto transition-colors"
+                        className="text-xs font-bold text-[#1473EA] hover:underline flex items-center justify-center gap-1.5 mx-auto transition-colors cursor-pointer disabled:opacity-50"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Resend OTP</span>
+                        <span>Resend code</span>
                       </button>
                     )}
                   </div>
@@ -1436,18 +1593,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       type="button"
                       onClick={() => {
                         setOtpStep('enter_email');
+                        setOtpExpiresAt(null);
+                        setResendAvailableAt(null);
+                        setOtpRemainingMs(0);
+                        setResendRemainingMs(0);
+                        setOtpDigits(['', '', '', '', '', '']);
                         clearFeedback();
                       }}
-                      className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+                      className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
                     >
                       Return to email-entry screen
                     </button>
                     <button
                       type="button"
                       onClick={() => switchView('login')}
-                      className="text-xs font-bold text-slate-400 hover:text-slate-700 transition-colors"
+                      className="text-xs font-bold text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
                     >
-                      Back to Password Login
+                      Return to Password Login
                     </button>
                   </div>
                 </form>
