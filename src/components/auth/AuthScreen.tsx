@@ -285,15 +285,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       if (res.success) {
         if (res.emailConfirmationRequired) {
-          setSuccessMessage(
-            'Account created. Please confirm your email address once. After confirmation, return to the app and sign in.'
-          );
-          setLoginEmail(regEmail.trim());
+          const email = regEmail.trim().toLowerCase();
+          setOtpEmail(email);
+          setOtpSentEmail(email);
+          setOtpStep('enter_otp');
+          setOtpDigits(['', '', '', '', '', '']);
+          const now = Date.now();
+          setOtpExpiresAt(now + OTP_DURATION_MS);
+          setResendAvailableAt(now + RESEND_COOLDOWN_MS);
+          setOtpRemainingMs(OTP_DURATION_MS);
+          setResendRemainingMs(RESEND_COOLDOWN_MS);
           setRegPassword('');
           setRegConfirmPassword('');
+          setSuccessMessage(
+            'Account created. Enter the 6-digit confirmation code sent to your email.'
+          );
+          setView('email_otp');
           setTimeout(() => {
-            switchView('login');
-          }, 3000);
+            document.getElementById('email-otp-input-0')?.focus();
+          }, 100);
         } else if (res.session) {
           setSuccessMessage('Account created successfully! Welcome to ScanMe AI.');
           setTimeout(() => {
@@ -489,7 +499,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoadingText('Sending verification code…');
 
     try {
-      const res = await authService.sendEmailOtp(normalizedEmail);
+      const res = await authService.resendSignupConfirmationOtp(normalizedEmail);
       if (res.success) {
         setOtpSentEmail(normalizedEmail);
         setOtpEmail(normalizedEmail);
@@ -529,7 +539,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoadingText('Resending verification code…');
 
     try {
-      const res = await authService.sendEmailOtp(normalizedEmail);
+      const res = await authService.resendSignupConfirmationOtp(normalizedEmail);
       if (res.success) {
         // Reset 5-minute countdown and 60-second cooldown ONLY on success
         const now = Date.now();
@@ -584,7 +594,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoadingText('Verifying code with Supabase…');
 
     try {
-      const res = await authService.verifyEmailOtp(normalizedEmail, cleanOtp);
+      const res = await authService.verifyEmailOtp(normalizedEmail, cleanOtp, 'signup');
 
       if (res.success && res.session) {
         // Clear all timers on successful authentication
@@ -1380,11 +1390,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <Mail className="w-6 h-6" />
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-[#092B4C] tracking-tight">
-                  {otpStep === 'enter_email' ? 'Email OTP Sign-In' : 'Enter verification code'}
+                  {otpStep === 'enter_email' ? 'Email Confirmation' : 'Enter confirmation code'}
                 </h2>
                 <p className="text-xs text-slate-500">
                   {otpStep === 'enter_email'
-                    ? "Enter your email address and we'll send you a 6-digit verification code"
+                    ? "Enter the email used for your account and we'll send a 6-digit confirmation code"
                     : `We sent a verification code to your email.`}
                 </p>
               </div>
@@ -1412,7 +1422,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       />
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      No password required. We will send a one-time 6-digit code to this address.
+                      This code confirms your account. You will use your email and password to log in afterward.
                     </p>
                   </div>
 
@@ -1429,7 +1439,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       </>
                     ) : (
                       <>
-                        <span>Send OTP</span>
+                        <span>Send Confirmation Code</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -1488,7 +1498,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5 animate-in fade-in">
                       <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                       <div className="flex-1 font-semibold">
-                        Code expired. Please request a new code.
+                        Confirmation code expired. Please request a new code.
                       </div>
                     </div>
                   )}
@@ -1530,7 +1540,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       </>
                     ) : (
                       <>
-                        <span>Verify OTP</span>
+                        <span>Confirm Email</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -1553,7 +1563,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         className="text-xs font-bold text-[#1473EA] hover:underline flex items-center justify-center gap-1.5 mx-auto transition-colors cursor-pointer disabled:opacity-50"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Resend code</span>
+                        <span>Resend confirmation code</span>
                       </button>
                     )}
                   </div>
