@@ -1004,9 +1004,57 @@ class AuthService {
     }
   }
 
+  async resendSignupConfirmationOtp(
+    email: string
+  ): Promise<{ success: boolean; message: string; error?: string }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        message: this.getUnconfiguredError(),
+        error: 'SUPABASE_UNCONFIGURED',
+      };
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return {
+        success: false,
+        message: 'Please enter a valid email address.',
+        error: 'INVALID_EMAIL',
+      };
+    }
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: cleanEmail,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          message: formatUserFriendlyError(error, 'Failed to resend the confirmation code.'),
+          error: error.message,
+        };
+      }
+
+      return {
+        success: true,
+        message: `A new 6-digit confirmation code was sent to ${cleanEmail}.`,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: formatUserFriendlyError(err, 'Failed to resend the confirmation code.'),
+        error: err.message,
+      };
+    }
+  }
+
   async verifyEmailOtp(
     email: string,
-    otp: string
+    otp: string,
+    verificationType: 'email' | 'signup' = 'email'
   ): Promise<AuthOperationResult> {
     if (!isSupabaseConfigured()) {
       return {
@@ -1035,7 +1083,7 @@ class AuthService {
       const { data, error } = await supabase.auth.verifyOtp({
         email: cleanEmail,
         token: cleanToken,
-        type: 'email',
+        type: verificationType,
       });
 
       if (error) {
