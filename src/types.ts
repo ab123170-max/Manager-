@@ -709,5 +709,5 @@ export interface AuthSession {
   expiresAt: number;
 }
 
-export type AppRootMode = 'landing' | 'onboarding' | 'auth' | 'profile_setup' | 'app';
+export type AppRootMode = 'landing' | 'onboarding' | 'auth' | 'profile_setup' | 'dashboard' | 'app';
 

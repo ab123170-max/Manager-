@@ -29,6 +29,8 @@ import {
   Sparkles,
   Plus,
   RotateCcw,
+  Camera,
+  Loader2,
 } from 'lucide-react';
 import { AppFooter } from './components/navigation/AppFooter';
 import { expiryAlertManager } from './utils/expiryAlertManager';
@@ -189,23 +191,14 @@ const GoogleSheetsSyncModal = lazy(() =>
 
 export default function App() {
   // Authentication & View Mode State
+  const [isAuthInitializing, setIsAuthInitializing] = useState<boolean>(true);
   const [session, setSession] = useState<AuthSession | null>(() => authService.getSession());
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot_password'>('login');
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isEditingProfileModal, setIsEditingProfileModal] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
-
-  const [rootMode, setRootMode] = useState<AppRootMode>(() => {
-    const currentSession = authService.getSession();
-    if (!currentSession || !currentSession.user) {
-      return 'landing';
-    }
-    if (!currentSession.profile?.is_profile_complete) {
-      return 'profile_setup';
-    }
-    return 'dashboard';
-  });
+  const [rootMode, setRootMode] = useState<AppRootMode>('landing');
 
   const [currentPath, setCurrentPath] = useState<string>(() => {
     return typeof window !== 'undefined' ? window.location.pathname : '/';
@@ -227,30 +220,102 @@ export default function App() {
     }
   };
 
+  // 1. App Startup: Check existing Supabase session and subscribe to auth state changes
   useEffect(() => {
-    const unsub = subscribeAuth((newSession) => {
+    let isMounted = true;
+
+    const startupSessionCheck = async () => {
+      try {
+        const restoredSession = await authService.initAuthSession();
+        if (!isMounted) return;
+
+        if (restoredSession && restoredSession.user) {
+          setSession(restoredSession);
+          setRootMode('dashboard');
+        } else {
+          setSession(null);
+          const path = typeof window !== 'undefined' ? window.location.pathname : '/';
+          if (path === '/login') {
+            setAuthMode('login');
+            setRootMode('auth');
+          } else if (path === '/signup') {
+            setAuthMode('signup');
+            setRootMode('auth');
+          } else if (path === '/forgot-password') {
+            setAuthMode('forgot_password');
+            setRootMode('auth');
+          } else {
+            setRootMode('landing');
+          }
+        }
+      } catch (err) {
+        console.warn('[App] Startup auth verification error:', err);
+        if (isMounted) {
+          setSession(null);
+          setRootMode('landing');
+        }
+      } finally {
+        if (isMounted) {
+          setIsAuthInitializing(false);
+        }
+      }
+    };
+
+    startupSessionCheck();
+
+    const unsubAuth = subscribeAuth((newSession) => {
+      if (!isMounted) return;
       setSession(newSession);
-      if (!newSession || !newSession.user) {
-        setRootMode('landing');
-      } else if (!newSession.profile?.is_profile_complete) {
-        setRootMode('profile_setup');
-      } else {
+      if (newSession && newSession.user) {
         setRootMode('dashboard');
+      } else {
+        setSession(null);
+        setRootMode('landing');
       }
     });
 
     const unsubRecovery = subscribePasswordRecovery((isRecovery) => {
-      if (isRecovery) {
+      if (isRecovery && isMounted) {
         setAuthMode('forgot_password');
         setRootMode('auth');
       }
     });
 
     return () => {
-      unsub();
+      isMounted = false;
+      unsubAuth();
       unsubRecovery();
     };
   }, []);
+
+  // 2. Centralized Route Guard
+  useEffect(() => {
+    if (isAuthInitializing) return;
+
+    const authenticatedRoutes = ['/home', '/dashboard', '/inventory', '/scanner', '/reports'];
+    const authRoutes = ['/login', '/signup', '/forgot-password'];
+
+    if (session && session.user) {
+      // Authenticated user
+      if (authRoutes.includes(currentPath)) {
+        if (typeof window !== 'undefined') {
+          window.history.replaceState(null, '', '/');
+          setCurrentPath('/');
+        }
+        setRootMode('dashboard');
+      }
+    } else {
+      // Unauthenticated user
+      if (authenticatedRoutes.includes(currentPath)) {
+        if (typeof window !== 'undefined') {
+          window.history.replaceState(null, '', '/login');
+          setCurrentPath('/login');
+        }
+        setAuthMode('login');
+        setRootMode('auth');
+      }
+    }
+  }, [session, currentPath, isAuthInitializing]);
 
   // Navigation State
   const [navState, setNavState] = useState<AppNavigationState>({
@@ -597,13 +662,21 @@ export default function App() {
 
   // Authentication & Onboarding Navigation Handlers
   const handleLandingGetStarted = () => {
-    setAuthMode('login');
+    setAuthMode('signup');
     setRootMode('auth');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/signup');
+      setCurrentPath('/signup');
+    }
   };
 
   const handleLandingLogin = () => {
     setAuthMode('login');
     setRootMode('auth');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/login');
+      setCurrentPath('/login');
+    }
   };
 
   const handleOnboardingFinish = () => {
@@ -614,10 +687,10 @@ export default function App() {
 
   const handleAuthSuccess = (newSession: AuthSession, isNewUser: boolean) => {
     setSession(newSession);
-    if (isNewUser || !newSession.profile?.is_profile_complete) {
-      setRootMode('profile_setup');
-    } else {
-      setRootMode('dashboard');
+    setRootMode('dashboard');
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '/');
+      setCurrentPath('/');
     }
   };
 
@@ -632,11 +705,36 @@ export default function App() {
     setRootMode('dashboard');
   };
 
-  const handleLogout = () => {
-    authService.clearSession();
+  const handleLogout = async () => {
+    await authService.logout();
     setSession(null);
-    setRootMode('landing');
+    setAuthMode('login');
+    setRootMode('auth');
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', '/login');
+      setCurrentPath('/login');
+    }
   };
+
+  // ---------------------------------------------------------------------------
+  // 0. Auth Initializing Splash State (Prevents Startup Authentication Flickering)
+  // ---------------------------------------------------------------------------
+  if (isAuthInitializing) {
+    return (
+      <div className="min-h-screen bg-[#F5F7FA] flex flex-col items-center justify-center p-4">
+        <div className="flex flex-col items-center space-y-4 max-w-xs text-center animate-in fade-in duration-300">
+          <div className="w-14 h-14 rounded-2xl bg-[#1473EA] flex items-center justify-center text-white shadow-lg shadow-[#1473EA]/25 animate-pulse">
+            <Camera className="w-7 h-7" />
+          </div>
+          <div className="space-y-1">
+            <h1 className="text-lg font-black text-[#092B4C] tracking-tight">ScanMe AI</h1>
+            <p className="text-xs text-slate-500 font-medium">Checking your account…</p>
+          </div>
+          <Loader2 className="w-5 h-5 text-[#1473EA] animate-spin mt-1" />
+        </div>
+      </div>
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // 1. Landing Page & Public SEO Pages (Unauthenticated Users)

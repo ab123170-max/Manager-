@@ -94,11 +94,14 @@ export function formatUserFriendlyError(err: any, defaultMsg: string): string {
   if (!err) return defaultMsg;
   const msg: string = String(err.message || err.error_description || err || '').toLowerCase();
 
+  if (msg.includes('email not confirmed') || msg.includes('email_not_confirmed')) {
+    return 'Please confirm your email address before signing in.';
+  }
   if (msg.includes('invalid credentials') || msg.includes('invalid login credentials')) {
-    return 'Invalid email or password. Please verify and try again.';
+    return 'Invalid email or password.';
   }
   if (msg.includes('user already registered') || msg.includes('already exists') || msg.includes('already registered')) {
-    return 'An account with this email already exists. Please log in instead.';
+    return 'An account with this email already exists. Please sign in.';
   }
   // Handle token invalid / expired errors specifically
   if (msg.includes('token has expired or is invalid') || msg.includes('token is expired or invalid')) {
@@ -209,10 +212,42 @@ class AuthService {
   }
 
   /**
-   * Initializes and listens for Supabase Auth state changes:
-   * SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED, PASSWORD_RECOVERY.
+   * Dedicated startup session restoration calling supabase.auth.getSession().
+   * Handles INITIAL_SESSION, SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, and USER_UPDATED.
    */
-  private async setupSupabaseAuthListener(): Promise<void> {
+  async initAuthSession(): Promise<AuthSession | null> {
+    if (!isSupabaseConfigured()) {
+      this.isInitialized = true;
+      notifyInitListeners(true);
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (!error && data?.session && data.session.user) {
+        const appSession = await this.handleSupabaseSession(data.session);
+        this.isInitialized = true;
+        notifyInitListeners(true);
+        return appSession;
+      } else {
+        this.clearLocalSessionState();
+        this.isInitialized = true;
+        notifyInitListeners(true);
+        return null;
+      }
+    } catch (err) {
+      console.warn('[authService] initAuthSession error:', err);
+      this.isInitialized = true;
+      notifyInitListeners(true);
+      return null;
+    }
+  }
+
+  /**
+   * Initializes real-time listener for Supabase Auth state changes:
+   * SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED, INITIAL_SESSION, PASSWORD_RECOVERY.
+   */
+  private setupSupabaseAuthListener(): void {
     if (!isSupabaseConfigured()) {
       this.isInitialized = true;
       notifyInitListeners(true);
@@ -220,36 +255,27 @@ class AuthService {
     }
 
     try {
-      // 1. Check existing Supabase session on startup
-      const { data: initialData, error: sessionErr } = await supabase.auth.getSession();
-      if (!sessionErr && initialData?.session) {
-        await this.handleSupabaseSession(initialData.session);
-      } else {
-        this.clearLocalSessionState();
-      }
-
-      // 2. Listen to real-time auth changes
       supabase.auth.onAuthStateChange(async (event, sbSession) => {
         if (event === 'PASSWORD_RECOVERY') {
           this.isPasswordRecovery = true;
           notifyRecoveryListeners(true);
         }
 
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          if (sbSession) {
+        if (
+          event === 'SIGNED_IN' ||
+          event === 'TOKEN_REFRESHED' ||
+          event === 'USER_UPDATED' ||
+          event === 'INITIAL_SESSION'
+        ) {
+          if (sbSession && sbSession.user) {
             await this.handleSupabaseSession(sbSession);
           }
         } else if (event === 'SIGNED_OUT') {
           this.clearLocalSessionState();
         }
       });
-
-      this.isInitialized = true;
-      notifyInitListeners(true);
     } catch (err) {
-      console.warn('[authService] Supabase Auth initialization:', err);
-      this.isInitialized = true;
-      notifyInitListeners(true);
+      console.warn('[authService] onAuthStateChange listener error:', err);
     }
   }
 
@@ -425,13 +451,6 @@ class AuthService {
 
         if (!data) return null;
 
-        const isComplete = Boolean(
-          data.full_name &&
-          data.full_name.trim().length >= 2 &&
-          (data.business_name || data.username) &&
-          (data.address || data.country || data.onboarding_completed)
-        );
-
         return {
           id: data.id,
           auth_user_id: data.auth_user_id,
@@ -445,10 +464,10 @@ class AuthService {
           address: data.address || '',
           language: data.language || 'English',
           currency: data.currency || 'NPR',
-          onboarding_completed: Boolean(data.onboarding_completed),
+          onboarding_completed: true,
           created_at: data.created_at,
           updated_at: data.updated_at,
-          is_profile_complete: isComplete,
+          is_profile_complete: true,
         };
       } catch (e) {
         console.error('[authService] fetchProfileFromDb exception:', e);
@@ -494,7 +513,7 @@ class AuthService {
         address: '',
         language: 'English',
         currency: 'NPR',
-        onboarding_completed: Boolean(defaultName && defaultBusiness),
+        onboarding_completed: true,
         created_at: now,
         updated_at: now,
       };
@@ -528,10 +547,10 @@ class AuthService {
         address: data.address || '',
         language: data.language || 'English',
         currency: data.currency || 'NPR',
-        onboarding_completed: Boolean(data.onboarding_completed),
+        onboarding_completed: true,
         created_at: data.created_at,
         updated_at: data.updated_at,
-        is_profile_complete: Boolean(data.full_name && (data.business_name || data.username)),
+        is_profile_complete: true,
       };
     } catch (e) {
       console.error('[authService] createDefaultProfile exception:', e);
@@ -690,7 +709,7 @@ class AuthService {
           success: true,
           emailConfirmationRequired: true,
           message:
-            'Registration successful! Please check your email inbox to confirm your account before logging in.',
+            'Account created. Please confirm your email address once. After confirmation, return to the app and sign in.',
         };
       }
 
@@ -700,14 +719,14 @@ class AuthService {
         return {
           success: true,
           session: appSession || undefined,
-          isNewUser: true,
+          isNewUser: false,
         };
       }
 
       return {
         success: true,
         emailConfirmationRequired: true,
-        message: 'Please check your email to complete registration.',
+        message: 'Account created. Please confirm your email address once. After confirmation, return to the app and sign in.',
       };
     } catch (err: any) {
       return {
@@ -757,7 +776,7 @@ class AuthService {
         return {
           success: true,
           session: appSession || undefined,
-          isNewUser: !appSession?.profile?.is_profile_complete,
+          isNewUser: false,
         };
       }
 

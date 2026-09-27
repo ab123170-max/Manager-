@@ -213,9 +213,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     try {
       const res = await authService.loginWithEmailPassword(loginEmail, loginPassword);
       if (res.success && res.session) {
-        setSuccessMessage('Login successful! Loading your store…');
+        setSuccessMessage('Welcome back! Loading your store…');
         setTimeout(() => {
-          onSuccess(res.session!, res.isNewUser ?? false);
+          onSuccess(res.session!, false);
         }, 300);
       } else {
         setErrorMessage(res.error || 'Failed to sign in. Please verify your credentials.');
@@ -285,16 +285,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       if (res.success) {
         if (res.emailConfirmationRequired) {
-          setInfoMessage(
-            res.message ||
-              'Registration successful! Please check your email inbox to confirm your account, then return here to sign in.'
+          setSuccessMessage(
+            'Account created. Please confirm your email address once. After confirmation, return to the app and sign in.'
           );
+          setLoginEmail(regEmail.trim());
           setRegPassword('');
           setRegConfirmPassword('');
+          setTimeout(() => {
+            switchView('login');
+          }, 3000);
         } else if (res.session) {
           setSuccessMessage('Account created successfully! Welcome to ScanMe AI.');
           setTimeout(() => {
-            onSuccess(res.session!, true);
+            onSuccess(res.session!, false);
           }, 300);
         }
       } else {
@@ -860,23 +863,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
               {/* Social & Alternative Auth Methods */}
               <div className="space-y-2.5">
-                {/* Email OTP Button (Passwordless) */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (loginEmail.trim()) {
-                      setOtpEmail(loginEmail.trim());
-                    }
-                    switchView('email_otp');
-                  }}
-                  disabled={isLoading}
-                  id="btn-login-email-otp"
-                  className="w-full py-3 px-4 rounded-2xl bg-[#092B4C] hover:bg-slate-900 text-white font-bold text-xs flex items-center justify-center gap-3 transition-all active:scale-98 disabled:opacity-50 shadow-sm"
-                >
-                  <KeyRound className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Continue with Email OTP</span>
-                </button>
-
                 {/* Google OAuth Button */}
                 <button
                   type="button"
@@ -1131,22 +1117,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
               {/* Social & Alternative Options on Register */}
               <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (regEmail.trim()) {
-                      setOtpEmail(regEmail.trim());
-                    }
-                    switchView('email_otp');
-                  }}
-                  disabled={isLoading}
-                  id="btn-register-email-otp"
-                  className="w-full py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
-                >
-                  <KeyRound className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>Passwordless Email OTP</span>
-                </button>
-
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
