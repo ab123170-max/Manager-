@@ -37,6 +37,7 @@ import { expiryAlertManager } from './utils/expiryAlertManager';
 import { setPrivatePageSeo } from './utils/seoHelper';
 import { AppSliderNavigation } from './components/slider/AppSliderNavigation';
 import { SliderPageWrapper } from './components/slider/SliderPageWrapper';
+import { AdSenseUnit } from './components/ads/AdSenseUnit';
 
 // ============================================================================
 // CODE-SPLIT / LAZY-LOADED HEAVY VIEW CHUNKS
@@ -270,7 +271,8 @@ export default function App() {
         setRootMode('dashboard');
       } else {
         setSession(null);
-        setRootMode('landing');
+        setAuthMode('login');
+        setRootMode((prev) => (prev === 'dashboard' ? 'auth' : prev));
       }
     });
 
@@ -1190,6 +1192,9 @@ export default function App() {
             )}
           </Suspense>
         </SliderPageWrapper>
+
+        {/* Google AdSense Placement - Non-intrusive container below active dashboard slider */}
+        <AdSenseUnit className="max-w-4xl mx-auto my-6" />
 
         {/* Crawlable Landing Page Content & SEO Knowledge Base */}
         <Suspense fallback={null}>

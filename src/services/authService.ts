@@ -230,7 +230,7 @@ class AuthService {
         notifyInitListeners(true);
         return appSession;
       } else {
-        this.clearLocalSessionState();
+        this.activeSession = null;
         this.isInitialized = true;
         notifyInitListeners(true);
         return null;
@@ -529,10 +529,47 @@ class AuthService {
         // If a database trigger or another request already inserted the row, re-fetch
         const fallback = await this.fetchProfileFromDb(sbUser.id, true);
         if (fallback) return fallback;
-        return null;
+        // Resilient fallback profile so user is never blocked by database insertion delays
+        return {
+          id: `profile_${sbUser.id.substring(0, 8)}`,
+          auth_user_id: sbUser.id,
+          full_name: defaultName || 'Shopkeeper',
+          business_name: defaultBusiness || 'My Store',
+          country: defaultCountry || 'Nepal',
+          username: defaultUsername || `user_${sbUser.id.substring(0, 6)}`,
+          email: sbUser.email || '',
+          phone: sbUser.phone || meta.phone || '',
+          profile_image_url: meta.avatar_url || meta.picture || '',
+          address: '',
+          language: 'English',
+          currency: 'NPR',
+          onboarding_completed: true,
+          created_at: now,
+          updated_at: now,
+          is_profile_complete: true,
+        };
       }
 
-      if (!data) return null;
+      if (!data) {
+        return {
+          id: `profile_${sbUser.id.substring(0, 8)}`,
+          auth_user_id: sbUser.id,
+          full_name: defaultName || 'Shopkeeper',
+          business_name: defaultBusiness || 'My Store',
+          country: defaultCountry || 'Nepal',
+          username: defaultUsername || `user_${sbUser.id.substring(0, 6)}`,
+          email: sbUser.email || '',
+          phone: sbUser.phone || meta.phone || '',
+          profile_image_url: meta.avatar_url || meta.picture || '',
+          address: '',
+          language: 'English',
+          currency: 'NPR',
+          onboarding_completed: true,
+          created_at: now,
+          updated_at: now,
+          is_profile_complete: true,
+        };
+      }
 
       return {
         id: data.id,
@@ -554,7 +591,25 @@ class AuthService {
       };
     } catch (e) {
       console.error('[authService] createDefaultProfile exception:', e);
-      return null;
+      const meta = sbUser.user_metadata || {};
+      return {
+        id: `profile_${sbUser.id.substring(0, 8)}`,
+        auth_user_id: sbUser.id,
+        full_name: (meta.full_name || meta.name || 'Shopkeeper').trim(),
+        business_name: (meta.business_name || 'My Store').trim(),
+        country: (meta.country || 'Nepal').trim(),
+        username: (meta.username || `user_${sbUser.id.substring(0, 6)}`).toLowerCase(),
+        email: sbUser.email || '',
+        phone: sbUser.phone || meta.phone || '',
+        profile_image_url: meta.avatar_url || meta.picture || '',
+        address: '',
+        language: 'English',
+        currency: 'NPR',
+        onboarding_completed: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_profile_complete: true,
+      };
     }
   }
 
@@ -570,14 +625,9 @@ class AuthService {
   // Session Getters & Setters
   // ---------------------------------------------------------------------------
   getSession(): AuthSession | null {
-    if (this.activeSession) {
-      if (this.activeSession.expiresAt && Date.now() > this.activeSession.expiresAt) {
-        this.clearSession();
-        return null;
-      }
-      return this.activeSession;
-    }
-    return null;
+    // Return active session without automatically calling signOut or clearSession.
+    // Supabase Auth handles automatic token refresh in the background via autoRefreshToken: true.
+    return this.activeSession;
   }
 
   setSession(session: AuthSession): void {

@@ -130,6 +130,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     return unsub;
   }, []);
 
+  // Synchronize view state when initialMode changes (e.g. navigation between /login and /signup)
+  useEffect(() => {
+    if (authService.isRecoveryMode()) {
+      setView('reset_password');
+    } else if (initialMode === 'signup') {
+      setView('register');
+    } else if (initialMode === 'forgot_password') {
+      setView('forgot_password');
+    } else if (initialMode === 'login') {
+      setView('login');
+    }
+  }, [initialMode]);
+
   // Single unified timer effect for OTP 5-minute countdown and 60-second resend cooldown
   useEffect(() => {
     if (view !== 'email_otp' || otpStep !== 'enter_otp' || !otpExpiresAt) {

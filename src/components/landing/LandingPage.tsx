@@ -33,6 +33,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSelectorButton } from '../common/LanguageSelectorButton';
 import { updateDocumentSeo } from '../../utils/seoHelper';
 import { PUBLIC_FAQS } from '../seo/PublicFaqPage';
+import { AdSenseUnit } from '../ads/AdSenseUnit';
 
 interface LandingPageProps {
   onGetStarted: () => void;
@@ -743,6 +744,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </a>
           </div>
         </section>
+
+        {/* Non-intrusive Content Ad Unit */}
+        <AdSenseUnit className="max-w-4xl mx-auto" />
 
         {/* Bottom CTA Banner */}
         <section className="bg-slate-900 text-white rounded-3xl p-6 sm:p-10 relative overflow-hidden shadow-lg">
