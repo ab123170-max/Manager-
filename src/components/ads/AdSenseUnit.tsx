@@ -12,14 +12,17 @@ declare global {
 }
 
 /**
- * Official Google AdSense Publisher Client ID for ScanMe AI
+ * Official Google AdSense Configuration for ScanMe AI
+ * Publisher ID: ca-pub-1392773083498575
+ * Ad Unit: Scame
+ * Ad Slot ID: 2379426298
  */
 export const ADSENSE_CLIENT_ID = 'ca-pub-1392773083498575';
+export const ADSENSE_SLOT_ID = '2379426298';
 
 export interface AdSenseUnitProps {
   /**
-   * AdSense ad unit slot ID (e.g. '1234567890').
-   * If not provided, falls back to import.meta.env.VITE_ADSENSE_SLOT_ID.
+   * Optional custom slot ID override. Defaults to ADSENSE_SLOT_ID ('2379426298').
    */
   slotId?: string;
 
@@ -55,7 +58,7 @@ export interface AdSenseUnitProps {
 }
 
 export const AdSenseUnit: React.FC<AdSenseUnitProps> = ({
-  slotId,
+  slotId = ADSENSE_SLOT_ID,
   format = 'auto',
   fullWidthResponsive = true,
   className = '',
@@ -67,16 +70,14 @@ export const AdSenseUnit: React.FC<AdSenseUnitProps> = ({
   const isInitializedRef = useRef<boolean>(false);
   const [hasError, setHasError] = useState<boolean>(false);
 
-  // Resolve slot ID from prop or environment variable
-  const resolvedSlotId = (slotId || import.meta.env.VITE_ADSENSE_SLOT_ID || '').trim();
+  const activeSlotId = slotId || ADSENSE_SLOT_ID;
 
   useEffect(() => {
-    // If no slot ID is configured or already initialized, do nothing
-    if (!resolvedSlotId || isInitializedRef.current) {
+    // Prevent duplicate push to the same ins element across re-renders
+    if (isInitializedRef.current) {
       return;
     }
 
-    // Prevent duplicate push to the same ins tag if already processed
     if (adRef.current && adRef.current.getAttribute('data-adsbygoogle-status')) {
       isInitializedRef.current = true;
       return;
@@ -93,36 +94,7 @@ export const AdSenseUnit: React.FC<AdSenseUnitProps> = ({
       console.debug('[AdSense] Ad unit push handled gracefully:', err);
       setHasError(true);
     }
-  }, [resolvedSlotId]);
-
-  // If slot ID is not configured yet:
-  if (!resolvedSlotId) {
-    // In development mode, display a helpful guide placeholder
-    if (import.meta.env.DEV) {
-      return (
-        <aside
-          aria-label="AdSense Preview"
-          className={`w-full my-4 p-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 text-center transition-all ${className}`}
-        >
-          <div className="flex flex-col items-center justify-center space-y-1.5 text-xs text-slate-500">
-            <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
-              Google AdSense Placement ({ADSENSE_CLIENT_ID})
-            </span>
-            <p className="max-w-md text-[11px] text-slate-500 leading-relaxed">
-              Ad slot ID is not yet configured. Once your AdSense unit is approved, add{' '}
-              <code className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-800 font-mono text-[10px]">
-                VITE_ADSENSE_SLOT_ID
-              </code>{' '}
-              in your environment or pass the <code className="font-mono text-[10px]">slotId</code> prop.
-            </p>
-          </div>
-        </aside>
-      );
-    }
-
-    // In production without slot ID, remain hidden without disrupting layout
-    return null;
-  }
+  }, [activeSlotId]);
 
   if (hasError) {
     return null;
@@ -153,7 +125,7 @@ export const AdSenseUnit: React.FC<AdSenseUnitProps> = ({
             ...style,
           }}
           data-ad-client={ADSENSE_CLIENT_ID}
-          data-ad-slot={resolvedSlotId}
+          data-ad-slot={activeSlotId}
           data-ad-format={format}
           data-full-width-responsive={fullWidthResponsive ? 'true' : 'false'}
         />
