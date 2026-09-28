@@ -142,6 +142,7 @@ export interface AuthOperationResult {
   success: boolean;
   session?: AuthSession;
   isNewUser?: boolean;
+  isExistingUser?: boolean;
   emailConfirmationRequired?: boolean;
   message?: string;
   error?: string;
@@ -753,13 +754,23 @@ class AuthService {
         };
       }
 
+      // Check if user is already registered in Supabase
+      // When email confirmation is on, Supabase returns a user object with an empty identities array for existing users
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        return {
+          success: false,
+          isExistingUser: true,
+          error: 'An account with this email address already exists. Please log in with your password, or use "Forgot Password?" to reset your password.',
+        };
+      }
+
       // Case 1: Supabase email confirmation is enabled (data.user exists, but no active session)
       if (data.user && !data.session) {
         return {
           success: true,
           emailConfirmationRequired: true,
           message:
-            'Account created. Please confirm your email address once. After confirmation, return to the app and sign in.',
+            'Registration successful! A confirmation email has been sent. Please check your inbox and spam folder to confirm your account.',
         };
       }
 
@@ -1130,11 +1141,25 @@ class AuthService {
     }
 
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
+      let { data, error } = await supabase.auth.verifyOtp({
         email: cleanEmail,
         token: cleanToken,
         type: verificationType,
       });
+
+      // If initial attempt failed and type was 'signup', also try 'email' (or vice versa)
+      if (error && (verificationType === 'signup' || verificationType === 'email')) {
+        const altType = verificationType === 'signup' ? 'email' : 'signup';
+        const altResult = await supabase.auth.verifyOtp({
+          email: cleanEmail,
+          token: cleanToken,
+          type: altType,
+        });
+        if (!altResult.error && altResult.data) {
+          data = altResult.data;
+          error = null;
+        }
+      }
 
       if (error) {
         return {

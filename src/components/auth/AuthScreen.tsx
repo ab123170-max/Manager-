@@ -324,6 +324,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           }, 300);
         }
       } else {
+        if (res.isExistingUser) {
+          setLoginEmail(regEmail.trim());
+          setErrorMessage(
+            res.error || 'An account with this email address already exists. Please sign in with your password.'
+          );
+          setView('login');
+          return;
+        }
         setErrorMessage(res.error || 'Registration could not be completed.');
       }
     } catch (err: any) {
@@ -512,7 +520,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoadingText('Sending verification code…');
 
     try {
-      const res = await authService.resendSignupConfirmationOtp(normalizedEmail);
+      // Try sending OTP login code first, or resend signup confirmation if unconfirmed
+      let res = await authService.sendEmailOtp(normalizedEmail);
+      if (!res.success) {
+        res = await authService.resendSignupConfirmationOtp(normalizedEmail);
+      }
       if (res.success) {
         setOtpSentEmail(normalizedEmail);
         setOtpEmail(normalizedEmail);
@@ -552,7 +564,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoadingText('Resending verification code…');
 
     try {
-      const res = await authService.resendSignupConfirmationOtp(normalizedEmail);
+      let res = await authService.sendEmailOtp(normalizedEmail);
+      if (!res.success) {
+        res = await authService.resendSignupConfirmationOtp(normalizedEmail);
+      }
       if (res.success) {
         // Reset 5-minute countdown and 60-second cooldown ONLY on success
         const now = Date.now();
@@ -561,7 +576,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         setOtpRemainingMs(OTP_DURATION_MS);
         setResendRemainingMs(RESEND_COOLDOWN_MS);
         setOtpDigits(['', '', '', '', '', '']);
-        setSuccessMessage('A new 6-digit verification code has been sent to your email.');
+        setSuccessMessage('A new verification code / confirmation email has been sent.');
         setTimeout(() => {
           document.getElementById('email-otp-input-0')?.focus();
         }, 100);
@@ -1581,7 +1596,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     )}
                   </div>
 
-                  <div className="pt-1 flex flex-col items-center gap-1">
+                  <div className="pt-2 flex flex-col items-center gap-2 border-t border-slate-100">
+                    <p className="text-[11px] text-slate-400 text-center">
+                      Received a confirmation link instead of a code? Click the link in your email, then sign in:
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoginEmail(otpSentEmail || otpEmail || regEmail);
+                        switchView('login');
+                      }}
+                      className="w-full py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      Sign In with Password
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -1595,14 +1623,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       }}
                       className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
                     >
-                      Return to email-entry screen
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => switchView('login')}
-                      className="text-xs font-bold text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                    >
-                      Return to Password Login
+                      Change Email Address
                     </button>
                   </div>
                 </form>
