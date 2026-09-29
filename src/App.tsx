@@ -230,7 +230,13 @@ export default function App() {
         const restoredSession = await authService.initAuthSession();
         if (!isMounted) return;
 
-        if (restoredSession && restoredSession.user) {
+        if (authService.isRecoveryMode()) {
+          // Password recovery is a special authenticated Supabase session.
+          // Keep the user on the reset-password form instead of opening Home.
+          setSession(null);
+          setAuthMode('forgot_password');
+          setRootMode('auth');
+        } else if (restoredSession && restoredSession.user) {
           setSession(restoredSession);
           setRootMode('dashboard');
         } else {
@@ -243,6 +249,9 @@ export default function App() {
             setAuthMode('signup');
             setRootMode('auth');
           } else if (path === '/forgot-password') {
+            setAuthMode('forgot_password');
+            setRootMode('auth');
+          } else if (path === '/reset-password') {
             setAuthMode('forgot_password');
             setRootMode('auth');
           } else {
@@ -277,9 +286,14 @@ export default function App() {
     });
 
     const unsubRecovery = subscribePasswordRecovery((isRecovery) => {
-      if (isRecovery && isMounted) {
+      if (!isMounted) return;
+
+      if (isRecovery) {
+        // Never let PASSWORD_RECOVERY fall through to the dashboard.
+        setSession(null);
         setAuthMode('forgot_password');
         setRootMode('auth');
+        setCurrentPath('/reset-password');
       }
     });
 
@@ -295,7 +309,20 @@ export default function App() {
     if (isAuthInitializing) return;
 
     const authenticatedRoutes = ['/home', '/dashboard', '/inventory', '/scanner', '/reports'];
-    const authRoutes = ['/login', '/signup', '/forgot-password'];
+    const authRoutes = ['/login', '/signup', '/forgot-password', '/reset-password'];
+
+    // A recovery session must always stay on the password-reset screen.
+    if (authService.isRecoveryMode()) {
+      if (currentPath !== '/reset-password') {
+        if (typeof window !== 'undefined') {
+          window.history.replaceState(null, '', '/reset-password');
+          setCurrentPath('/reset-password');
+        }
+      }
+      setAuthMode('forgot_password');
+      setRootMode('auth');
+      return;
+    }
 
     if (session && session.user) {
       // Authenticated user
