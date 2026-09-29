@@ -965,17 +965,32 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           {/* ================================================================= */}
           {view === 'register' && (
             <div className="space-y-5">
-              <div className="text-center space-y-1">
+              <div className="text-center space-y-2">
                 <h2 className="text-xl sm:text-2xl font-black text-[#092B4C] tracking-tight">
                   Create Your Account
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Register with ScanMe AI to scan barcodes and manage stock
+                  Create an account once, verify your email, then sign in normally.
                 </p>
               </div>
 
-              {/* Register Form */}
-              <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
+              {/* Signup form is intentionally contained inside the Create Account action area. */}
+              <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden" open>
+                <summary className="list-none cursor-pointer select-none p-4 flex items-center justify-between gap-3 bg-slate-50 hover:bg-slate-100 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-[#1473EA] text-white flex items-center justify-center shrink-0">
+                      <User className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 text-left">
+                      <div className="font-black text-sm text-[#092B4C]">Sign Up</div>
+                      <div className="text-[11px] text-slate-500">Tap to open account details</div>
+                    </div>
+                  </div>
+                  <ChevronDown className="w-5 h-5 text-slate-400 transition-transform group-open:rotate-180 shrink-0" />
+                </summary>
+
+                <div className="p-4 border-t border-slate-100">
+                  <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
                 {/* Full Name */}
                 <div>
                   <label className="block text-xs font-bold text-[#092B4C] mb-1">
@@ -1142,73 +1157,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   )}
                 </button>
               </form>
-
-              {/* Divider */}
-              <div className="relative my-3">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200" />
                 </div>
-                <div className="relative flex justify-center text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  <span className="bg-white px-3">or continue with</span>
-                </div>
-              </div>
+              </details>
 
-              {/* Social & Alternative Options on Register */}
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={handleGoogleLogin}
-                    disabled={isLoading}
-                    id="btn-register-google"
-                    className="py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 font-bold text-xs text-slate-800 flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
-                  >
-                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                      />
-                    </svg>
-                    <span>Google</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleFacebookLogin}
-                    disabled={isLoading}
-                    id="btn-register-facebook"
-                    className="py-2.5 px-3 rounded-xl bg-[#1877F2] hover:bg-[#166fe5] text-white font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
-                  >
-                    <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24">
-                      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-                    </svg>
-                    <span>Facebook</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Link to Login */}
-              <div className="pt-2 text-center text-xs text-slate-500">
+              <div className="text-center text-xs text-slate-500">
                 Already have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => switchView('login')}
-                  id="link-goto-login"
-                  className="font-bold text-[#1473EA] hover:underline"
-                >
-                  Log in
+                <button type="button" onClick={() => switchView('login')} className="font-bold text-[#1473EA] hover:underline">
+                  Sign In
                 </button>
               </div>
             </div>
