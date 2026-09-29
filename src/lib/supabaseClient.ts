@@ -73,7 +73,9 @@ export const supabase: SupabaseClient = createClient(
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: false,
+      // Allow Supabase Auth to consume the recovery URL and establish the
+      // PASSWORD_RECOVERY session when the user clicks the email link.
+      detectSessionInUrl: true,
       storage: typeof window !== 'undefined' ? window.localStorage : undefined,
     },
   }
