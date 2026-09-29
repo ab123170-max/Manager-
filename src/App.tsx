@@ -1290,6 +1290,7 @@ export default function App() {
               setIsSettingsOpen(false);
               setIsEditingProfileModal(true);
             }}
+            onLogout={handleLogout}
           />
         </Suspense>
       )}
