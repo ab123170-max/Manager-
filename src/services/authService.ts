@@ -226,6 +226,16 @@ class AuthService {
     try {
       const { data, error } = await supabase.auth.getSession();
       if (!error && data?.session && data.session.user) {
+        // During a password-recovery visit, keep the Supabase recovery session
+        // available for updateUser({ password }) but do not treat the user as
+        // normally authenticated and redirect them to the dashboard.
+        if (this.isPasswordRecovery) {
+          this.activeSession = null;
+          this.isInitialized = true;
+          notifyInitListeners(true);
+          return null;
+        }
+
         const appSession = await this.handleSupabaseSession(data.session);
         this.isInitialized = true;
         notifyInitListeners(true);
@@ -258,8 +268,21 @@ class AuthService {
     try {
       supabase.auth.onAuthStateChange(async (event, sbSession) => {
         if (event === 'PASSWORD_RECOVERY') {
+          // Supabase has established a recovery session. Do not convert it
+          // into the normal app session or send the user to the dashboard.
           this.isPasswordRecovery = true;
+          this.activeSession = null;
           notifyRecoveryListeners(true);
+          return;
+        }
+
+        // While the recovery form is open, keep the recovery session isolated
+        // from the normal application session until the password is changed.
+        if (this.isPasswordRecovery) {
+          if (event === 'SIGNED_OUT') {
+            this.clearLocalSessionState();
+          }
+          return;
         }
 
         if (
@@ -891,8 +914,10 @@ class AuthService {
     }
 
     try {
+      const resetRedirectUrl = 'https://scanme-ai-ab123170-max.vercel.app/reset-password';
+
       const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-        redirectTo: window.location.origin,
+        redirectTo: resetRedirectUrl,
       });
 
       if (error) {
@@ -958,12 +983,22 @@ class AuthService {
         };
       }
 
+      // End the recovery session so the user returns to the normal login
+      // flow instead of being silently treated as already signed in.
       this.isPasswordRecovery = false;
       notifyRecoveryListeners(false);
 
+      try {
+        await supabase.auth.signOut();
+      } catch (signOutError) {
+        console.warn('[authService] Recovery signOut after password update failed:', signOutError);
+      }
+
+      this.clearLocalSessionState();
+
       return {
         success: true,
-        message: 'Your password has been successfully updated. You can now log in.',
+        message: 'Your password has been successfully updated. You can now log in with your new password.',
       };
     } catch (err: any) {
       return {
