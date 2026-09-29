@@ -875,6 +875,22 @@ export default function App() {
   // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-100/70 flex flex-col font-sans text-slate-900 pb-8">
+      {/* Warm personalized welcome */}
+      <div className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-3">
+        <div className="rounded-2xl bg-white border border-slate-200/80 shadow-sm px-4 py-3 sm:px-5 sm:py-4">
+          <p className="text-[11px] sm:text-xs font-bold text-indigo-600 uppercase tracking-wide">ScanMe AI</p>
+          <h1 className="mt-0.5 text-lg sm:text-2xl font-black text-slate-900 tracking-tight">
+            {(() => {
+              const hour = new Date().getHours();
+              const greeting = hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : hour < 21 ? 'Good evening' : 'Good night';
+              const firstName = (session?.profile?.full_name || session?.user?.displayName || 'there').trim().split(/\s+/)[0] || 'there';
+              return greeting + ', ' + firstName + ' 👋';
+            })()}
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">Welcome back. Your inventory is ready.</p>
+        </div>
+      </div>
+
       {/* App Header */}
       <AppHeader
         activeSection={navState.activeSection}
