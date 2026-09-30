@@ -39,20 +39,13 @@ export const ScanHistoryView: React.FC<ScanHistoryViewProps> = ({ onSelectProduc
   });
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+    <div className="max-w-5xl mx-auto space-y-4 pb-12">
       {/* Header */}
       <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
-            <History className="w-4 h-4" />
-            <span>Audit &amp; Detection Log</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Scan History ({history.length})
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <History className="w-5 h-5 text-indigo-600" /> Scan History ({history.length})
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Historical log of all real-time Barcode and QR code scans recorded during active sessions.
-          </p>
         </div>
 
         {history.length > 0 && (
