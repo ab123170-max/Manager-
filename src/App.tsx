@@ -36,6 +36,7 @@ import { AppFooter } from './components/navigation/AppFooter';
 import { expiryAlertManager } from './utils/expiryAlertManager';
 import { setPrivatePageSeo } from './utils/seoHelper';
 import { AppSliderNavigation } from './components/slider/AppSliderNavigation';
+import { HomeDashboard } from './components/home/HomeDashboard';
 import { SliderPageWrapper } from './components/slider/SliderPageWrapper';
 import { AdSenseUnit } from './components/ads/AdSenseUnit';
 
@@ -480,6 +481,7 @@ export default function App() {
    * Maps any subview and menu section to one of the 5 functional slider pages
    */
   const getSlideIndexForNav = (subView: string, section?: MenuSection): number => {
+    if (subView === 'home') return 0;
     if (
       [
         'scan_product',
@@ -946,6 +948,7 @@ export default function App() {
           expiredCount={valuation.expiredCount}
           scanHistoryCount={scanHistory.length}
           onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
+          onOpenDrawer={() => setIsDrawerOpen(true)}
         />
 
         {/* Swipeable & Animated Slider Page Wrapper */}
@@ -964,7 +967,17 @@ export default function App() {
             {/* ==================================================================== */}
             {/* SLIDER PAGE 1: AI SCANNER & INTAKE                                   */}
             {/* ==================================================================== */}
-            {activeSlideIndex === 0 && (
+            {activeSlideIndex === 0 && navState.activeSubView === 'home' && (
+              <HomeDashboard
+                productCount={products.length}
+                lowStockCount={valuation.lowStockCount}
+                expiringCount={valuation.expiringCount}
+                expiredCount={valuation.expiredCount}
+                onNavigate={handleNavigate}
+              />
+            )}
+
+            {activeSlideIndex === 0 && navState.activeSubView !== 'home' && (
               <div className="space-y-6">
                 {/* 1.1 Scan Product (AI Multi-Shot Synchronized Vision Extraction) */}
                 {(navState.activeSubView === 'scan_product' ||
