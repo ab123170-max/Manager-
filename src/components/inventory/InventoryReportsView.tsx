@@ -99,9 +99,6 @@ export const InventoryReportsView: React.FC = () => {
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
             Comprehensive Inventory Report
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Official valuation snapshot, gross margin projections, and health indicators for audit reporting.
-          </p>
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
