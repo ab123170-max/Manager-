@@ -67,9 +67,6 @@ export const ExpiredProductsView: React.FC = () => {
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
             Expired Products ({expiredItems.length})
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Goods that have passed their safe expiry date. Immediately write-off expired stock to synchronize the Loss ledger and remove unfit items from sellable inventory.
-          </p>
         </div>
       </div>
 
