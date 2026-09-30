@@ -39,7 +39,6 @@ import { AppSliderNavigation } from './components/slider/AppSliderNavigation';
 import { HomeDashboard } from './components/home/HomeDashboard';
 import { SliderPageWrapper } from './components/slider/SliderPageWrapper';
 import { AdSenseUnit } from './components/ads/AdSenseUnit';
-import { InfoHelpView } from './components/help/InfoHelpView';
 
 // ============================================================================
 // CODE-SPLIT / LAZY-LOADED HEAVY VIEW CHUNKS
