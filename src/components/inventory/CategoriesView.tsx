@@ -61,9 +61,6 @@ export const CategoriesView: React.FC = () => {
         <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
           Product Categories ({categoryStats.length})
         </h1>
-        <p className="text-xs text-slate-500 mt-1">
-          Valuation, unit density, and expected profit breakdowns partitioned across product lines.
-        </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
