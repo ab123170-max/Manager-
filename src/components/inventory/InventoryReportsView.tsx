@@ -90,14 +90,10 @@ export const InventoryReportsView: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
       {/* Header */}
-      <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
-            <FileText className="w-4 h-4" />
-            <span>Valuation &amp; Stock Audit</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Comprehensive Inventory Report
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <FileText className="w-5 h-5 text-indigo-600" /> Reports
           </h1>
         </div>
 
@@ -114,7 +110,7 @@ export const InventoryReportsView: React.FC = () => {
       </div>
 
       {/* Snapshot Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-5 bg-white rounded-3xl border border-slate-200 shadow-xs space-y-1">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">
             Total Capital In Inventory
