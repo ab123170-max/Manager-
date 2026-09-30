@@ -39,6 +39,7 @@ import { AppSliderNavigation } from './components/slider/AppSliderNavigation';
 import { HomeDashboard } from './components/home/HomeDashboard';
 import { SliderPageWrapper } from './components/slider/SliderPageWrapper';
 import { AdSenseUnit } from './components/ads/AdSenseUnit';
+import { InfoHelpView } from './components/help/InfoHelpView';
 
 // ============================================================================
 // CODE-SPLIT / LAZY-LOADED HEAVY VIEW CHUNKS
@@ -182,6 +183,7 @@ const ProfileSetupView = lazy(() =>
 const OnboardingModal = lazy(() =>
   import('./components/onboarding/OnboardingModal').then((m) => ({ default: m.OnboardingModal }))
 );
+const InfoHelpViewLazy = lazy(() => import('./components/help/InfoHelpView').then((m) => ({ default: m.InfoHelpView })));
 const SettingsModal = lazy(() =>
   import('./components/settings/SettingsModal').then((m) => ({ default: m.SettingsModal }))
 );
@@ -200,6 +202,7 @@ export default function App() {
   const [isEditingProfileModal, setIsEditingProfileModal] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
+  const [isInfoHelpOpen, setIsInfoHelpOpen] = useState(false);
   const [rootMode, setRootMode] = useState<AppRootMode>('landing');
 
   const [currentPath, setCurrentPath] = useState<string>(() => {
@@ -889,7 +892,7 @@ export default function App() {
               return greeting + ', ' + firstName + ' 👋';
             })()}
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">Welcome back. Your inventory is ready.</p>
+          
         </div>
       </div>
 
@@ -928,6 +931,7 @@ export default function App() {
             onShowOnboarding={() => setIsOnboardingOpen(true)}
             onLogout={handleLogout}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenInfoHelp={() => setIsInfoHelpOpen(true)}
             onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
           />
         </Suspense>
@@ -1321,6 +1325,12 @@ export default function App() {
             }}
             onLogout={handleLogout}
           />
+        </Suspense>
+      )}
+
+      {isInfoHelpOpen && (
+        <Suspense fallback={null}>
+          <InfoHelpViewLazy onClose={() => setIsInfoHelpOpen(false)} />
         </Suspense>
       )}
 
