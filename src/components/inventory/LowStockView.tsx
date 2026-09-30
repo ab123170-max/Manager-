@@ -48,9 +48,6 @@ export const LowStockView: React.FC<LowStockViewProps> = ({ onStockIn }) => {
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
             Low Stock Products ({lowStockItems.length})
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Products that have fallen below their configured minimum threshold and require immediate re-ordering.
-          </p>
         </div>
       </div>
 
