@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { AppHeader } from './components/navigation/AppHeader';
 import { AndroidMobileShell } from './components/navigation/AndroidMobileShell';
 import { ViewLoadingSkeleton } from './components/common/ViewLoadingSkeleton';
 import {
