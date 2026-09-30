@@ -10,12 +10,12 @@ interface AndroidNavDrawerProps {
   badges?:{lowStock?:number;expiringSoon?:number;expired?:number;totalProducts?:number};
   counts?:{products?:number;lowStock?:number;expiring?:number;expired?:number;scanHistory?:number};
   userProfile?:UserProfile|null;
-  onEditProfile?:()=>void; onShowOnboarding?:()=>void; onLogout?:()=>void; onOpenSettings?:()=>void;
+  onEditProfile?:()=>void; onShowOnboarding?:()=>void; onLogout?:()=>void; onOpenSettings?:()=>void; onOpenInfoHelp?:()=>void;
   onOpenGoogleSheets?:()=>void;
 }
 
 export const AndroidNavDrawer:React.FC<AndroidNavDrawerProps>=({
-  isOpen,onClose,activeSection,activeSubView,onNavigate,userProfile,onEditProfile,onShowOnboarding,onLogout,onOpenSettings,onOpenGoogleSheets
+  isOpen,onClose,activeSection,activeSubView,onNavigate,userProfile,onEditProfile,onShowOnboarding,onLogout,onOpenSettings,onOpenInfoHelp,onOpenGoogleSheets
 })=>{
   const {t,languageOption,openLanguageSelector}=useLanguage();
   if(!isOpen)return null;
@@ -65,7 +65,7 @@ export const AndroidNavDrawer:React.FC<AndroidNavDrawerProps>=({
             {row('Profile',User,()=>{onClose();onEditProfile?.();})}
             {row('Language',Globe,()=>openLanguageSelector())}
             {row('Settings',Settings,()=>{onClose();onOpenSettings?.();})}
-            {row('Feature tour',HelpCircle,()=>{onClose();onShowOnboarding?.();})}
+            {row('Info & Help',HelpCircle,()=>{onClose();onOpenInfoHelp?.();})}
           </div>
         </section>
 
