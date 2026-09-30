@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { AppHeader } from './components/navigation/AppHeader';
+import { AndroidMobileShell } from './components/navigation/AndroidMobileShell';
 import { ViewLoadingSkeleton } from './components/common/ViewLoadingSkeleton';
 import {
   ExtractedFormData,
@@ -33,7 +34,6 @@ import {
   Plus,
   RotateCcw,
 } from 'lucide-react';
-import { AppFooter } from './components/navigation/AppFooter';
 import { expiryAlertManager } from './utils/expiryAlertManager';
 import { setPrivatePageSeo } from './utils/seoHelper';
 
@@ -666,45 +666,17 @@ export default function App() {
   // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-100/70 flex flex-col font-sans text-slate-900 pb-8">
-      {/* App Header */}
-      <AppHeader
+      <AndroidMobileShell
         activeSection={navState.activeSection}
         activeSubView={navState.activeSubView}
         onNavigate={handleNavigate}
-        onToggleDrawer={() => setIsDrawerOpen(true)}
-        inventoryCount={products.length}
-        alertCount={valuation.lowStockCount + activeExpiryAlertsCount}
         userProfile={session?.profile}
         onEditProfile={() => setIsEditingProfileModal(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
+        onShowOnboarding={() => setIsOnboardingOpen(true)}
+        onLogout={handleLogout}
       />
-
-      {/* Android Nav Drawer - Loaded strictly when opened */}
-      {isDrawerOpen && (
-        <Suspense fallback={null}>
-          <AndroidNavDrawer
-            isOpen={true}
-            onClose={() => setIsDrawerOpen(false)}
-            activeSection={navState.activeSection}
-            activeSubView={navState.activeSubView}
-            onNavigate={handleNavigate}
-            counts={{
-              products: products.length,
-              lowStock: valuation.lowStockCount,
-              expiring: activeExpiryAlertsCount,
-              expired: valuation.expiredCount,
-              scanHistory: scanHistory.length,
-            }}
-            userProfile={session?.profile}
-            onEditProfile={() => setIsEditingProfileModal(true)}
-            onShowOnboarding={() => setIsOnboardingOpen(true)}
-            onLogout={handleLogout}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onOpenGoogleSheets={() => setIsSheetsModalOpen(true)}
-          />
-        </Suspense>
-      )}
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -1025,9 +997,6 @@ export default function App() {
           <SeoLandingContent onNavigate={handleNavigate} />
         </Suspense>
       </main>
-
-      {/* Semantic Site Footer */}
-      <AppFooter onNavigate={handleNavigate} />
 
       {/* Payload Modal - loaded on demand */}
       {isModalOpen && (
