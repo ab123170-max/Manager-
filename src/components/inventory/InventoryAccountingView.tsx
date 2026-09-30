@@ -121,9 +121,6 @@ export const InventoryAccountingView: React.FC = () => {
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
             Inventory Accounting Ledger ({entries.length} Entries)
           </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Historical transaction ledger tracking all stock movements, purchase costs, and valuation changes.
-          </p>
         </div>
 
         <button
