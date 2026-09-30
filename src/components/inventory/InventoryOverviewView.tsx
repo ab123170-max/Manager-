@@ -174,16 +174,8 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
       {/* Top Header */}
       <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
-            <Boxes className="w-4 h-4" />
-            <span>Real-time Stock Management</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Inventory Overview
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Unified stock control, purchase valuations, profit projections, and inventory alerts.
-          </p>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <Boxes className="w-5 h-5 text-indigo-600" /> Inventory
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -210,34 +202,9 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
           )}
 
           {onNavigateSection && (
-            <>
-              <button
-                type="button"
-                onClick={() => onNavigateSection('inventory', 'turnover')}
-                className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-colors flex items-center gap-1.5"
-              >
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>Turnover</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onNavigateSection('inventory', 'reputation')}
-                className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-bold transition-colors flex items-center gap-1.5"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
-                <span>Reputation</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onNavigateSection('scanner', 'scan_product')}
-                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors flex items-center gap-1.5"
-              >
-                <Camera className="w-3.5 h-3.5" />
-                <span>Scan</span>
-              </button>
-            </>
+            <button type="button" onClick={() => onNavigateSection('scanner', 'scan_product')} className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors flex items-center gap-1.5">
+              <Camera className="w-3.5 h-3.5" /> Scan
+            </button>
           )}
 
           {onAddProduct && (
@@ -322,7 +289,7 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 space-y-3 shadow-xs">
+      <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 space-y-3 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           {/* Search Box */}
           <div className="relative flex-1">
