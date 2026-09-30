@@ -243,29 +243,30 @@ export default function App() {
           setSession(restoredSession);
           setRootMode('dashboard');
         } else {
+          // No active Supabase session: always start in Sign In.
+          // The new-user form is only reachable when the user explicitly
+          // chooses Create Account / Sign Up from the authentication screen.
           setSession(null);
           const path = typeof window !== 'undefined' ? window.location.pathname : '/';
-          if (path === '/login') {
-            setAuthMode('login');
-            setRootMode('auth');
-          } else if (path === '/signup') {
+
+          if (path === '/signup') {
             setAuthMode('signup');
-            setRootMode('auth');
-          } else if (path === '/forgot-password') {
+          } else if (path === '/forgot-password' || path === '/reset-password') {
             setAuthMode('forgot_password');
-            setRootMode('auth');
-          } else if (path === '/reset-password') {
-            setAuthMode('forgot_password');
-            setRootMode('auth');
           } else {
-            setRootMode('landing');
+            setAuthMode('login');
           }
+
+          setRootMode('auth');
         }
       } catch (err) {
         console.warn('[App] Startup auth verification error:', err);
         if (isMounted) {
+          // If startup verification fails, never expose the new-user form.
+          // Fall back safely to the Sign In screen.
           setSession(null);
-          setRootMode('landing');
+          setAuthMode('login');
+          setRootMode('auth');
         }
       } finally {
         if (isMounted) {
