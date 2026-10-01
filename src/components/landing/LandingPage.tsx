@@ -8,13 +8,15 @@ import { motion } from 'motion/react';
 import { Camera, Boxes, BarChart3, LogIn, Download, ShoppingBasket, Pill, Hotel, UtensilsCrossed, Stethoscope, Store } from 'lucide-react';
 import { updateDocumentSeo } from '../../utils/seoHelper';
 import { LanguageSelectorButton } from '../common/LanguageSelectorButton';
+import { isNativeApp } from '../../utils/platform';
 
 interface LandingPageProps { onGetStarted: () => void; onLogin: () => void; onNavigatePath?: (path: string) => void; }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin, onNavigatePath }) => {
   useEffect(() => { updateDocumentSeo({ title: 'ScanMe AI – AI Product Scanner & Inventory Manager', description: 'Scan products, manage inventory, track expiry dates, and view reports with ScanMe AI.', canonicalUrl: 'https://scanme-ai.vercel.app/', ogTitle: 'ScanMe AI – AI Product Scanner & Inventory Manager', ogDescription: 'Scan products, manage inventory, track expiry dates, and view reports with ScanMe AI.' }); }, []);
 
-  const APK_DOWNLOAD_URL = 'https://github.com/ab123170-max/Manager-/releases/download/v0.1.99/app-debug.apk';
+  const APK_DOWNLOAD_URL = 'https://github.com/ab123170-max/Manager-/releases/latest/download/app-debug.apk';
+  const nativeApp = isNativeApp();
   const storeTypes = [
     { icon: ShoppingBasket, label: 'Grocery' }, { icon: Pill, label: 'Pharmacy' }, { icon: Hotel, label: 'Hotels' },
     { icon: UtensilsCrossed, label: 'Restaurants' }, { icon: Stethoscope, label: 'Medical Stores' }, { icon: Store, label: 'Other Stores' },
@@ -37,7 +39,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
           <h1 className="text-[30px] leading-[1.08] font-black tracking-tight">Scan products.<br /><span className="text-[#1473EA]">Manage stock.</span></h1>
           <p className="mt-3 text-sm leading-5 text-slate-500 max-w-xs mx-auto">AI scanning, inventory tracking and reports — all in one simple app.</p>
           <div className="mt-5 flex flex-col gap-2.5">
-            <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" id="btn-landing-get-started" aria-label="Download ScanMe AI APK" className="w-full h-12 rounded-2xl bg-[#1473EA] text-white font-bold text-sm shadow-lg shadow-[#1473EA]/20 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"><Download className="w-4 h-4" />Download APK from here</a>
+            {!nativeApp && <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" id="btn-landing-get-started" aria-label="Download ScanMe AI APK" className="w-full h-12 rounded-2xl bg-[#1473EA] text-white font-bold text-sm shadow-lg shadow-[#1473EA]/20 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"><Download className="w-4 h-4" />Download APK from here</a>}
             <button type="button" onClick={onLogin} id="btn-landing-login" className="w-full h-11 rounded-2xl bg-white border border-slate-200 text-slate-800 font-bold text-sm active:scale-[0.98] transition-transform">I already have an account</button>
           </div>
         </motion.section>
