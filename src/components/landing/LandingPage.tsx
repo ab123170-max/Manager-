@@ -5,7 +5,7 @@
 
 import React, { useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Camera, Boxes, BarChart3, LogIn, Download, ShoppingBasket, Pill, Hotel, UtensilsCrossed, Stethoscope, Store } from 'lucide-react';
+import { Camera, Boxes, BarChart3, LogIn, Download, Share2, ShoppingBasket, Pill, Hotel, UtensilsCrossed, Stethoscope, Store } from 'lucide-react';
 import { updateDocumentSeo } from '../../utils/seoHelper';
 import { LanguageSelectorButton } from '../common/LanguageSelectorButton';
 import { isNativeApp } from '../../utils/platform';
@@ -40,7 +40,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
           <p className="mt-3 text-sm leading-5 text-slate-500 max-w-xs mx-auto">Scan products, manage stock, and track expiry dates in one simple tool for grocery, pharmacy, medical, hotel, restaurant, and other stores.</p>
           <div className="mt-5 flex flex-col gap-2.5">
             {!nativeApp && <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" id="btn-landing-get-started" aria-label="Download ScanMe AI APK" className="w-full h-12 rounded-2xl bg-[#1473EA] text-white font-bold text-sm shadow-lg shadow-[#1473EA]/20 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"><Download className="w-4 h-4" />Download APK from here</a>}
-            <button type="button" onClick={onLogin} id="btn-landing-login" className="w-full h-11 rounded-2xl bg-white border border-slate-200 text-slate-800 font-bold text-sm active:scale-[0.98] transition-transform">I already have an account</button>
+            <a href="/share-app" onClick={(e) => handleLinkClick(e, '/share-app')} className="w-full h-11 rounded-2xl bg-white border border-slate-200 text-[#1473EA] font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"><Share2 className="w-4 h-4" />Share app</a><button type="button" onClick={onLogin} id="btn-landing-login" className="w-full h-11 rounded-2xl bg-white border border-slate-200 text-slate-800 font-bold text-sm active:scale-[0.98] transition-transform">I already have an account</button>
           </div>
         </motion.section>
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: 0.04 }} className="mt-5">
