@@ -251,13 +251,19 @@ export default function App() {
 
           if (path === '/signup') {
             setAuthMode('signup');
+            setRootMode('auth');
           } else if (path === '/forgot-password' || path === '/reset-password') {
             setAuthMode('forgot_password');
-          } else {
+            setRootMode('auth');
+          } else if (path === '/login') {
             setAuthMode('login');
+            setRootMode('auth');
+          } else {
+            // New/unauthenticated visitors always start on the public Home page.
+            // Sign In is opened only when the user explicitly chooses Login.
+            setAuthMode('login');
+            setRootMode('landing');
           }
-
-          setRootMode('auth');
         }
       } catch (err) {
         console.warn('[App] Startup auth verification error:', err);
