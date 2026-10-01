@@ -7,6 +7,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Boxes,
+  BookOpen,
   Package,
   Camera,
   DollarSign,
@@ -205,6 +206,12 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
           {onNavigateSection && (
             <button type="button" onClick={() => onNavigateSection('scanner', 'scan_product')} className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors flex items-center gap-1.5">
               <Camera className="w-3.5 h-3.5" /> Scan
+            </button>
+          )}
+
+          {onNavigateSection && (
+            <button type="button" onClick={() => onNavigateSection('inventory', 'catalog')} className="px-3.5 py-2 rounded-xl bg-[#1473EA]/10 text-[#1473EA] text-xs font-bold transition-colors flex items-center gap-1.5">
+              <BookOpen className="w-3.5 h-3.5" /> Catalog
             </button>
           )}
 
