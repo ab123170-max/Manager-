@@ -174,6 +174,9 @@ const PublicInventoryManagementPage = lazy(() =>
 const PublicFaqPage = lazy(() =>
   import('./components/seo/PublicFaqPage').then((m) => ({ default: m.PublicFaqPage }))
 );
+const PublicShareAppPage = lazy(() =>
+  import('./components/seo/PublicShareAppPage').then((m) => ({ default: m.PublicShareAppPage }))
+);
 const PublicIndustryInventoryPage = lazy(() =>
   import('./components/seo/PublicIndustryInventoryPage').then((m) => ({ default: m.PublicIndustryInventoryPage }))
 );
@@ -813,7 +816,9 @@ export default function App() {
   if (rootMode === 'landing') {
     let publicContent: React.ReactNode;
 
-    if (currentPath === '/grocery-inventory-management') {
+    if (currentPath === '/share-app') {
+      publicContent = <PublicShareAppPage onNavigatePath={handlePublicNavigate} />;
+    } else if (currentPath === '/grocery-inventory-management') {
       publicContent = <PublicIndustryInventoryPage kind="grocery" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
     } else if (currentPath === '/pharmacy-inventory-management') {
       publicContent = <PublicIndustryInventoryPage kind="pharmacy" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
