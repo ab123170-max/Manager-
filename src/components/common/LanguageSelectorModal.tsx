@@ -27,10 +27,16 @@ export const LanguageSelectorModal: React.FC<LanguageSelectorModalProps> = ({
     isLanguageSelectorOpen,
     closeLanguageSelector,
     t,
+    isLanguageSelectionRequired,
+    languageSelectionUserName,
   } = useLanguage();
 
   const isOpen = propIsOpen !== undefined ? propIsOpen : isLanguageSelectorOpen;
   const handleClose = propOnClose || closeLanguageSelector;
+  const greetingName = languageSelectionUserName ? `, ${languageSelectionUserName}` : '';
+  const greeting = isLanguageSelectionRequired
+    ? (language === 'ne' ? `नमस्कार${greetingName}! 👋` : language === 'hi' ? `नमस्ते${greetingName}! 👋` : `Welcome${greetingName}! 👋`)
+    : (language === 'ne' ? `फेरि स्वागत छ${greetingName}! 👋` : language === 'hi' ? `फिर से स्वागत है${greetingName}! 👋` : `Welcome back${greetingName}! 👋`);
 
   if (!isOpen) return null;
 
@@ -73,8 +79,9 @@ export const LanguageSelectorModal: React.FC<LanguageSelectorModalProps> = ({
                 <Globe className="w-5 h-5" />
               </div>
               <div>
+                <p className="text-sm font-black text-[#092B4C] mb-1">{greeting}</p>
                 <h3 className="text-base font-black text-slate-900 leading-tight">
-                  {t('settings.selectLanguageTitle')}
+                  {isLanguageSelectionRequired ? (language === 'ne' ? 'पहिले आफ्नो भाषा छान्नुहोस्' : language === 'hi' ? 'पहले अपनी भाषा चुनें' : 'Choose your language first') : t('settings.selectLanguageTitle')}
                 </h3>
                 <p className="text-[11px] text-slate-500 font-medium">
                   {t('settings.currentLanguage')}:{' '}
@@ -150,7 +157,7 @@ export const LanguageSelectorModal: React.FC<LanguageSelectorModalProps> = ({
           {/* Bottom Note */}
           <div className="px-5 pt-1 text-center">
             <p className="text-[11px] text-slate-400">
-              {t('settings.selectLanguageSubtitle')}
+              {isLanguageSelectionRequired ? (language === 'ne' ? 'तपाईंलाई सहज लाग्ने भाषा छान्नुहोस्। हामी सम्पूर्ण एप र गाइड त्यही भाषामा देखाउनेछौँ।' : language === 'hi' ? 'अपनी पसंद की भाषा चुनें। हम पूरा ऐप और गाइड उसी भाषा में दिखाएंगे।' : 'Please choose the language you are most comfortable with. The whole app and guidance will use it.') : t('settings.selectLanguageSubtitle')}
             </p>
           </div>
         </motion.div>
