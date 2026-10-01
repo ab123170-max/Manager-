@@ -95,7 +95,135 @@ export const ExpiryAlertsView: React.FC<ExpiryAlertsViewProps> = ({
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
               Expiry Alerts ({activeAlerts.length} Active)
             </h1>
+            <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
+              Real-time monitoring of shelf-life risks and expired goods. Alerts are synchronized with your inventory database and can be dismissed, restored, or written off.
+            </p>
           </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {activeAlerts.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDismissAllActive}
+                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Dismiss All Active
+              </button>
+            )}
+
+            {dismissedAlerts.length > 0 && (
+              <button
+                type="button"
+                onClick={handleResetAllDismissals}
+                className="px-3.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Restore All Dismissed</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Quick KPI Metric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+          <div className="bg-rose-50/80 border border-rose-200/90 rounded-2xl p-3.5">
+            <span className="text-[11px] font-bold text-rose-700 uppercase tracking-wider block">
+              Expired
+            </span>
+            <div className="text-xl sm:text-2xl font-black text-rose-950 mt-0.5">
+              {expiredCount}
+            </div>
+            <span className="text-[10px] text-rose-600 font-medium">Require write-off</span>
+          </div>
+
+          <div className="bg-orange-50/80 border border-orange-200/90 rounded-2xl p-3.5">
+            <span className="text-[11px] font-bold text-orange-700 uppercase tracking-wider block">
+              &le; 7 Days Critical
+            </span>
+            <div className="text-xl sm:text-2xl font-black text-orange-950 mt-0.5">
+              {criticalCount}
+            </div>
+            <span className="text-[10px] text-orange-600 font-medium">Urgent clearance</span>
+          </div>
+
+          <div className="bg-amber-50/80 border border-amber-200/90 rounded-2xl p-3.5">
+            <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider block">
+              Active Alerts
+            </span>
+            <div className="text-xl sm:text-2xl font-black text-amber-950 mt-0.5">
+              {activeAlerts.length}
+            </div>
+            <span className="text-[10px] text-amber-600 font-medium">Displayed on home</span>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5">
+            <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
+              Dismissed
+            </span>
+            <div className="text-xl sm:text-2xl font-black text-slate-800 mt-0.5">
+              {dismissedAlerts.length}
+            </div>
+            <span className="text-[10px] text-slate-500 font-medium">Hidden from home</span>
+          </div>
+        </div>
+
+        {/* Filter Navigation Tabs */}
+        <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => setFilterTab('active')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              filterTab === 'active'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Active Alerts ({activeAlerts.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterTab('dismissed')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              filterTab === 'dismissed'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Dismissed ({dismissedAlerts.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterTab('all')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              filterTab === 'all'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            All Lifecycle ({allAlerts.length})
+          </button>
+        </div>
+      </div>
+
+      {/* Alert Items List */}
+      {displayList.length === 0 ? (
+        <div className="bg-white rounded-3xl p-10 text-center border border-slate-200/90 shadow-xs space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center font-bold">
+            <CheckCircle2 className="w-6 h-6" />
+          </div>
+          <h3 className="font-extrabold text-base text-slate-900">
+            {filterTab === 'active'
+              ? 'No Active Expiry Alerts'
+              : filterTab === 'dismissed'
+              ? 'No Dismissed Alerts'
+              : 'No Expiry Alerts Recorded'}
+          </h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            {filterTab === 'active'
+              ? 'All products are currently fresh and within their valid shelf-life window, or active alerts have been dismissed.'
+              : 'No alerts match this filter.'}
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {displayList.map((item) => {
