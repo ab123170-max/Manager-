@@ -15,6 +15,7 @@ type CardData = {
   instagram: string;
   services: string;
   ownerPhoto: string;
+  apkDownloadUrl: string;
 };
 
 const STORAGE_KEY = 'manager-business-card-v1';
@@ -33,6 +34,7 @@ function makeInitial(profile: UserProfile | null): CardData {
     instagram: '',
     services: 'Inventory Management • Stock Tracking • Expiry Alerts • Barcode & QR',
     ownerPhoto: profile?.profile_image_url || '',
+    apkDownloadUrl: typeof window !== 'undefined' ? window.location.origin + '/share-app' : '/share-app',
   };
 }
 
@@ -72,7 +74,7 @@ export function BusinessVisitingCardView({ profile }: { profile: UserProfile | n
     return window.location.origin;
   }, []);
 
-  const shareText = `${data.businessName || 'Our Business'} — ${data.tagline}\n\n${data.services}\n\n${data.phone ? '📞 ' + data.phone : ''}${data.address ? '\n📍 ' + data.address : ''}\n\n${shareUrl}`;
+  const shareText = data.businessName+' — '+data.tagline+'\n\n'+data.services+'\n\n'+(data.phone ? '📞 '+data.phone : '')+(data.address ? '\n📍 '+data.address : '')+'\n\n📲 Download Manager App: '+data.apkDownloadUrl;
 
   const copyCard = async () => {
     try {
@@ -135,6 +137,7 @@ export function BusinessVisitingCardView({ profile }: { profile: UserProfile | n
     ['facebook', 'Facebook page', 'facebook.com/...'],
     ['instagram', 'Instagram', '@username'],
     ['services', 'Services / products', 'Use • between items'],
+    ['apkDownloadUrl', 'App download link', 'Direct APK URL or Manager share page'],
   ];
 
   return (
@@ -195,7 +198,7 @@ export function BusinessVisitingCardView({ profile }: { profile: UserProfile | n
                 <div className="flex gap-2"><Mail className="w-4 h-4 shrink-0 text-[#1473EA]" />{data.email || 'Email'}</div>
                 <div className="flex gap-2"><MapPin className="w-4 h-4 shrink-0 text-[#1473EA]" />{data.address || 'Business address'}</div>
               </div>
-              <div className="mt-5 flex flex-wrap gap-2 text-[11px] font-bold text-[#1473EA]">
+              <div className="mt-5 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5"><div className="text-xs font-black text-[#092B4C]">📲 Download Manager App</div><div className="mt-1 text-[10px] font-semibold text-[#1473EA] break-all">{data.apkDownloadUrl}</div></div><div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold text-[#1473EA]">
                 {data.website && <span>{data.website}</span>}{data.facebook && <span><Facebook className="inline w-3.5 h-3.5 mr-1" />{data.facebook}</span>}{data.instagram && <span><Instagram className="inline w-3.5 h-3.5 mr-1" />{data.instagram}</span>}
               </div>
             </div>
@@ -208,7 +211,7 @@ export function BusinessVisitingCardView({ profile }: { profile: UserProfile | n
           </div>
           {message && <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 text-xs font-semibold text-blue-800">{message}</div>}
           <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 text-xs text-slate-600">
-            <strong className="text-slate-900">Social sharing:</strong> Share opens the phone's native sharing sheet. Choose WhatsApp, Facebook, Instagram or another installed app. The Image button creates a shareable SVG card.
+            <strong className="text-slate-900">App download:</strong> Every card carries a Manager App download link. Set it to your hosted APK file for direct download, or keep the /share-app fallback public download page.
           </div>
         </section>
       </div>
