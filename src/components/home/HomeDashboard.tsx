@@ -22,7 +22,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({productCount, lowSt
       <button type="button" onClick={()=>onNavigate('inventory_in','scan_product')} className="mt-4 min-h-12 w-full rounded-2xl bg-white text-[#092B4C] font-extrabold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
         <Camera className="w-5 h-5"/>Scan Product
       </button>
-      <a href={APK_DOWNLOAD_URL} download className="mt-3 min-h-12 w-full rounded-2xl border border-white/30 bg-white/10 text-white font-extrabold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform hover:bg-white/20" aria-label="Download ScanMe AI Android app">
+      <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="mt-3 min-h-12 w-full rounded-2xl border border-white/30 bg-white/10 text-white font-extrabold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform hover:bg-white/20" aria-label="Download ScanMe AI Android app">
         <Download className="w-5 h-5"/>Download Android App
       </a>
     </section>
