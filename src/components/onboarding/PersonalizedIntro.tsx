@@ -14,7 +14,7 @@ const KEYS:Record<BusinessKind,string>={grocery:'grocery',pharmacy:'pharmacy',me
 
 export const PersonalizedIntro:React.FC<PersonalizedIntroProps>=({isOpen,kind,onClose,onStart})=>{
  const {t}=useLanguage(); const [step,setStep]=useState(0);
- const data=useMemo(()=>{if(!kind)return null;const k=KEYS[kind];const raw=[0,1,2,3].map(i=>{const v=t('guide.'+k+'.steps.'+i);return v});return {name:t('guide.'+k+'.name'),icon:ICONS[kind],color:COLORS[kind],steps:raw.map((_,i)=>({title:t('guide.'+k+'.steps.'+i+'.0'),text:t('guide.'+k+'.steps.'+i+'.1'),tip:t('guide.'+k+'.steps.'+i+'.2'),character:CHARS[i],icon:[ICONS[kind],Boxes,Clock3,BarChart3][i]}))}},[kind,t]);
+ const data=useMemo(()=>{if(!kind)return null;const k=KEYS[kind];return {name:t('guide.'+k+'.name'),icon:ICONS[kind],color:COLORS[kind],steps:[0,1,2,3].map(i=>({title:t('guide.'+k+'.steps.'+i+'.0'),text:t('guide.'+k+'.steps.'+i+'.1'),tip:t('guide.'+k+'.steps.'+i+'.2'),character:CHARS[i],icon:[ICONS[kind],Boxes,Clock3,BarChart3][i]}))}},[kind,t]);
  useEffect(()=>{if(isOpen)setStep(0)},[isOpen,kind]);
  if(!isOpen||!data)return null;
  const BrandIcon=data.icon,item=data.steps[step],StepIcon=item.icon,last=step===data.steps.length-1;
