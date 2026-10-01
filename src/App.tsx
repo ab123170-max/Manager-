@@ -197,6 +197,7 @@ const SettingsModal = lazy(() =>
   import('./components/settings/SettingsModal').then((m) => ({ default: m.SettingsModal }))
 );
 const MarketingAutomationView = lazy(() => import('./components/marketing/MarketingAutomationView').then((m) => ({ default: m.MarketingAutomationView })));
+const BusinessVisitingCardView = lazy(() => import('./components/business/BusinessVisitingCardView').then((m) => ({ default: m.BusinessVisitingCardView })));
 const GoogleSheetsSyncModal = lazy(() =>
   import('./components/sheets/GoogleSheetsSyncModal').then((m) => ({
     default: m.GoogleSheetsSyncModal,
@@ -500,6 +501,7 @@ export default function App() {
    * Maps any subview and menu section to one of the 5 functional slider pages
    */
   const getSlideIndexForNav = (subView: string, section?: MenuSection): number => {
+    if (section === 'business_card' || subView === 'business_card') return 6;
     if (section === 'marketing' || subView === 'marketing') return 5;
     if (subView === 'home') return 0;
     if (
@@ -1260,6 +1262,14 @@ export default function App() {
                   />
                 )}
               </div>
+            )}
+
+            {activeSlideIndex === 5 && navState.activeSubView === 'marketing' && (
+              <div className="space-y-6"><MarketingAutomationView /></div>
+            )}
+
+            {activeSlideIndex === 6 && navState.activeSubView === 'business_card' && (
+              <div className="space-y-6"><BusinessVisitingCardView profile={session?.profile || null} /></div>
             )}
 
             {/* ==================================================================== */}
