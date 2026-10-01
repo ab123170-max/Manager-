@@ -123,6 +123,10 @@ export const AppFooter: React.FC<AppFooterProps> = ({ onNavigate }) => {
               <a href="/disclaimer.html" className="text-slate-600 hover:text-indigo-600 transition-colors">Disclaimer</a>
               <a href="/contact.html" className="text-slate-600 hover:text-indigo-600 transition-colors">Contact</a>
               <a href="/data-deletion.html" className="text-slate-600 hover:text-indigo-600 transition-colors">Account &amp; Data Deletion</a>
+              <a href="/grocery-inventory-management" className="text-slate-600 hover:text-indigo-600 transition-colors">Grocery Inventory</a>
+              <a href="/pharmacy-inventory-management" className="text-slate-600 hover:text-indigo-600 transition-colors">Pharmacy Inventory</a>
+              <a href="/restaurant-inventory-management" className="text-slate-600 hover:text-indigo-600 transition-colors">Restaurant Inventory</a>
+              <a href="/hotel-inventory-management" className="text-slate-600 hover:text-indigo-600 transition-colors">Hotel Inventory</a>
               <a
                 href="#faq"
                 className="text-slate-600 hover:text-indigo-600 transition-colors"
