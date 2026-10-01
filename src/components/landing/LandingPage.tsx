@@ -20,8 +20,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
   const APK_DOWNLOAD_URL = 'https://github.com/ab123170-max/Manager-/releases/latest/download/app-debug.apk';
   const nativeApp = isNativeApp();
   const storeTypes = [
-    { icon: ShoppingBasket, label: 'Grocery' }, { icon: Pill, label: 'Pharmacy' }, { icon: Hotel, label: 'Hotels' },
-    { icon: UtensilsCrossed, label: 'Restaurants' }, { icon: Stethoscope, label: 'Medical Stores' }, { icon: Store, label: 'Other Stores' },
+    { icon: '🛒', label: 'Grocery', nepali: 'किराना पसल' },
+    { icon: '💊', label: 'Pharmacy', nepali: 'औषधि पसल' },
+    { icon: '🏨', label: 'Hotels', nepali: 'होटल' },
+    { icon: '🍛', label: 'Restaurants', nepali: 'रेस्टुरेन्ट' },
+    { icon: '🩺', label: 'Medical Stores', nepali: 'मेडिकल स्टोर' },
+    { icon: '🏪', label: 'Other Stores', nepali: 'अन्य पसल' },
   ];
   const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, path: string) => { if (!onNavigatePath) return; e.preventDefault(); onNavigatePath(path); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
@@ -47,7 +51,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
         </motion.section>
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: 0.04 }} className="mt-5">
           <h2 className="text-center text-sm font-black text-slate-800">Smart store keeping for</h2>
-          <div className="mt-3 grid grid-cols-2 gap-2">{storeTypes.map(({ icon: Icon, label }) => <button type="button" key={label} onClick={() => setSelectedBusiness(label.toLowerCase().startsWith('grocery') ? 'grocery' : label.toLowerCase().startsWith('pharmacy') ? 'pharmacy' : label.toLowerCase().startsWith('hotel') ? 'hotel' : label.toLowerCase().startsWith('restaurant') ? 'restaurant' : label.toLowerCase().startsWith('medical') ? 'medical' : 'other')} className="bg-white border border-slate-200 rounded-2xl px-3 py-2.5 flex items-center gap-2.5 shadow-sm text-left active:scale-[.98] transition-transform"><div className="w-9 h-9 shrink-0 rounded-xl bg-[#1473EA]/10 text-[#1473EA] flex items-center justify-center"><Icon className="w-4 h-4" /></div><span className="text-xs font-bold text-slate-700">{label}</span></button>)}</div>
+          <div className="mt-3 grid grid-cols-2 gap-2">{storeTypes.map(({ icon, label, nepali }) => <button type="button" key={label} onClick={() => setSelectedBusiness(label.toLowerCase().startsWith('grocery') ? 'grocery' : label.toLowerCase().startsWith('pharmacy') ? 'pharmacy' : label.toLowerCase().startsWith('hotel') ? 'hotel' : label.toLowerCase().startsWith('restaurant') ? 'restaurant' : label.toLowerCase().startsWith('medical') ? 'medical' : 'other')} className="bg-white border border-slate-200 rounded-2xl px-3 py-2.5 flex items-center gap-2.5 shadow-sm text-left active:scale-[.98] transition-transform"><div className="w-10 h-10 shrink-0 rounded-xl bg-[#FFF8EA] border border-[#E8D8B8] flex items-center justify-center text-xl shadow-sm">{icon}</div><div className="min-w-0"><div className="text-xs font-black text-slate-700">{label}</div><div className="text-[9px] font-semibold text-slate-400 mt-0.5">{nepali}</div></div></button>)}</div>
           <p className="mt-2 text-center text-[10px] text-slate-400">Tap your business type for a short personalized guide.</p>
         </motion.div>
 
