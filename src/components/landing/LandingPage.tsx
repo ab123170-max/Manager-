@@ -5,7 +5,7 @@
 
 import React, { useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Camera, Boxes, BarChart3, LogIn, Download, Share2, ShoppingBasket, Pill, Hotel, UtensilsCrossed, Stethoscope, Store } from 'lucide-react';
+import { Camera, Boxes, BarChart3, LogIn, Download, Share2 } from 'lucide-react';
 import { updateDocumentSeo } from '../../utils/seoHelper';
 import { LanguageSelectorButton } from '../common/LanguageSelectorButton';
 import { isNativeApp } from '../../utils/platform';
