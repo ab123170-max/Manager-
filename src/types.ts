@@ -591,7 +591,7 @@ export interface AccountSummary {
 /**
  * Navigation Types
  */
-export type MenuSection = 'scanner' | 'inventory' | 'inventory_in' | 'inventory_out' | 'marketing';
+export type MenuSection = 'scanner' | 'inventory' | 'inventory_in' | 'inventory_out' | 'marketing' | 'business_card';
 
 export type ScannerSubView =
   | 'scan_product'
