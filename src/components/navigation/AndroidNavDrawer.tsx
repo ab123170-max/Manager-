@@ -52,8 +52,7 @@ export const AndroidNavDrawer:React.FC<AndroidNavDrawerProps>=({
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
         <section><p className="px-2 mb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">Manage</p>
           <div className="bg-white rounded-3xl border border-slate-200 p-1.5 space-y-1">
-            {row('Marketing',Megaphone,
-  ContactRound,()=>go('marketing','marketing'),activeSubView==='marketing')}
+            {row('Marketing',Megaphone,()=>go('marketing','marketing'),activeSubView==='marketing')}
             {row('Scan history',History,()=>go('inventory_in','scan_history'),activeSubView==='scan_history')}
             {row('Stock history',History,()=>go('inventory','stock_ledger'),activeSubView==='stock_ledger')}
             {row('Reports & export',BarChart3,()=>go('inventory','reports'),activeSubView==='reports')}
