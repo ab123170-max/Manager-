@@ -14,6 +14,7 @@ type CardData = {
   facebook: string;
   instagram: string;
   services: string;
+  ownerPhoto: string;
 };
 
 const STORAGE_KEY = 'manager-business-card-v1';
@@ -31,6 +32,7 @@ function makeInitial(profile: UserProfile | null): CardData {
     facebook: '',
     instagram: '',
     services: 'Inventory Management • Stock Tracking • Expiry Alerts • Barcode & QR',
+    ownerPhoto: profile?.profile_image_url || '',
   };
 }
 
@@ -52,6 +54,18 @@ export function BusinessVisitingCardView({ profile }: { profile: UserProfile | n
   }, [data]);
 
   const update = (key: keyof CardData, value: string) => setData((d) => ({ ...d, [key]: value }));
+  const handleOwnerPhoto = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setMessage('Please choose an image file.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        update('ownerPhoto', reader.result);
+        setMessage('Owner photo added to the visiting card.');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const shareUrl = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -143,6 +157,18 @@ export function BusinessVisitingCardView({ profile }: { profile: UserProfile | n
             <button onClick={() => setData(makeInitial(profile))} className="rounded-xl bg-blue-50 text-blue-700 px-3 py-2 text-xs font-bold"><Wand2 className="inline w-3.5 h-3.5 mr-1" />Use profile</button>
           </div>
           <div className="space-y-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-xs font-bold text-slate-700 mb-2">Shop owner photo</div>
+            <div className="flex items-center gap-3">
+              {data.ownerPhoto ? <img src={data.ownerPhoto} alt="Shop owner" className="h-16 w-16 rounded-full object-cover border-2 border-white shadow" /> : <div className="h-16 w-16 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 text-xs text-center">No photo</div>}
+              <div className="flex-1">
+                <input type="file" accept="image/*" onChange={(e) => handleOwnerPhoto(e.target.files?.[0])} className="w-full text-xs" />
+                <p className="mt-1 text-[11px] text-slate-500">Use a clear owner/profile photo.</p>
+              </div>
+              {data.ownerPhoto && <button onClick={() => update('ownerPhoto','')} className="text-xs font-bold text-red-600">Remove</button>}
+            </div>
+          </div>
+
             {fields.map(([key, label, placeholder]) => (
               <label key={key} className="block">
                 <span className="text-xs font-bold text-slate-700">{label}</span>
@@ -156,7 +182,11 @@ export function BusinessVisitingCardView({ profile }: { profile: UserProfile | n
           <div ref={cardRef} className="overflow-hidden rounded-[28px] bg-[#092B4C] p-3 shadow-xl">
             <div className="rounded-[22px] bg-[#F5F7FA] p-6 sm:p-8 border-l-[8px] border-[#1473EA]">
               <div className="text-[10px] sm:text-xs font-black tracking-[.18em] text-[#1473EA]">BUSINESS VISITING CARD</div>
-              <h3 className="mt-5 text-3xl sm:text-4xl font-black text-[#092B4C] break-words">{data.businessName || 'Your Business Name'}</h3>
+              <div className="mt-5 flex items-center gap-4">
+                {data.ownerPhoto ? <img src={data.ownerPhoto} alt={data.ownerName || 'Shop owner'} className="h-20 w-20 rounded-full object-cover border-4 border-white shadow-md" /> : <div className="h-20 w-20 rounded-full bg-slate-200 flex items-center justify-center text-xs text-slate-400 text-center">Owner photo</div>}
+                <div className="min-w-0"><h3 className="text-3xl sm:text-4xl font-black text-[#092B4C] break-words">{data.businessName || 'Your Business Name'}</h3>
+                {data.ownerName && <div className="mt-1 text-xs font-bold text-slate-500">Owner: {data.ownerName}</div>}</div>
+              </div>
               <p className="mt-2 text-sm font-semibold text-slate-500">{data.tagline || 'Your business tagline'}</p>
               <div className="mt-6 text-sm text-slate-600"><div className="font-black text-[#092B4C] mb-1">Services</div><div>{data.services || 'Your products and services'}</div></div>
               <div className="mt-6 grid sm:grid-cols-2 gap-2 text-xs text-slate-600">
