@@ -39,6 +39,7 @@ import { AppSliderNavigation } from './components/slider/AppSliderNavigation';
 import { HomeDashboard } from './components/home/HomeDashboard';
 import { SliderPageWrapper } from './components/slider/SliderPageWrapper';
 import { AdSenseUnit } from './components/ads/AdSenseUnit';
+import { StartupSplash } from './components/common/StartupSplash';
 
 // ============================================================================
 // CODE-SPLIT / LAZY-LOADED HEAVY VIEW CHUNKS
@@ -203,6 +204,12 @@ export default function App() {
   const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
   const [isInfoHelpOpen, setIsInfoHelpOpen] = useState(false);
   const [rootMode, setRootMode] = useState<AppRootMode>('landing');
+  const [showStartupSplash, setShowStartupSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowStartupSplash(false), 1200);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const [currentPath, setCurrentPath] = useState<string>(() => {
     return typeof window !== 'undefined' ? window.location.pathname : '/';
@@ -886,6 +893,7 @@ export default function App() {
   // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-100/70 flex flex-col font-sans text-slate-900 pb-8">
+      <StartupSplash visible={showStartupSplash} />
       {/* Warm personalized welcome */}
       <div className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-3">
         <div className="rounded-2xl bg-white border border-slate-200/80 shadow-sm px-4 py-3 sm:px-5 sm:py-4">
