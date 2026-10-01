@@ -176,6 +176,7 @@ export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
             <Boxes className="w-5 h-5 text-indigo-600" /> Inventory
+          </h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
