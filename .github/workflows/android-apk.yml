@@ -1,5 +1,8 @@
 name: Build Android Debug APK
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
@@ -83,3 +86,13 @@ jobs:
           name: scanme-ai-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v0.1.${{ github.run_number }}"
+          gh release create "$TAG" android/app/build/outputs/apk/debug/app-debug.apk \
+            --title "ScanMe AI Android ${TAG}" \
+            --notes "ScanMe AI Android APK. Install on Android devices with APK installation enabled." \
+            --latest
