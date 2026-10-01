@@ -112,6 +112,11 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
     return unsub;
   }, []);
 
+  // Open the language chooser automatically when an explicit first choice is required.
+  useEffect(() => {
+    if (isLanguageSelectionRequired) setIsLanguageSelectorOpen(true);
+  }, [isLanguageSelectionRequired]);
+
   // Load translations on-demand for active language
   useEffect(() => {
     let active = true;
