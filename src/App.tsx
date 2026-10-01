@@ -174,6 +174,9 @@ const PublicInventoryManagementPage = lazy(() =>
 const PublicFaqPage = lazy(() =>
   import('./components/seo/PublicFaqPage').then((m) => ({ default: m.PublicFaqPage }))
 );
+const PublicIndustryInventoryPage = lazy(() =>
+  import('./components/seo/PublicIndustryInventoryPage').then((m) => ({ default: m.PublicIndustryInventoryPage }))
+);
 const AuthScreen = lazy(() =>
   import('./components/auth/AuthScreen').then((m) => ({ default: m.AuthScreen }))
 );
@@ -810,7 +813,15 @@ export default function App() {
   if (rootMode === 'landing') {
     let publicContent: React.ReactNode;
 
-    if (currentPath === '/ai-product-scanner') {
+    if (currentPath === '/grocery-inventory-management') {
+      publicContent = <PublicIndustryInventoryPage kind="grocery" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
+    } else if (currentPath === '/pharmacy-inventory-management') {
+      publicContent = <PublicIndustryInventoryPage kind="pharmacy" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
+    } else if (currentPath === '/restaurant-inventory-management') {
+      publicContent = <PublicIndustryInventoryPage kind="restaurant" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
+    } else if (currentPath === '/hotel-inventory-management') {
+      publicContent = <PublicIndustryInventoryPage kind="hotel" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
+    } else if (currentPath === '/ai-product-scanner') {
       publicContent = (
         <PublicAiScannerPage
           onNavigatePath={handlePublicNavigate}
