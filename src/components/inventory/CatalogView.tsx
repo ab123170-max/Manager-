@@ -3,20 +3,29 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, Search, Package, Plus, ChevronRight } from 'lucide-react';
+import { BookOpen, Search, Package, Plus, ChevronRight, ShoppingCart, Share2, Users, Store, Megaphone } from 'lucide-react';
 import { SavedInventoryItem } from '../../types';
 import { getProducts, subscribeToStore } from '../../utils/unifiedDataStore';
 
 interface CatalogViewProps {
   onAddProduct?: () => void;
   onSelectProduct?: (product: SavedInventoryItem) => void;
+  onSellProduct?: (product: SavedInventoryItem) => void;
 }
 
-export const CatalogView: React.FC<CatalogViewProps> = ({ onAddProduct, onSelectProduct }) => {
+export const CatalogView: React.FC<CatalogViewProps> = ({ onAddProduct, onSelectProduct, onSellProduct }) => {
   const [products, setProducts] = useState<SavedInventoryItem[]>(getProducts());
   const [search, setSearch] = useState('');
 
   useEffect(() => subscribeToStore(() => setProducts(getProducts())), []);
+
+  const shareProduct = async (p: SavedInventoryItem) => {
+    const text = [p.productName, p.brand, p.category, p.sellingPrice ? `Price: ${p.currency || 'NPR'} ${p.sellingPrice}` : '', p.stockQuantity != null ? `Stock: ${p.stockQuantity}` : '', p.expiryDate ? `Expiry: ${p.expiryDate}` : ''].filter(Boolean).join(' | ');
+    if (navigator.share) await navigator.share({ title: p.productName || 'Product', text });
+    else await navigator.clipboard?.writeText(text);
+  };
+
+  const openWhatsApp = (message: string) => window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -54,13 +63,21 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onAddProduct, onSelect
       ) : (
         <div className="grid gap-2.5">
           {filtered.map((p) => (
-            <button key={p.id} type="button" onClick={() => onSelectProduct?.(p)} className="w-full text-left bg-white border border-slate-200 rounded-2xl p-3 flex items-center gap-3 shadow-sm active:scale-[.99] transition-transform">
+            <div key={p.id} className="w-full bg-white border border-slate-200 rounded-2xl p-3 shadow-sm">
               <div className="w-14 h-14 shrink-0 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center">
                 {p.imageThumbnail ? <img src={p.imageThumbnail} alt="" className="w-full h-full object-cover" /> : <Package className="w-6 h-6 text-slate-400" />}
               </div>
               <div className="min-w-0 flex-1"><h3 className="text-sm font-black text-slate-800 truncate">{p.productName || 'Unnamed product'}</h3><p className="text-[11px] text-slate-500 truncate">{[p.brand, p.category].filter(Boolean).join(' · ') || 'Saved product'}</p><div className="mt-1 flex flex-wrap gap-1.5 text-[10px] font-semibold"><span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Stock: {p.stockQuantity ?? 0}</span>{p.expiryDate && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">EXD: {p.expiryDate}</span>}{p.sellingPrice && <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">{p.currency || 'NPR'} {p.sellingPrice}</span>}</div></div>
               <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
-            </button>
+            </div>
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+              <button type="button" onClick={() => onSellProduct?.(p)} className="h-9 rounded-xl bg-[#1473EA] text-white text-[10px] font-bold flex items-center justify-center gap-1"><ShoppingCart className="w-3.5 h-3.5" />Sell</button>
+              <button type="button" onClick={() => shareProduct(p)} className="h-9 rounded-xl bg-slate-100 text-slate-700 text-[10px] font-bold flex items-center justify-center gap-1"><Share2 className="w-3.5 h-3.5" />Share</button>
+              <button type="button" onClick={() => openWhatsApp("Hello, please see our product: " + (p.productName || "Product") + (p.sellingPrice ? " - " + (p.currency || "NPR") + " " + p.sellingPrice : ""))} className="h-9 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-bold flex items-center justify-center gap-1"><Users className="w-3.5 h-3.5" />Contact</button>
+              <button type="button" onClick={() => openWhatsApp("Store information: Please contact our store for products, stock and prices.")} className="h-9 rounded-xl bg-amber-50 text-amber-700 text-[10px] font-bold flex items-center justify-center gap-1"><Store className="w-3.5 h-3.5" />Store Info</button>
+              <button type="button" onClick={() => openWhatsApp("🔥 New offer! " + (p.productName || "Product") + (p.sellingPrice ? " now at " + (p.currency || "NPR") + " " + p.sellingPrice : "") + ". Contact our store for details.")} className="h-9 rounded-xl bg-rose-50 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1"><Megaphone className="w-3.5 h-3.5" />Offer</button>
+            </div>
+          </div>
           ))}
         </div>
       )}
