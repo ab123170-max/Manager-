@@ -23,14 +23,14 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onAddProduct, onSelect
 
   const shareProduct = async (p: SavedInventoryItem) => {
     const text = [p.productName, p.brand, p.category, p.sellingPrice ? t('catalog.price') + ': ' + (p.currency || 'NPR') + ' ' + p.sellingPrice : '', p.stockQuantity != null ? t('catalog.stock') + ': ' + p.stockQuantity : '', p.expiryDate ? t('catalog.expiry') + ': ' + p.expiryDate : ''].filter(Boolean).join(' | ');
-    if (navigator.share) await navigator.share({ title: p.productName || 'Product', text });
+    if (navigator.share) await navigator.share({ title: p.productName || t('catalog.product'), text });
     else await navigator.clipboard?.writeText(text);
   };
 
   const openWhatsApp = (message: string) => window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
 
   const socialShare = (platform: 'facebook' | 'tiktok' | 'whatsapp', p: SavedInventoryItem) => {
-    const text = [p.productName, p.brand, p.category, p.sellingPrice ? `Price: ${p.currency || 'NPR'} ${p.sellingPrice}` : '', p.expiryDate ? `Expiry: ${p.expiryDate}` : ''].filter(Boolean).join(' | ');
+    const text = [p.productName, p.brand, p.category, p.sellingPrice ? `${t('catalog.price')}: ${p.currency || 'NPR'} ${p.sellingPrice}` : '', p.expiryDate ? `${t('catalog.expiry')}: ${p.expiryDate}` : ''].filter(Boolean).join(' | ');
     const url = window.location.href;
     if (platform === 'facebook') window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
     else if (platform === 'tiktok') navigator.share ? navigator.share({ title: p.productName || 'Product', text, url }) : navigator.clipboard?.writeText(text + ' ' + url);
@@ -57,11 +57,11 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onAddProduct, onSelect
         </div>
         <div className="relative mt-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="{t('catalog.searchPlaceholder')}" className="w-full h-11 pl-9 pr-4 rounded-xl bg-slate-50 border border-slate-200 text-sm outline-none focus:bg-white focus:border-[#1473EA]" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('catalog.searchPlaceholder')} className="w-full h-11 pl-9 pr-4 rounded-xl bg-slate-50 border border-slate-200 text-sm outline-none focus:bg-white focus:border-[#1473EA]" />
         </div>
       </div>
 
-      <div className="flex items-center justify-between px-1"><p className="text-xs font-bold text-slate-500">{filtered.length} saved product{filtered.length === 1 ? '' : 's'}</p>{search && <button type="button" onClick={() => setSearch('')} className="text-xs font-bold text-[#1473EA]">{t('catalog.clear')}</button>}</div>
+      <div className="flex items-center justify-between px-1"><p className="text-xs font-bold text-slate-500">{filtered.length} {filtered.length === 1 ? t('catalog.savedProducts') : t('catalog.savedProductsPlural')}</p>{search && <button type="button" onClick={() => setSearch('')} className="text-xs font-bold text-[#1473EA]">{t('catalog.clear')}</button>}</div>
 
       {filtered.length === 0 ? (
         <div className="bg-white border border-dashed border-slate-300 rounded-3xl p-10 text-center">
@@ -79,8 +79,8 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onAddProduct, onSelect
                   {p.imageThumbnail ? <img src={p.imageThumbnail} alt="" className="w-full h-full object-cover" /> : <Package className="w-6 h-6 text-slate-400" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-black text-slate-800 truncate">{p.productName || '{t('catalog.unnamed')}'}</h3>
-                  <p className="text-[11px] text-slate-500 truncate">{[p.brand, p.category].filter(Boolean).join(' · ') || '{t('catalog.saved')}'}</p>
+                  <h3 className="text-sm font-black text-slate-800 truncate">{p.productName || t('catalog.unnamed')}</h3>
+                  <p className="text-[11px] text-slate-500 truncate">{[p.brand, p.category].filter(Boolean).join(' · ') || t('catalog.saved')}</p>
                   <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] font-semibold">
                     <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{t('catalog.stock')}: {p.stockQuantity ?? 0}</span>
                     {p.expiryDate && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">{t('catalog.expiry')}: {p.expiryDate}</span>}
@@ -95,9 +95,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onAddProduct, onSelect
                 <button type="button" onClick={() => socialShare('facebook', p)} className="h-9 rounded-xl bg-blue-50 text-blue-700 text-[10px] font-bold flex items-center justify-center gap-1"><Facebook className="w-3.5 h-3.5" />{t('catalog.facebook')}</button>
                 <button type="button" onClick={() => socialShare('tiktok', p)} className="h-9 rounded-xl bg-slate-900 text-white text-[10px] font-bold flex items-center justify-center gap-1"><Send className="w-3.5 h-3.5" />{t('catalog.tiktok')}</button>
                 <button type="button" onClick={() => socialShare('whatsapp', p)} className="h-9 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-bold flex items-center justify-center gap-1"><Users className="w-3.5 h-3.5" />{t('catalog.whatsapp')}</button>
-                <button type="button" onClick={() => openWhatsApp("Hello, please see our product: " + (p.productName || "Product") + (p.sellingPrice ? " - " + (p.currency || "NPR") + " " + p.sellingPrice : ""))} className="h-9 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-bold flex items-center justify-center gap-1"><Users className="w-3.5 h-3.5" />{t('catalog.contact')}</button>
-                <button type="button" onClick={() => openWhatsApp("Store information: Please contact our store for products, stock and prices.")} className="h-9 rounded-xl bg-amber-50 text-amber-700 text-[10px] font-bold flex items-center justify-center gap-1"><Store className="w-3.5 h-3.5" />{t('catalog.storeInfo')}</button>
-                <button type="button" onClick={() => openWhatsApp("🔥 New offer! " + (p.productName || "Product") + (p.sellingPrice ? " now at " + (p.currency || "NPR") + " " + p.sellingPrice : "") + ". Contact our store for details.")} className="h-9 rounded-xl bg-rose-50 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1"><Megaphone className="w-3.5 h-3.5" />{t('catalog.offer')}</button>
+                <button type="button" onClick={() => openWhatsApp(t('catalog.contactMessage', { product: p.productName || t('catalog.product'), price: p.sellingPrice ? ' - ' + (p.currency || 'NPR') + ' ' + p.sellingPrice : '' }))} className="h-9 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-bold flex items-center justify-center gap-1"><Users className="w-3.5 h-3.5" />{t('catalog.contact')}</button>
+                <button type="button" onClick={() => openWhatsApp(t('catalog.storeMessage'))} className="h-9 rounded-xl bg-amber-50 text-amber-700 text-[10px] font-bold flex items-center justify-center gap-1"><Store className="w-3.5 h-3.5" />{t('catalog.storeInfo')}</button>
+                <button type="button" onClick={() => openWhatsApp(t('catalog.offerMessage', { product: p.productName || t('catalog.product'), price: p.sellingPrice ? ' now at ' + (p.currency || 'NPR') + ' ' + p.sellingPrice : '' }))} className="h-9 rounded-xl bg-rose-50 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1"><Megaphone className="w-3.5 h-3.5" />{t('catalog.offer')}</button>
               </div>
             </div>
           ))}
