@@ -13,7 +13,7 @@ import { isNativeApp } from '../../utils/platform';
 interface LandingPageProps { onGetStarted: () => void; onLogin: () => void; onNavigatePath?: (path: string) => void; }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin, onNavigatePath }) => {
-  useEffect(() => { updateDocumentSeo({ title: 'ScanMe AI – AI Product Scanner & Inventory Manager', description: 'Scan products, manage inventory, track expiry dates, and view reports with ScanMe AI.', canonicalUrl: 'https://scanme-ai.vercel.app/', ogTitle: 'ScanMe AI – AI Product Scanner & Inventory Manager', ogDescription: 'Scan products, manage inventory, track expiry dates, and view reports with ScanMe AI.' }); }, []);
+  useEffect(() => { updateDocumentSeo({ title: 'Free AI Inventory Management & Product Scanner | ScanMe AI', description: 'Free AI storekeeping and inventory management for grocery stores, pharmacies, medical stores, restaurants, hotels, and other businesses. Scan products, manage stock, and track expiry dates.', canonicalUrl: 'https://scanme-ai.vercel.app/', ogTitle: 'Free AI Inventory Management & Product Scanner | ScanMe AI', ogDescription: 'Free AI storekeeping and inventory management for grocery stores, pharmacies, medical stores, restaurants, hotels, and other businesses.' }); }, []);
 
   const APK_DOWNLOAD_URL = 'https://github.com/ab123170-max/Manager-/releases/latest/download/app-debug.apk';
   const nativeApp = isNativeApp();
@@ -36,8 +36,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
         <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} className="text-center">
           <div className="mx-auto mb-4 w-16 h-16 rounded-[22px] bg-white border border-slate-200 shadow-sm flex items-center justify-center"><Camera className="w-8 h-8 text-[#1473EA]" /></div>
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#1473EA] mb-2">Smart inventory for your business</p>
-          <h1 className="text-[30px] leading-[1.08] font-black tracking-tight">Scan products.<br /><span className="text-[#1473EA]">Manage stock.</span></h1>
-          <p className="mt-3 text-sm leading-5 text-slate-500 max-w-xs mx-auto">AI scanning, inventory tracking and reports — all in one simple app.</p>
+          <h1 className="text-[30px] leading-[1.08] font-black tracking-tight">Free AI inventory<br /><span className="text-[#1473EA]">management &amp; storekeeping.</span></h1>
+          <p className="mt-3 text-sm leading-5 text-slate-500 max-w-xs mx-auto">Scan products, manage stock, and track expiry dates in one simple tool for grocery, pharmacy, medical, hotel, restaurant, and other stores.</p>
           <div className="mt-5 flex flex-col gap-2.5">
             {!nativeApp && <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" id="btn-landing-get-started" aria-label="Download ScanMe AI APK" className="w-full h-12 rounded-2xl bg-[#1473EA] text-white font-bold text-sm shadow-lg shadow-[#1473EA]/20 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"><Download className="w-4 h-4" />Download APK from here</a>}
             <button type="button" onClick={onLogin} id="btn-landing-login" className="w-full h-11 rounded-2xl bg-white border border-slate-200 text-slate-800 font-bold text-sm active:scale-[0.98] transition-transform">I already have an account</button>
@@ -49,7 +49,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
         </motion.div>
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: 0.06 }} className="mt-7 grid grid-cols-3 gap-2.5">{[{ icon: Camera, label: 'AI Scan' }, { icon: Boxes, label: 'Inventory' }, { icon: BarChart3, label: 'Reports' }].map(({ icon: Icon, label }) => <div key={label} className="bg-white border border-slate-200 rounded-2xl p-3 text-center shadow-sm"><div className="mx-auto w-9 h-9 rounded-xl bg-[#1473EA]/10 text-[#1473EA] flex items-center justify-center"><Icon className="w-4 h-4" /></div><div className="mt-2 text-[11px] font-bold text-slate-700">{label}</div></div>)}</motion.div>
       </main>
-      <footer className="shrink-0 px-4 pb-4 text-center"><div className="text-[10px] text-slate-400">© {new Date().getFullYear()} ScanMe AI</div><nav className="mt-1 flex justify-center gap-3 text-[10px] text-slate-400"><a href="/faq" onClick={(e) => handleLinkClick(e, '/faq')} className="hover:text-[#1473EA]">FAQ</a><a href="/ai-product-scanner" onClick={(e) => handleLinkClick(e, '/ai-product-scanner')} className="hover:text-[#1473EA]">AI Scanner</a></nav></footer>
+      <footer className="shrink-0 px-4 pb-4 text-center"><div className="text-[10px] text-slate-400">© {new Date().getFullYear()} ScanMe AI</div><nav className="mt-1 flex justify-center gap-3 text-[10px] text-slate-400"><a href="/inventory-management" onClick={(e) => handleLinkClick(e, "/inventory-management")} className="hover:text-[#1473EA]">Inventory</a><a href="/expiry-date-scanner" onClick={(e) => handleLinkClick(e, "/expiry-date-scanner")} className="hover:text-[#1473EA]">Expiry</a><a href="/faq" onClick={(e) => handleLinkClick(e, '/faq')} className="hover:text-[#1473EA]">FAQ</a><a href="/ai-product-scanner" onClick={(e) => handleLinkClick(e, '/ai-product-scanner')} className="hover:text-[#1473EA]">AI Scanner</a></nav></footer>
     </div>
   );
 };
