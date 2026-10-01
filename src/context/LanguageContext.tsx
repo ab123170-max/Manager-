@@ -35,6 +35,8 @@ interface LanguageContextType {
   closeLanguageSelector: () => void;
   lastLanguageChangeNotice: string | null;
   clearLanguageNotice: () => void;
+  isLanguageSelectionRequired: boolean;
+  languageSelectionUserName: string;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
@@ -75,7 +77,40 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [language, setLanguageState] = useState<SupportedLanguage>(determineInitialLanguage);
   const [isLanguageSelectorOpen, setIsLanguageSelectorOpen] = useState<boolean>(false);
   const [lastLanguageChangeNotice, setLastLanguageChangeNotice] = useState<string | null>(null);
+  const [isLanguageSelectionRequired, setIsLanguageSelectionRequired] = useState(false);
+  const [languageSelectionUserName, setLanguageSelectionUserName] = useState('');
   const [, setTranslationsVersion] = useState(0);
+
+  // Require an explicit language choice for first-time users, or authenticated users whose profile has no language yet.
+  useEffect(() => {
+    try {
+      const profile = authService.getCurrentProfile() as any;
+      const savedLocal = localStorage.getItem(STORAGE_KEYS.LANGUAGE);
+      const manuallyChosen = localStorage.getItem(STORAGE_KEYS.MANUAL_FLAG) === 'true';
+      const profileLanguage = profile?.language ? normalizeLanguageCode(profile.language) : null;
+      const name = String(profile?.full_name || profile?.fullName || profile?.name || profile?.display_name || '').trim();
+      setLanguageSelectionUserName(name);
+      setIsLanguageSelectionRequired(!profileLanguage && !manuallyChosen && !savedLocal);
+    } catch {
+      setIsLanguageSelectionRequired(false);
+    }
+  }, []);
+
+  // If authentication/profile becomes available, politely ask once when no language is stored.
+  useEffect(() => {
+    const unsub = subscribeAuth((session) => {
+      const profile = session?.profile as any;
+      const profileLanguage = profile?.language ? normalizeLanguageCode(profile.language) : null;
+      const name = String(profile?.full_name || profile?.fullName || profile?.name || profile?.display_name || session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || '').trim();
+      if (name) setLanguageSelectionUserName(name);
+      try {
+        const manuallyChosen = localStorage.getItem(STORAGE_KEYS.MANUAL_FLAG) === 'true';
+        const savedLocal = localStorage.getItem(STORAGE_KEYS.LANGUAGE);
+        setIsLanguageSelectionRequired(!profileLanguage && !manuallyChosen && !savedLocal);
+      } catch {}
+    });
+    return unsub;
+  }, []);
 
   // Load translations on-demand for active language
   useEffect(() => {
@@ -262,6 +297,8 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
       closeLanguageSelector,
       lastLanguageChangeNotice,
       clearLanguageNotice,
+      isLanguageSelectionRequired,
+      languageSelectionUserName,
     }),
     [
       language,
@@ -277,6 +314,8 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
       closeLanguageSelector,
       lastLanguageChangeNotice,
       clearLanguageNotice,
+      isLanguageSelectionRequired,
+      languageSelectionUserName,
     ]
   );
 
