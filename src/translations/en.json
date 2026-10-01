@@ -206,15 +206,23 @@
     "general": "General Settings"
   },
   "landing": {
-    "heroTitle": "AI-Powered Inventory & Expiry Tracking",
-    "heroSubtitle": "Automate packaging scans, detect manufacture & expiry dates, prevent stock expiration, and manage retail inventory effortlessly.",
-    "getStarted": "Get Started",
+    "tagline": "Scan. Manage. Done.",
     "login": "Login",
-    "features": "Core Capabilities",
-    "chooseLanguageBanner": "Choose your language",
-    "showDetails": "How it works & features",
-    "hideDetails": "Hide details",
-    "trustedBy": "Trusted by retail shopkeepers and inventory managers"
+    "smartInventory": "Smart inventory for your business",
+    "heroTitle": "Free AI inventory management & storekeeping.",
+    "heroText": "Scan products, manage stock, and track expiry dates in one simple tool for grocery, pharmacy, medical, hotel, restaurant, and other stores.",
+    "downloadApk": "Download APK from here",
+    "shareApp": "Share app",
+    "account": "I already have an account",
+    "storeKeeping": "Smart store keeping for",
+    "guideHint": "Tap your business type for a short personalized guide.",
+    "aiScan": "AI Scan",
+    "inventory": "Inventory",
+    "reports": "Reports",
+    "inventoryLink": "Inventory",
+    "expiryLink": "Expiry",
+    "faq": "FAQ",
+    "scannerLink": "AI Scanner"
   },
   "onboarding": {
     "welcome": "Welcome to SmartStock AI",
@@ -243,5 +251,198 @@
     "confirmImportTitle": "Confirm Product Import",
     "confirmImportDesc": "This will import products from the selected spreadsheet tab into your SmartStock AI catalog.",
     "syncStockMovements": "Auto-sync stock movements to Google Sheets"
+  },
+  "catalog": {
+    "title": "Product Catalog",
+    "subtitle": "Your saved products in one place",
+    "add": "Add",
+    "searchPlaceholder": "Search saved products...",
+    "savedProducts": "saved product",
+    "savedProductsPlural": "saved products",
+    "clear": "Clear",
+    "noProducts": "No saved products",
+    "noProductsText": "Scan or add a product and it will appear here automatically.",
+    "addProduct": "+ Add Product",
+    "unnamed": "Unnamed product",
+    "saved": "Saved product",
+    "stock": "Stock",
+    "expiry": "Expiry",
+    "price": "Price",
+    "sell": "Sell",
+    "share": "Share",
+    "facebook": "Facebook",
+    "tiktok": "TikTok",
+    "whatsapp": "WhatsApp",
+    "contact": "Contact",
+    "storeInfo": "Store Info",
+    "offer": "Offer",
+    "product": "Product",
+    "storeMessage": "Store information: Please contact our store for products, stock and prices.",
+    "contactMessage": "Hello, please see our product: {product}{price}",
+    "offerMessage": "🔥 New offer! {product}{price}. Contact our store for details."
+  },
+  "splash": {
+    "tagline": "Free AI storekeeping for modern businesses",
+    "smart": "Scan smarter · manage easier",
+    "scan": "Scan",
+    "stock": "Stock",
+    "reports": "Reports"
+  },
+  "guide": {
+    "businessGuide": "Your business guide",
+    "step": "Step {current} of {total}",
+    "follow": "Follow the guide one step at a time. You can skip it anytime.",
+    "start": "Start using ScanMe AI",
+    "next": "Next",
+    "grocery": {
+      "name": "Grocery",
+      "steps": [
+        [
+          "Scan products quickly",
+          "Capture product details from clear labels and reduce repetitive manual entry.",
+          "Start with a clear product label."
+        ],
+        [
+          "Know what is in stock",
+          "Keep product and stock information together for easier daily checks.",
+          "Keep stock information in one place."
+        ],
+        [
+          "Watch expiry dates",
+          "Keep expiry information visible so you can check products before they become avoidable losses.",
+          "Review expiry information during regular stock checks."
+        ],
+        [
+          "Save time and reduce waste",
+          "Use reports and stock information to improve visibility and reduce avoidable waste.",
+          "Review your inventory regularly."
+        ]
+      ]
+    },
+    "pharmacy": {
+      "name": "Pharmacy",
+      "steps": [
+        [
+          "Capture medicine details",
+          "Scan clear medicine packaging to help record product information such as name, price, MFD and expiry.",
+          "Start with a clear medicine package and check the captured details."
+        ],
+        [
+          "Keep stock organized",
+          "Make frequently used inventory information easier for staff to find and update.",
+          "Keep stock information in one place."
+        ],
+        [
+          "Pay attention to expiry",
+          "Keep expiry information visible so staff can identify products that need checking before they become losses.",
+          "Review expiry information and follow your normal store procedures."
+        ],
+        [
+          "Protect time and money",
+          "Reduce avoidable inventory waste while continuing to follow professional and regulatory medicine-handling requirements.",
+          "Use the information as a storekeeping aid and continue following professional and regulatory requirements."
+        ]
+      ]
+    },
+    "medical": {
+      "name": "Medical Store",
+      "steps": [
+        [
+          "Scan and record",
+          "Capture product information from clear packaging and reduce repetitive manual entry.",
+          "Begin by scanning a clear product label."
+        ],
+        [
+          "Organize your inventory",
+          "Keep product and stock information together for easier day-to-day checking.",
+          "Keep product information together for quick daily checks."
+        ],
+        [
+          "Monitor expiry information",
+          "Make expiry dates easier to review so staff can check products before they become avoidable losses.",
+          "Make expiry checks part of your regular inventory routine."
+        ],
+        [
+          "Reduce inventory waste",
+          "Save staff time and improve visibility while continuing to follow all professional and regulatory requirements.",
+          "Review inventory regularly and keep following applicable requirements."
+        ]
+      ]
+    },
+    "hotel": {
+      "name": "Hotel",
+      "steps": [
+        [
+          "Record supplies",
+          "Use scanning and inventory tools to organize packaged supplies and products used by your hotel.",
+          "Start by recording the supplies your team uses."
+        ],
+        [
+          "Know your stock",
+          "Keep stock information easier to review across daily hotel operations.",
+          "Check what you have before ordering more."
+        ],
+        [
+          "Check dates",
+          "Keep expiry information visible for products where expiry monitoring matters.",
+          "Review important dates during normal stock checks."
+        ],
+        [
+          "Reduce waste",
+          "Improve stock visibility and make purchasing and usage reviews easier with reports.",
+          "Use reports to spot avoidable stock loss."
+        ]
+      ]
+    },
+    "restaurant": {
+      "name": "Restaurant",
+      "steps": [
+        [
+          "Record products and supplies",
+          "Capture useful product information and keep packaged inventory easier to organize.",
+          "Record the products and supplies your team uses."
+        ],
+        [
+          "Keep stock visible",
+          "Organize stock information so staff can check what is available before ordering more.",
+          "Check available stock before ordering more."
+        ],
+        [
+          "Monitor expiry",
+          "Keep expiry information visible for ingredients and packaged products where applicable.",
+          "Review dates for products where expiry monitoring applies."
+        ],
+        [
+          "Cut avoidable waste",
+          "Use inventory and reports to improve visibility and reduce unnecessary stock loss.",
+          "Review your inventory and reports regularly."
+        ]
+      ]
+    },
+    "other": {
+      "name": "Other Store",
+      "steps": [
+        [
+          "Scan and organize",
+          "Use AI-assisted scanning to help capture product information and reduce manual entry.",
+          "Start by scanning a clear product label."
+        ],
+        [
+          "Manage your stock",
+          "Keep products and stock movements organized in one simple workspace.",
+          "Keep your stock information in one workspace."
+        ],
+        [
+          "Track important dates",
+          "Keep expiry information visible for products where expiry monitoring is important.",
+          "Make important date checks part of your routine."
+        ],
+        [
+          "Get more visibility",
+          "Use reports to understand your inventory and reduce avoidable time and money loss.",
+          "Use reports to understand your inventory."
+        ]
+      ]
+    }
   }
 }
