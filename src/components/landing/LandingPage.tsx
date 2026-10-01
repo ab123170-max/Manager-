@@ -50,6 +50,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
           <div className="mt-3 grid grid-cols-2 gap-2">{storeTypes.map(({ icon: Icon, label }) => <button type="button" key={label} onClick={() => setSelectedBusiness(label.toLowerCase().startsWith('grocery') ? 'grocery' : label.toLowerCase().startsWith('pharmacy') ? 'pharmacy' : label.toLowerCase().startsWith('hotel') ? 'hotel' : label.toLowerCase().startsWith('restaurant') ? 'restaurant' : label.toLowerCase().startsWith('medical') ? 'medical' : 'other')} className="bg-white border border-slate-200 rounded-2xl px-3 py-2.5 flex items-center gap-2.5 shadow-sm text-left active:scale-[.98] transition-transform"><div className="w-9 h-9 shrink-0 rounded-xl bg-[#1473EA]/10 text-[#1473EA] flex items-center justify-center"><Icon className="w-4 h-4" /></div><span className="text-xs font-bold text-slate-700">{label}</span></button>)}</div>
           <p className="mt-2 text-center text-[10px] text-slate-400">Tap your business type for a short personalized guide.</p>
         </motion.div>
+
+        <PersonalizedIntro
+          isOpen={Boolean(selectedBusiness)}
+          kind={selectedBusiness}
+          onClose={() => setSelectedBusiness(null)}
+          onStart={() => {
+            setSelectedBusiness(null);
+            onGetStarted();
+          }}
+        />
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22, delay: 0.06 }} className="mt-7 grid grid-cols-3 gap-2.5">{[{ icon: Camera, label: 'AI Scan' }, { icon: Boxes, label: 'Inventory' }, { icon: BarChart3, label: 'Reports' }].map(({ icon: Icon, label }) => <div key={label} className="bg-white border border-slate-200 rounded-2xl p-3 text-center shadow-sm"><div className="mx-auto w-9 h-9 rounded-xl bg-[#1473EA]/10 text-[#1473EA] flex items-center justify-center"><Icon className="w-4 h-4" /></div><div className="mt-2 text-[11px] font-bold text-slate-700">{label}</div></div>)}</motion.div>
       </main>
       <footer className="shrink-0 px-4 pb-4 text-center"><div className="text-[10px] text-slate-400">© {new Date().getFullYear()} ScanMe AI</div><nav className="mt-1 flex justify-center gap-3 text-[10px] text-slate-400"><a href="/inventory-management" onClick={(e) => handleLinkClick(e, "/inventory-management")} className="hover:text-[#1473EA]">Inventory</a><a href="/expiry-date-scanner" onClick={(e) => handleLinkClick(e, "/expiry-date-scanner")} className="hover:text-[#1473EA]">Expiry</a><a href="/faq" onClick={(e) => handleLinkClick(e, '/faq')} className="hover:text-[#1473EA]">FAQ</a><a href="/ai-product-scanner" onClick={(e) => handleLinkClick(e, '/ai-product-scanner')} className="hover:text-[#1473EA]">AI Scanner</a></nav></footer>
