@@ -97,6 +97,9 @@ const QrScannerView = lazy(() =>
 const ScanHistoryView = lazy(() =>
   import('./components/scanner/ScanHistoryView').then((m) => ({ default: m.ScanHistoryView }))
 );
+const CatalogView = lazy(() =>
+  import('./components/inventory/CatalogView').then((m) => ({ default: m.CatalogView }))
+);
 const InventoryOverviewView = lazy(() =>
   import('./components/inventory/InventoryOverviewView').then((m) => ({
     default: m.InventoryOverviewView,
@@ -558,6 +561,7 @@ export default function App() {
   const SLIDER_PAGE_CONFIGS: { title: string; section: MenuSection; subView: string }[] = [
     { title: 'Scanner & Intake', section: 'inventory_in', subView: 'scan_product' },
     { title: 'Live Inventory', section: 'inventory', subView: 'inventory' },
+    { title: 'Product Catalog', section: 'inventory', subView: 'catalog' },
     { title: 'Stock In & Out', section: 'inventory_in', subView: 'stock_in' },
     { title: 'Expiry & Alerts', section: 'inventory', subView: 'expiry_alerts' },
     { title: 'Turnover & Reports', section: 'inventory', subView: 'turnover' },
@@ -1167,6 +1171,17 @@ export default function App() {
               <div className="space-y-6">
                 {navState.activeSubView === 'categories' ? (
                   <CategoriesView />
+                ) : navState.activeSubView === 'catalog' ? (
+                  <CatalogView
+                    onAddProduct={() => {
+                      setEditingProduct(null);
+                      handleNavigate('inventory_in', 'manual_entry');
+                    }}
+                    onSelectProduct={(prod) => {
+                      setEditingProduct(prod);
+                      handleNavigate('inventory_in', 'manual_entry');
+                    }}
+                  />
                 ) : (
                   <InventoryOverviewView
                     onAddProduct={() => {
