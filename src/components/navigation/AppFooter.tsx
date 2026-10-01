@@ -116,12 +116,13 @@ export const AppFooter: React.FC<AppFooterProps> = ({ onNavigate }) => {
               Navigation &amp; FAQ
             </h3>
             <nav aria-label="Footer Quick Links" className="flex flex-col space-y-2 text-xs">
-              <a
-                href="#seo-overview"
-                className="text-slate-600 hover:text-indigo-600 transition-colors"
-              >
-                About ScanMe AI
-              </a>
+              <a href="/about.html" className="text-slate-600 hover:text-indigo-600 transition-colors">About ScanMe AI</a>
+              <a href="/privacy-policy.html" className="text-slate-600 hover:text-indigo-600 transition-colors">Privacy Policy</a>
+              <a href="/terms.html" className="text-slate-600 hover:text-indigo-600 transition-colors">Terms &amp; Conditions</a>
+              <a href="/cookie-policy.html" className="text-slate-600 hover:text-indigo-600 transition-colors">Cookie Policy</a>
+              <a href="/disclaimer.html" className="text-slate-600 hover:text-indigo-600 transition-colors">Disclaimer</a>
+              <a href="/contact.html" className="text-slate-600 hover:text-indigo-600 transition-colors">Contact</a>
+              <a href="/data-deletion.html" className="text-slate-600 hover:text-indigo-600 transition-colors">Account &amp; Data Deletion</a>
               <a
                 href="#faq"
                 className="text-slate-600 hover:text-indigo-600 transition-colors"
