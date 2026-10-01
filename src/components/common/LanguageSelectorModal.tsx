@@ -32,7 +32,10 @@ export const LanguageSelectorModal: React.FC<LanguageSelectorModalProps> = ({
   } = useLanguage();
 
   const isOpen = propIsOpen !== undefined ? propIsOpen : isLanguageSelectorOpen;
-  const handleClose = propOnClose || closeLanguageSelector;
+  const handleClose = () => {
+    if (isLanguageSelectionRequired) return;
+    (propOnClose || closeLanguageSelector)();
+  };
   const greetingName = languageSelectionUserName ? `, ${languageSelectionUserName}` : '';
   const greeting = isLanguageSelectionRequired
     ? (language === 'ne' ? `नमस्कार${greetingName}! 👋` : language === 'hi' ? `नमस्ते${greetingName}! 👋` : `Welcome${greetingName}! 👋`)
