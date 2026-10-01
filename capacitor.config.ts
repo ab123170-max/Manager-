@@ -9,12 +9,20 @@ const config: CapacitorConfig = {
   appId: 'com.martmartai.inventory',
   appName: 'ScanMe AI',
   webDir: 'dist',
+
+  // Keep the installed APK synchronized with the deployed web application.
+  // The APK uses the same Vercel app for its web content, so normal web
+  // deployments become available to installed APKs without rebuilding them.
   server: {
+    url: 'https://scanme-ai.vercel.app',
     androidScheme: 'https',
+    cleartext: false,
   },
+
   android: {
-    allowMixedContent: true,
+    allowMixedContent: false,
   },
+
   plugins: {
     SplashScreen: {
       launchShowDuration: 1600,
