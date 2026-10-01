@@ -210,34 +210,6 @@ export default function App() {
   const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
   const [isInfoHelpOpen, setIsInfoHelpOpen] = useState(false);
   const [rootMode, setRootMode] = useState<AppRootMode>('landing');
-  const [showStartupSplash, setShowStartupSplash] = useState(true);
-
-  useEffect(() => {
-    const introKey = 'scanme-ai-intro-seen-v2';
-    let shouldShow = true;
-    try {
-      shouldShow = window.localStorage.getItem(introKey) !== '1';
-    } catch {
-      shouldShow = true;
-    }
-
-    if (!shouldShow) {
-      setShowStartupSplash(false);
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setShowStartupSplash(false);
-      try {
-        window.localStorage.setItem(introKey, '1');
-      } catch {
-        // If storage is unavailable, the intro can safely show again next visit.
-      }
-    }, 2400);
-
-    return () => window.clearTimeout(timer);
-  }, []);
-
   const [currentPath, setCurrentPath] = useState<string>(() => {
     return typeof window !== 'undefined' ? window.location.pathname : '/';
   });
@@ -930,7 +902,6 @@ export default function App() {
   // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-100/70 flex flex-col font-sans text-slate-900 pb-8">
-      <StartupSplash visible={showStartupSplash} />
       {/* Warm personalized welcome */}
       <div className="max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 pt-3">
         <div className="rounded-2xl bg-white border border-slate-200/80 shadow-sm px-4 py-3 sm:px-5 sm:py-4">
