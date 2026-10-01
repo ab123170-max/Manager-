@@ -1181,6 +1181,7 @@ export default function App() {
                       setEditingProduct(prod);
                       handleNavigate('inventory_in', 'manual_entry');
                     }}
+                    onSellProduct={handleStartSaleForProduct}
                   />
                 ) : (
                   <InventoryOverviewView
