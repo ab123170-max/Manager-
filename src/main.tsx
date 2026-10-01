@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import { LanguageSelectorModal } from './components/common/LanguageSelectorModal';
+import { StartupSplash } from './components/common/StartupSplash';
 import { startWebUpdateChecker } from './utils/webUpdateChecker';
 
 type LoadedApp = {
@@ -75,8 +76,14 @@ function StartupError({ error, retry }: { error: unknown; retry: () => void }) {
 
 function Bootstrap() {
   const [loaded, setLoaded] = useState<LoadedApp | null>(null);
+  const [showStartupSplash, setShowStartupSplash] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowStartupSplash(false), 2400);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -114,7 +121,9 @@ function Bootstrap() {
 
   if (!loaded) {
     return (
-      <div style={{
+      <>
+        <StartupSplash visible={showStartupSplash} />
+        <div style={{
         minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
@@ -125,7 +134,8 @@ function Bootstrap() {
         fontWeight: 700
       }}>
         Loading ScanMe AI...
-      </div>
+        </div>
+      </>
     );
   }
 
@@ -134,6 +144,7 @@ function Bootstrap() {
   return (
     <LanguageProvider>
       <App />
+      <StartupSplash visible={showStartupSplash} />
       <LanguageSelectorModal />
     </LanguageProvider>
   );
