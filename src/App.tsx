@@ -196,6 +196,7 @@ const InfoHelpViewLazy = lazy(() => import('./components/help/InfoHelpView').the
 const SettingsModal = lazy(() =>
   import('./components/settings/SettingsModal').then((m) => ({ default: m.SettingsModal }))
 );
+const MarketingAutomationView = lazy(() => import('./components/marketing/MarketingAutomationView').then((m) => ({ default: m.MarketingAutomationView })));
 const GoogleSheetsSyncModal = lazy(() =>
   import('./components/sheets/GoogleSheetsSyncModal').then((m) => ({
     default: m.GoogleSheetsSyncModal,
@@ -499,6 +500,7 @@ export default function App() {
    * Maps any subview and menu section to one of the 5 functional slider pages
    */
   const getSlideIndexForNav = (subView: string, section?: MenuSection): number => {
+    if (section === 'marketing' || subView === 'marketing') return 5;
     if (subView === 'home') return 0;
     if (
       [
@@ -565,6 +567,7 @@ export default function App() {
     { title: 'Stock In & Out', section: 'inventory_in', subView: 'stock_in' },
     { title: 'Expiry & Alerts', section: 'inventory', subView: 'expiry_alerts' },
     { title: 'Turnover & Reports', section: 'inventory', subView: 'turnover' },
+    { title: 'Marketing', section: 'marketing', subView: 'marketing' },
   ];
 
   const handleSlideChange = (newIndex: number) => {
@@ -994,6 +997,8 @@ export default function App() {
           }}
         >
           <Suspense fallback={<ViewLoadingSkeleton label="Loading ScanMe AI slider module..." />}>
+            {activeSlideIndex === 5 && navState.activeSubView === 'marketing' && <MarketingAutomationView />}
+
             {/* ==================================================================== */}
             {/* SLIDER PAGE 1: AI SCANNER & INTAKE                                   */}
             {/* ==================================================================== */}
