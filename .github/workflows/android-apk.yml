@@ -59,6 +59,14 @@ jobs:
           rm -rf android
           npx cap add android
 
+      - name: Generate Android app icon and splash assets
+        run: |
+          npx @capacitor/assets generate --android --assetPath assets \
+            --iconBackgroundColor '#092B4C' \
+            --iconBackgroundColorDark '#092B4C' \
+            --splashBackgroundColor '#092B4C' \
+            --splashBackgroundColorDark '#092B4C'
+
       - name: Sync Capacitor
         run: npx cap sync android
 
