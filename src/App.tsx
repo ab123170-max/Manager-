@@ -207,7 +207,28 @@ export default function App() {
   const [showStartupSplash, setShowStartupSplash] = useState(true);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setShowStartupSplash(false), 1200);
+    const introKey = 'scanme-ai-intro-seen-v2';
+    let shouldShow = true;
+    try {
+      shouldShow = window.localStorage.getItem(introKey) !== '1';
+    } catch {
+      shouldShow = true;
+    }
+
+    if (!shouldShow) {
+      setShowStartupSplash(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowStartupSplash(false);
+      try {
+        window.localStorage.setItem(introKey, '1');
+      } catch {
+        // If storage is unavailable, the intro can safely show again next visit.
+      }
+    }, 2400);
+
     return () => window.clearTimeout(timer);
   }, []);
 
