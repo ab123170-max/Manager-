@@ -157,7 +157,71 @@ class AuthService {
 
   constructor() {
     this.setupSupabaseAuthListener();
+    this.setupLifecycleSessionRefresh();
     this.checkInitialUrlHash();
+  }
+
+  /**
+   * Keeps a persisted Supabase session fresh when the web app/PWA/Capacitor
+   * WebView is reopened, resumed, or regains connectivity.
+   *
+   * Supabase already persists the session in localStorage. This lifecycle
+   * refresh makes the resume/reopen behavior explicit so returning users do
+   * not get unnecessarily sent back to the login screen.
+   */
+  private setupLifecycleSessionRefresh(): void {
+    if (typeof window === 'undefined' || !isSupabaseConfigured()) return;
+
+    let refreshing = false;
+
+    const refreshOnResume = async () => {
+      if (refreshing || document.visibilityState === 'hidden') return;
+      refreshing = true;
+
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.warn('[authService] resume session check failed:', error.message);
+          return;
+        }
+
+        if (data?.session?.user) {
+          const expiresAtMs = (data.session.expires_at || 0) * 1000;
+          const needsRefresh = !expiresAtMs || expiresAtMs - Date.now() < 60_000;
+
+          if (needsRefresh) {
+            const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError) {
+              console.warn('[authService] resume token refresh failed:', refreshError.message);
+              return;
+            }
+            if (refreshed?.session?.user) {
+              await this.handleSupabaseSession(refreshed.session);
+              return;
+            }
+          }
+
+          await this.handleSupabaseSession(data.session);
+        }
+      } catch (err) {
+        console.warn('[authService] resume session refresh error:', err);
+      } finally {
+        refreshing = false;
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refreshOnResume();
+    };
+    const onPageShow = () => void refreshOnResume();
+    const onOnline = () => void refreshOnResume();
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('online', onOnline);
+
+    // Also verify the persisted session shortly after the initial app mount.
+    void refreshOnResume();
   }
 
   isAuthReady(): boolean {
