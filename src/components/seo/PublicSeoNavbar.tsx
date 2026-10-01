@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Camera, Sparkles, LogIn, ArrowRight } from 'lucide-react';
+import { Camera, Sparkles, LogIn, ArrowRight, Download } from 'lucide-react';
 import { LanguageSelectorButton } from '../common/LanguageSelectorButton';
 
 interface PublicSeoNavbarProps {
@@ -93,6 +93,16 @@ export const PublicSeoNavbar: React.FC<PublicSeoNavbarProps> = ({
             <LogIn className="w-3.5 h-3.5 text-indigo-600" />
             <span className="hidden sm:inline">Sign In</span>
           </button>
+
+          <a
+            href="https://github.com/ab123170-max/Manager-/releases/latest/download/scanme-ai.apk"
+            download
+            className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-all shadow-sm shadow-emerald-600/30 flex items-center gap-1.5 active:scale-95 cursor-pointer"
+            aria-label="Download ScanMe AI Android APK"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Download APK</span>
+          </a>
 
           <button
             type="button"
