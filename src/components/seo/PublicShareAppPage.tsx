@@ -47,11 +47,28 @@ export const PublicShareAppPage: React.FC<PublicShareAppPageProps> = ({ onNaviga
   };
 
   const shareWhatsApp = () => {
-    const message = encodeURIComponent('Try ScanMe AI – Free AI storekeeping & inventory management app.\n\nDownload: ' + APK_URL);
+    const message = encodeURIComponent('Try ScanMe AI – Free AI storekeeping & inventory management app.
+
+Download: ' + APK_URL);
     window.open('https://wa.me/?text=' + message, '_blank', 'noopener,noreferrer');
   };
 
-  const shareFacebook = () => {\n    const url = encodeURIComponent(APP_URL);\n    window.open('https://www.facebook.com/sharer/sharer.php?u=' + url, '_blank', 'noopener,noreferrer');\n  };\n\n  const referApp = async () => {\n    const message = encodeURIComponent('I recommend ScanMe AI — a free AI storekeeping and inventory management app. Try it here: ' + APP_URL);\n    if (navigator.share) {\n      try { await navigator.share({ title: 'Refer ScanMe AI', text: 'I recommend ScanMe AI — a free AI storekeeping and inventory management app.', url: APP_URL }); } catch {}\n    } else {\n      await navigator.clipboard?.writeText(APP_URL).catch(() => {});\n      window.open('https://wa.me/?text=' + message, '_blank', 'noopener,noreferrer');\n    }\n  };\n\n  const openGoogleDrive = async () => {
+  const shareFacebook = () => {
+    const url = encodeURIComponent(APP_URL);
+    window.open('https://www.facebook.com/sharer/sharer.php?u=' + url, '_blank', 'noopener,noreferrer');
+  };
+
+  const referApp = async () => {
+    const message = encodeURIComponent('I recommend ScanMe AI — a free AI storekeeping and inventory management app. Try it here: ' + APP_URL);
+    if (navigator.share) {
+      try { await navigator.share({ title: 'Refer ScanMe AI', text: 'I recommend ScanMe AI — a free AI storekeeping and inventory management app.', url: APP_URL }); } catch {}
+    } else {
+      await navigator.clipboard?.writeText(APP_URL).catch(() => {});
+      window.open('https://wa.me/?text=' + message, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const openGoogleDrive = async () => {
     await copyLink();
     window.open('https://drive.google.com/drive/my-drive', '_blank', 'noopener,noreferrer');
   };
@@ -61,7 +78,9 @@ export const PublicShareAppPage: React.FC<PublicShareAppPageProps> = ({ onNaviga
     else window.location.href = '/';
   };
 
-  const options = [\n    { label: 'Refer ScanMe AI', detail: 'Recommend the app to another business', icon: UserPlus, action: referApp, className: 'bg-[#092B4C] text-white' },\n    { label: 'Share on Facebook', detail: 'Post the app link on Facebook', icon: Facebook, action: shareFacebook, className: 'bg-[#1877F2] text-white' },
+  const options = [
+    { label: 'Refer ScanMe AI', detail: 'Recommend the app to another business', icon: UserPlus, action: referApp, className: 'bg-[#092B4C] text-white' },
+    { label: 'Share on Facebook', detail: 'Post the app link on Facebook', icon: Facebook, action: shareFacebook, className: 'bg-[#1877F2] text-white' },
     { label: 'WhatsApp', detail: 'Send the APK link directly', icon: MessageCircle, action: shareWhatsApp, className: 'bg-[#25D366] text-white' },
     { label: copied ? 'Link Copied' : 'Copy Download Link', detail: 'Copy the APK download URL', icon: copied ? Check : Copy, action: copyLink, className: 'bg-[#1473EA] text-white' },
     { label: 'Share via Phone', detail: 'WhatsApp, Messenger, Bluetooth & more', icon: Share2, action: shareFromPhone, className: 'bg-white text-slate-800 border border-slate-200' },
