@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, Search, Package, Plus, ChevronRight, ShoppingCart, Share2, Users, Store, Megaphone } from 'lucide-react';
+import { BookOpen, Search, Package, Plus, ChevronRight, ShoppingCart, Share2, Users, Store, Megaphone, Facebook, Send } from 'lucide-react';
 import { SavedInventoryItem } from '../../types';
 import { getProducts, subscribeToStore } from '../../utils/unifiedDataStore';
 
@@ -26,6 +26,14 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onAddProduct, onSelect
   };
 
   const openWhatsApp = (message: string) => window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+
+  const socialShare = (platform: 'facebook' | 'tiktok' | 'whatsapp', p: SavedInventoryItem) => {
+    const text = [p.productName, p.brand, p.category, p.sellingPrice ? `Price: ${p.currency || 'NPR'} ${p.sellingPrice}` : '', p.expiryDate ? `Expiry: ${p.expiryDate}` : ''].filter(Boolean).join(' | ');
+    const url = window.location.href;
+    if (platform === 'facebook') window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
+    else if (platform === 'tiktok') navigator.share ? navigator.share({ title: p.productName || 'Product', text, url }) : navigator.clipboard?.writeText(text + ' ' + url);
+    else openWhatsApp(text);
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -73,6 +81,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ onAddProduct, onSelect
             <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-1.5">
               <button type="button" onClick={() => onSellProduct?.(p)} className="h-9 rounded-xl bg-[#1473EA] text-white text-[10px] font-bold flex items-center justify-center gap-1"><ShoppingCart className="w-3.5 h-3.5" />Sell</button>
               <button type="button" onClick={() => shareProduct(p)} className="h-9 rounded-xl bg-slate-100 text-slate-700 text-[10px] font-bold flex items-center justify-center gap-1"><Share2 className="w-3.5 h-3.5" />Share</button>
+              <button type="button" onClick={() => socialShare('facebook', p)} className="h-9 rounded-xl bg-blue-50 text-blue-700 text-[10px] font-bold flex items-center justify-center gap-1"><Facebook className="w-3.5 h-3.5" />Facebook</button>
+              <button type="button" onClick={() => socialShare('tiktok', p)} className="h-9 rounded-xl bg-slate-900 text-white text-[10px] font-bold flex items-center justify-center gap-1"><Send className="w-3.5 h-3.5" />TikTok</button>
+              <button type="button" onClick={() => socialShare('whatsapp', p)} className="h-9 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-bold flex items-center justify-center gap-1"><Users className="w-3.5 h-3.5" />WhatsApp</button>
               <button type="button" onClick={() => openWhatsApp("Hello, please see our product: " + (p.productName || "Product") + (p.sellingPrice ? " - " + (p.currency || "NPR") + " " + p.sellingPrice : ""))} className="h-9 rounded-xl bg-emerald-50 text-emerald-700 text-[10px] font-bold flex items-center justify-center gap-1"><Users className="w-3.5 h-3.5" />Contact</button>
               <button type="button" onClick={() => openWhatsApp("Store information: Please contact our store for products, stock and prices.")} className="h-9 rounded-xl bg-amber-50 text-amber-700 text-[10px] font-bold flex items-center justify-center gap-1"><Store className="w-3.5 h-3.5" />Store Info</button>
               <button type="button" onClick={() => openWhatsApp("🔥 New offer! " + (p.productName || "Product") + (p.sellingPrice ? " now at " + (p.currency || "NPR") + " " + p.sellingPrice : "") + ". Contact our store for details.")} className="h-9 rounded-xl bg-rose-50 text-rose-700 text-[10px] font-bold flex items-center justify-center gap-1"><Megaphone className="w-3.5 h-3.5" />Offer</button>
