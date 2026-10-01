@@ -47,9 +47,7 @@ export const PublicShareAppPage: React.FC<PublicShareAppPageProps> = ({ onNaviga
   };
 
   const shareWhatsApp = () => {
-    const message = encodeURIComponent('Try ScanMe AI – Free AI storekeeping & inventory management app.
-
-Download: ' + APK_URL);
+    const message = encodeURIComponent('Try ScanMe AI – Free AI storekeeping & inventory management app.\n\nDownload: ' + APK_URL);
     window.open('https://wa.me/?text=' + message, '_blank', 'noopener,noreferrer');
   };
 
