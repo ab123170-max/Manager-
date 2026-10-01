@@ -1,10 +1,7 @@
 import React from 'react';
-import { useLanguage } from '../../context/LanguageContext';
 import { BarChart3, Boxes, Camera, Check, Pill, ShoppingBasket, Sparkles, ArrowRight } from 'lucide-react';
 
 export const StartupSplash: React.FC<{ visible: boolean }> = ({ visible }) => {
-  const { t } = useLanguage();
-
   return (
     <div
       aria-hidden={!visible}
@@ -25,12 +22,12 @@ export const StartupSplash: React.FC<{ visible: boolean }> = ({ visible }) => {
         </div>
         <div className="mt-9" style={{ animation: 'scanmeFadeUp 700ms 250ms ease-out both' }}>
           <div className="text-3xl font-black tracking-tight">ScanMe <span className="text-[#1473EA]">AI</span></div>
-          <div className="mt-2 text-sm font-bold text-slate-500">{t('splash.tagline')}</div>
-          <div className="mt-4 flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-[.12em] text-[#1473EA]"><Sparkles className="h-3.5 w-3.5" />{t('splash.smart')}<ArrowRight className="h-3 w-3" /></div>
+          <div className="mt-2 text-sm font-bold text-slate-500">Smart AI storekeeping & inventory</div>
+          <div className="mt-4 flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-[.12em] text-[#1473EA]"><Sparkles className="h-3.5 w-3.5" />SMART<ArrowRight className="h-3 w-3" /></div>
           <div className="mt-5 flex items-center justify-center gap-2 text-[11px] font-semibold text-slate-400">
-            <Camera className="h-4 w-4 text-[#1473EA]" /> {t('splash.scan')}
-            <span>•</span><Boxes className="h-4 w-4 text-[#1473EA]" /> {t('splash.stock')}
-            <span>•</span><BarChart3 className="h-4 w-4 text-[#1473EA]" /> {t('splash.reports')}
+            <Camera className="h-4 w-4 text-[#1473EA]" /> Scan
+            <span>•</span><Boxes className="h-4 w-4 text-[#1473EA]" /> Stock
+            <span>•</span><BarChart3 className="h-4 w-4 text-[#1473EA]" /> Reports
           </div>
         </div>
         <div className="mx-auto mt-7 h-1.5 w-32 overflow-hidden rounded-full bg-slate-200"><div className="h-full w-1/2 rounded-full bg-[#1473EA]" style={{ animation: 'scanmeProgress 1100ms ease-in-out infinite' }} /></div>
