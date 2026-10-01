@@ -5,7 +5,7 @@
 
 import React, { useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Camera, Boxes, BarChart3, LogIn, ArrowRight } from 'lucide-react';
+import { Camera, Boxes, BarChart3, LogIn, Download, ShoppingBasket, Pill, Hotel, UtensilsCrossed, Stethoscope, Store } from 'lucide-react';
 import { updateDocumentSeo } from '../../utils/seoHelper';
 import { LanguageSelectorButton } from '../common/LanguageSelectorButton';
 
@@ -31,6 +31,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         'Scan products, manage inventory, track expiry dates, and view reports with ScanMe AI.',
     });
   }, []);
+
+  const APK_DOWNLOAD_URL = 'https://github.com/ab123170-max/Manager-/releases/latest/download/app-debug.apk';
+
+  const storeTypes = [
+    { icon: ShoppingBasket, label: 'Grocery' },
+    { icon: Pill, label: 'Pharmacy' },
+    { icon: Hotel, label: 'Hotels' },
+    { icon: UtensilsCrossed, label: 'Restaurants' },
+    { icon: Stethoscope, label: 'Medical Stores' },
+    { icon: Store, label: 'Other Stores' },
+  ];
 
   const handleLinkClick = (
     e: React.MouseEvent<HTMLAnchorElement>,
@@ -105,15 +116,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </p>
 
           <div className="mt-5 flex flex-col gap-2.5">
-            <button
-              type="button"
-              onClick={onGetStarted}
+            <a
+              href={APK_DOWNLOAD_URL}
+              download
               id="btn-landing-get-started"
+              aria-label="Download ScanMe AI APK"
               className="w-full h-12 rounded-2xl bg-[#1473EA] text-white font-bold text-sm shadow-lg shadow-[#1473EA]/20 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
             >
-              Get Started
-              <ArrowRight className="w-4 h-4" />
-            </button>
+              <Download className="w-4 h-4" />
+              Download APK from here
+            </a>
 
             <button
               type="button"
@@ -125,6 +137,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </button>
           </div>
         </motion.section>
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, delay: 0.04 }}
+          className="mt-5"
+        >
+          <h2 className="text-center text-sm font-black text-slate-800">
+            Smart store keeping for
+          </h2>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {storeTypes.map(({ icon: Icon, label }) => (
+              <div
+                key={label}
+                className="bg-white border border-slate-200 rounded-2xl px-3 py-2.5 flex items-center gap-2.5 shadow-sm"
+              >
+                <div className="w-9 h-9 shrink-0 rounded-xl bg-[#1473EA]/10 text-[#1473EA] flex items-center justify-center">
+                  <Icon className="w-4 h-4" />
+                </div>
+                <span className="text-xs font-bold text-slate-700">{label}</span>
+              </div>
+            ))}
+          </div>
+        </motion.div>
 
         {/* Only 3 features */}
         <motion.div
