@@ -70,6 +70,10 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Verify live web sync configuration
+        run: |
+          grep -n "scanme-ai.vercel.app" capacitor.config.ts
+
       - name: Verify Android toolchain
         working-directory: ./android
         run: |
