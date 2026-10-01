@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import { LanguageSelectorModal } from './components/common/LanguageSelectorModal';
+import { startWebUpdateChecker } from './utils/webUpdateChecker';
 
 type LoadedApp = {
   App: React.ComponentType;
@@ -137,5 +138,7 @@ function Bootstrap() {
     </LanguageProvider>
   );
 }
+
+startWebUpdateChecker();
 
 createRoot(document.getElementById('root')!).render(<Bootstrap />);
