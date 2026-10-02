@@ -31,7 +31,8 @@
     "react-dom": "^19.0.1",
     "tesseract.js": "^7.0.0",
     "vite": "^6.2.3",
-    "@capacitor/splash-screen": "^8.0.1"
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/haptics": "^8.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
