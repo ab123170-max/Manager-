@@ -66,7 +66,7 @@ export async function loadLanguageTranslations(lang: SupportedLanguage): Promise
   }
 
   // 3. LocalStorage Cache
-  const storageKey = `smartstock_lang_dict_v1_${lang}`;
+  const storageKey = `smartstock_lang_dict_v2_${lang}`;
   if (typeof window !== 'undefined') {
     try {
       const cached = localStorage.getItem(storageKey);
@@ -170,7 +170,7 @@ export function translateKey(
     const parts = path.split('.');
     let curr = obj;
     for (const part of parts) {
-      if (curr && typeof curr === 'object' && part in curr) {
+      if (curr !== null && curr !== undefined && (typeof curr === 'object' || Array.isArray(curr)) && part in curr) {
         curr = curr[part];
       } else {
         return null;
