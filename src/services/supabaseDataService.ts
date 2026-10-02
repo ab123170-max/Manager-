@@ -395,14 +395,28 @@ class SupabaseDataService {
         return null;
       }
 
-      // Update the product's quantity in Supabase if valid product ID provided
+      // Update stock inside the encrypted product payload as well.
       if (validProductId && typeof currentStock === 'number') {
-        const newStock = txnType === 'OUT' ? currentStock - qty : currentStock + qty;
-        await supabase
+        const newStock = Math.max(0, txnType === 'OUT' ? currentStock - qty : currentStock + qty);
+        const { data: productRow } = await supabase
           .from('products')
-          .update({ quantity: Math.max(0, newStock), updated_at: new Date().toISOString() })
+          .select('id, user_id, encrypted_payload, created_at, updated_at')
           .eq('id', validProductId)
-          .eq('user_id', userId);
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (productRow?.encrypted_payload) {
+          const product = await decryptUserData<any>(userId, productRow.encrypted_payload);
+          product.stockQuantity = newStock;
+          product.quantity = String(newStock);
+          product.updatedAt = new Date().toISOString();
+          const encryptedProduct = await encryptUserData(userId, product);
+          await supabase
+            .from('products')
+            .update({ encrypted_payload: encryptedProduct, updated_at: new Date().toISOString() })
+            .eq('id', validProductId)
+            .eq('user_id', userId);
+        }
       }
 
       const decrypted = await decryptUserData<any>(userId, data.encrypted_payload);
