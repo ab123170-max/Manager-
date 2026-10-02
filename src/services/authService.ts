@@ -450,8 +450,7 @@ class AuthService {
       `user_${authUserId.substring(0, 6)}`
     ).toLowerCase();
 
-    const row = {
-      auth_user_id: authUserId,
+    const profilePayload = {
       full_name: cleanFullName,
       business_name: cleanBusiness,
       country: (profileData.country || 'Nepal').trim(),
@@ -463,14 +462,20 @@ class AuthService {
       language: profileData.language || 'English',
       currency: profileData.currency || 'NPR',
       onboarding_completed: true,
-      updated_at: now,
     };
 
     try {
+      const encrypted_payload = await encryptUserData(authUserId, profilePayload);
+      const row = {
+        auth_user_id: authUserId,
+        encrypted_payload,
+        updated_at: now,
+      };
+
       const { data, error } = await supabase
         .from('profiles')
         .upsert(row, { onConflict: 'auth_user_id' })
-        .select()
+        .select('id, auth_user_id, encrypted_payload, created_at, updated_at')
         .maybeSingle();
 
       if (error) {
@@ -479,23 +484,24 @@ class AuthService {
       }
       if (!data) return null;
 
+      const decrypted = await decryptUserData<Record<string, any>>(authUserId, data.encrypted_payload);
       const profile: UserProfile = {
         id: data.id,
         auth_user_id: data.auth_user_id,
-        full_name: data.full_name || row.full_name,
-        business_name: data.business_name || row.business_name,
-        country: data.country || row.country,
-        username: data.username || row.username,
-        email: data.email || row.email,
-        phone: data.phone || row.phone,
-        profile_image_url: data.profile_image_url || '',
-        address: data.address || row.address,
-        language: data.language || row.language,
-        currency: data.currency || row.currency,
-        onboarding_completed: true,
+        full_name: decrypted.full_name || '',
+        business_name: decrypted.business_name || '',
+        country: decrypted.country || 'Nepal',
+        username: decrypted.username || '',
+        email: decrypted.email || '',
+        phone: decrypted.phone || '',
+        profile_image_url: decrypted.profile_image_url || '',
+        address: decrypted.address || '',
+        language: decrypted.language || 'English',
+        currency: decrypted.currency || 'NPR',
+        onboarding_completed: Boolean(decrypted.onboarding_completed),
         created_at: data.created_at || now,
         updated_at: data.updated_at || now,
-        is_profile_complete: Boolean(data.full_name && (data.business_name || data.username)),
+        is_profile_complete: Boolean(decrypted.full_name && (decrypted.business_name || decrypted.username)),
       };
 
       if (this.activeSession && this.activeSession.user.id === authUserId) {
@@ -528,7 +534,7 @@ class AuthService {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, auth_user_id, full_name, business_name, country, username, email, phone, profile_image_url, address, language, currency, onboarding_completed, created_at, updated_at')
+          .select('id, auth_user_id, encrypted_payload, created_at, updated_at')
           .eq('auth_user_id', authUserId)
           .maybeSingle();
 
