@@ -148,25 +148,35 @@ export function useCamera() {
           }
         }
 
-        // Bind the stream directly to the video element's srcObject
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current
-              ?.play()
-              .then(() => {
-                setCameraState((prev) => ({
-                  ...prev,
-                  isStreaming: true,
-                  hasPermission: true,
-                  facingMode: targetFacingMode,
-                  error: null,
-                }));
-              })
-              .catch((playErr) => {
-                console.warn('Video element play was deferred:', playErr);
-              });
+        // Bind the stream to the video element and start playback immediately.
+        // Android WebViews can have metadata ready before onloadedmetadata is attached.
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          video.muted = true;
+          video.playsInline = true;
+
+          const markStreaming = () => {
+            setCameraState((prev) => ({
+              ...prev,
+              isStreaming: true,
+              hasPermission: true,
+              facingMode: targetFacingMode,
+              error: null,
+            }));
           };
+
+          video.onloadedmetadata = () => {
+            void video.play().then(markStreaming).catch((playErr) => {
+              console.warn('Video element play was deferred:', playErr);
+            });
+          };
+
+          if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+            void video.play().then(markStreaming).catch((playErr) => {
+              console.warn('Immediate video play failed:', playErr);
+            });
+          }
         }
 
         // Query available video devices
