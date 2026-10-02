@@ -14,6 +14,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import java.util.Locale;
 
@@ -31,11 +32,17 @@ public class NativeDevicePlugin extends Plugin {
     @PluginMethod
     public void requestPermissions(PluginCall call) {
         requestPermissionForAlias("camera", call, "permissionsResult");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestPermissionForAlias("notifications", call, "permissionsResult");
-        } else {
-            permissionsResult(call);
+    }
+
+    @PluginMethod
+    public void requestCamera(PluginCall call) {
+        if (getPermissionState("camera") == PermissionState.GRANTED) {
+            JSObject result = new JSObject();
+            result.put("camera", "granted");
+            call.resolve(result);
+            return;
         }
+        requestPermissionForAlias("camera", call, "cameraPermissionResult");
     }
 
     @PluginMethod
@@ -43,8 +50,8 @@ public class NativeDevicePlugin extends Plugin {
         requestPermissionForAlias("microphone", call, "microphoneResult");
     }
 
-    @PluginMethod
-    public void permissionsResult(PluginCall call) {
+    @PermissionCallback
+    private void permissionsResult(PluginCall call) {
         JSObject result = new JSObject();
         result.put("camera", getPermissionState("camera").toString());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -56,8 +63,15 @@ public class NativeDevicePlugin extends Plugin {
         call.resolve(result);
     }
 
-    @PluginMethod
-    public void microphoneResult(PluginCall call) {
+    @PermissionCallback
+    private void cameraPermissionResult(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("camera", getPermissionState("camera").toString());
+        call.resolve(result);
+    }
+
+    @PermissionCallback
+    private void microphoneResult(PluginCall call) {
         JSObject result = new JSObject();
         result.put("microphone", getPermissionState("microphone").toString());
         call.resolve(result);
