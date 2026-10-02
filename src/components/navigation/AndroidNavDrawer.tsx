@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, User, Camera, Boxes, History, BarChart3, FileSpreadsheet, Settings, Globe, LogOut, HelpCircle, ArrowDownToLine, ArrowUpFromLine, Megaphone } from 'lucide-react';
+import { X, User, Camera, Boxes, BookOpen, History, BarChart3, FileSpreadsheet, Settings, Globe, LogOut, HelpCircle, ArrowDownToLine, ArrowUpFromLine, Megaphone } from 'lucide-react';
 import { MenuSection, AppSubView, UserProfile } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -54,6 +54,7 @@ export const AndroidNavDrawer:React.FC<AndroidNavDrawerProps>=({
           <div className="bg-white rounded-3xl border border-slate-200 p-1.5 space-y-1">
             {row('Marketing',Megaphone,()=>go('marketing','marketing'),activeSubView==='marketing')}
             {row('Scan history',History,()=>go('inventory_in','scan_history'),activeSubView==='scan_history')}
+            {row('Product Catalog',BookOpen,()=>go('inventory','catalog'),activeSubView==='catalog')}
             {row('Stock history',History,()=>go('inventory','stock_ledger'),activeSubView==='stock_ledger')}
             {row('Reports & export',BarChart3,()=>go('inventory','reports'),activeSubView==='reports')}
             {row('Stock In',ArrowDownToLine,()=>go('inventory_in','stock_in'),activeSubView==='stock_in')}
