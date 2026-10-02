@@ -161,14 +161,25 @@ class SupabaseDataService {
         const limit = options?.limit ?? 100;
         const offset = options?.offset ?? 0;
 
-        let query = supabase
+        const { data: authData } = await supabase.auth.getUser();
+        if (!authData.user || authData.user.id !== userId) {
+          console.warn('[supabaseDataService] Refusing product read for non-authenticated user.');
+          return [];
+        }
+
+        const { data: queryRows, error: queryError } = await supabase
           .from('products')
-          .select(
-            'id, user_id, name, barcode, price, purchase_price, quantity, manufacture_date, expiry_date, best_before_months, unit, description, category, batch_number, rack_location, supplier, mrp, min_stock_alert, created_at, updated_at, encrypted_payload'
-          )
+          .select('id, user_id, encrypted_payload, created_at, updated_at')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .range(offset, offset + limit - 1);
+
+        if (queryError) {
+          console.error('[supabaseDataService] fetchProducts error:', queryError.message);
+          return [];
+        }
+
+        const data = queryRows;
 
         const { data, error } = await query;
 
@@ -179,15 +190,15 @@ class SupabaseDataService {
 
         const result: SavedInventoryItem[] = [];
         for (const row of (data || []) as DbProductRow[]) {
-          if (row.encrypted_payload) {
-            try {
-              result.push(await decryptUserData<SavedInventoryItem>(userId, row.encrypted_payload));
-              continue;
-            } catch (e) {
-              console.warn('[supabaseDataService] encrypted product could not be decrypted; using legacy row:', e);
-            }
+          if (!row.encrypted_payload) {
+            console.warn('[supabaseDataService] Skipping product without encrypted payload:', row.id);
+            continue;
           }
-          result.push(mapDbRowToProduct(row));
+          try {
+            result.push(await decryptUserData<SavedInventoryItem>(userId, row.encrypted_payload));
+          } catch (e) {
+            console.warn('[supabaseDataService] encrypted product could not be decrypted; skipping row:', e);
+          }
         }
         return result;
       } catch (e) {
