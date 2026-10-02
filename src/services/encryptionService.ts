@@ -21,6 +21,21 @@ function base64ToBytes(value: string): Uint8Array {
 }
 
 async function getUserKey(userId: string): Promise<CryptoKey> {
+  if (!userId) throw new Error('A signed-in user is required for encryption.');
+
+  // Never derive/cache a key for an arbitrary caller-supplied ID.
+  // The database RPC derives the key from auth.uid(), so bind the cache key
+  // to the actual authenticated Supabase user.
+  const { data: sessionData, error: sessionError } = await supabase.auth.getUser();
+  if (sessionError || !sessionData.user) {
+    clearEncryptionKeyCache();
+    throw new Error('Authenticated Supabase session is required for encryption.');
+  }
+  if (sessionData.user.id !== userId) {
+    clearEncryptionKeyCache();
+    throw new Error('Encryption user does not match the authenticated session.');
+  }
+
   const cached = keyCache.get(userId);
   if (cached) return cached;
 
@@ -70,6 +85,7 @@ export async function decryptUserData<T>(userId: string, payload: string): Promi
   const key = await getUserKey(userId);
   const iv = base64ToBytes(parts[1]);
   const ciphertext = base64ToBytes(parts[2]);
+  if (iv.byteLength !== 12) throw new Error('Invalid encrypted payload IV.');
 
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
   return JSON.parse(textDecoder.decode(plaintext)) as T;
