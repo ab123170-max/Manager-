@@ -198,6 +198,7 @@ const SettingsModal = lazy(() =>
 );
 const MarketingAutomationView = lazy(() => import('./components/marketing/MarketingAutomationView').then((m) => ({ default: m.MarketingAutomationView })));
 const BusinessVisitingCardView = lazy(() => import('./components/business/BusinessVisitingCardView').then((m) => ({ default: m.BusinessVisitingCardView })));
+const CustomerMessagingModal = lazy(() => import('./components/sheets/CustomerMessagingModal').then((m) => ({ default: m.CustomerMessagingModal })));
 const GoogleSheetsSyncModal = lazy(() =>
   import('./components/sheets/GoogleSheetsSyncModal').then((m) => ({
     default: m.GoogleSheetsSyncModal,
@@ -213,6 +214,7 @@ export default function App() {
   const [isEditingProfileModal, setIsEditingProfileModal] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
+  const [isCustomerMessagingOpen, setIsCustomerMessagingOpen] = useState(false);
   const [isInfoHelpOpen, setIsInfoHelpOpen] = useState(false);
   const [rootMode, setRootMode] = useState<AppRootMode>('landing');
   const [currentPath, setCurrentPath] = useState<string>(() => {
@@ -1384,6 +1386,16 @@ export default function App() {
       {isInfoHelpOpen && (
         <Suspense fallback={null}>
           <InfoHelpViewLazy onClose={() => setIsInfoHelpOpen(false)} />
+        </Suspense>
+      )}
+
+      {/* Customer messaging from Google Sheets */}
+      {isCustomerMessagingOpen && (
+        <Suspense fallback={null}>
+          <CustomerMessagingModal
+            isOpen={true}
+            onClose={() => setIsCustomerMessagingOpen(false)}
+          />
         </Suspense>
       )}
 
