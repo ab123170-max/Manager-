@@ -2,10 +2,14 @@ package com.martmartai.inventory;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.os.Build;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.speech.tts.TextToSpeech;
+import androidx.core.app.NotificationCompat;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -27,6 +31,7 @@ import java.util.Locale;
     }
 )
 public class NativeDevicePlugin extends Plugin {
+    private static final String NOTIFICATION_CHANNEL_ID = "scanme_alerts";
     private TextToSpeech textToSpeech;
 
     @PluginMethod
@@ -100,6 +105,41 @@ public class NativeDevicePlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("microphone", getPermissionState("microphone").toString());
         call.resolve(result);
+    }
+
+    @PluginMethod
+    public void notify(PluginCall call) {
+        String title = call.getString("title", "ScanMe AI");
+        String body = call.getString("body", "");
+        if (body == null || body.trim().isEmpty()) {
+            call.reject("Notification body is empty");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            getContext().checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            call.reject("Notification permission is not granted");
+            return;
+        }
+        NotificationManager manager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null) {
+            call.reject("Notification service is unavailable");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                NOTIFICATION_CHANNEL_ID, "ScanMe Alerts", NotificationManager.IMPORTANCE_HIGH);
+            channel.setDescription("Inventory and expiry alerts");
+            manager.createNotificationChannel(channel);
+        }
+        Notification notification = new NotificationCompat.Builder(getContext(), NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build();
+        manager.notify((int) (System.currentTimeMillis() & 0x7fffffff), notification);
+        call.resolve();
     }
 
     @PluginMethod
