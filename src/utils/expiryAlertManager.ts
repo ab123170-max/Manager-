@@ -4,6 +4,8 @@
  */
 
 import { getProducts, subscribeToStore } from './unifiedDataStore';
+import { Capacitor } from '@capacitor/core';
+import { notifyNative, speakNative, vibrateNative } from '../services/nativeDevice';
 import { parseDateComponents } from './productDateCalculator';
 import { SavedInventoryItem } from '../types';
 
@@ -44,6 +46,7 @@ class ExpiryAlertManager {
   private unsubscribeStore: (() => void) | null = null;
   private checkIntervalId: number | null = null;
   private isInitialized = false;
+  private nativeAlertKeys = new Set<string>();
 
   constructor() {
     this.loadDismissedState();
@@ -230,6 +233,7 @@ class ExpiryAlertManager {
         if (!this.toastedKeysInSession.has(alertKey)) {
           this.toastedKeysInSession.add(alertKey);
           this.emitToast(alertItem);
+          void this.emitNativeAlert(alertItem);
         }
       }
     }
@@ -246,6 +250,26 @@ class ExpiryAlertManager {
 
     this.emitAlertsChange();
     return { active: activeList, all: allList };
+  }
+
+  private async emitNativeAlert(alert: ExpiryAlertItem): Promise<void> {
+    if (!Capacitor.isNativePlatform()) return;
+    if (this.nativeAlertKeys.has(alert.alertKey)) return;
+    this.nativeAlertKeys.add(alert.alertKey);
+
+    const message = alert.isExpired
+      ? `${alert.productName} has expired. Stock: ${alert.quantity} ${alert.unit}.`
+      : alert.daysRemaining === 0
+        ? `${alert.productName} expires today. Stock: ${alert.quantity} ${alert.unit}.`
+        : `${alert.productName} expires in ${alert.daysRemaining} days.`;
+
+    try {
+      await notifyNative('ScanMe AI — Expiry Alert', message);
+      await speakNative(message, 'en-US');
+      await vibrateNative(180);
+    } catch (error) {
+      console.warn('[ExpiryAlertManager] Native alert failed:', error);
+    }
   }
 
   /**
