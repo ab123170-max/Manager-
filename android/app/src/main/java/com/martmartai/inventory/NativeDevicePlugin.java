@@ -31,7 +31,7 @@ public class NativeDevicePlugin extends Plugin {
 
     @PluginMethod
     public void requestPermissions(PluginCall call) {
-        requestPermissionForAlias("camera", call, "permissionsResult");
+        requestPermissionForAlias("camera", call, "allPermissionsCameraResult");
     }
 
     @PluginMethod
@@ -47,19 +47,44 @@ public class NativeDevicePlugin extends Plugin {
 
     @PluginMethod
     public void requestMicrophone(PluginCall call) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) {
+            JSObject result = new JSObject();
+            result.put("microphone", "granted");
+            call.resolve(result);
+            return;
+        }
         requestPermissionForAlias("microphone", call, "microphoneResult");
     }
 
     @PermissionCallback
-    private void permissionsResult(PluginCall call) {
+    private void allPermissionsCameraResult(PluginCall call) {
+        requestPermissionForAlias("microphone", call, "allPermissionsMicrophoneResult");
+    }
+
+    @PermissionCallback
+    private void allPermissionsMicrophoneResult(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissionForAlias("notifications", call, "allPermissionsNotificationResult");
+        } else {
+            resolveAllPermissions(call);
+        }
+    }
+
+    @PermissionCallback
+    private void allPermissionsNotificationResult(PluginCall call) {
+        resolveAllPermissions(call);
+    }
+
+    private void resolveAllPermissions(PluginCall call) {
         JSObject result = new JSObject();
         result.put("camera", getPermissionState("camera").toString());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            result.put("notifications", getPermissionState("notifications").toString());
-        } else {
-            result.put("notifications", "granted");
-        }
         result.put("microphone", getPermissionState("microphone").toString());
+        result.put(
+            "notifications",
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                ? getPermissionState("notifications").toString()
+                : "granted"
+        );
         call.resolve(result);
     }
 
@@ -115,7 +140,7 @@ public class NativeDevicePlugin extends Plugin {
 
     @PluginMethod
     public void vibrate(PluginCall call) {
-        long duration = call.getInt("duration", 120);
+        long duration = Math.max(1, call.getInt("duration", 120));
         Vibrator vibrator = (Vibrator) getContext().getSystemService(Context.VIBRATOR_SERVICE);
         if (vibrator != null && vibrator.hasVibrator()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
