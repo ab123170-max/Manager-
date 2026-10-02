@@ -326,7 +326,6 @@ class SupabaseDataService {
             console.warn('[supabaseDataService] encrypted transaction could not be decrypted; skipping row:', e);
           }
           continue;
-          const isOut = row.transaction_type === 'OUT';
           const qty = Number(row.quantity);
           secureTransactions.push({
             id: row.id,
