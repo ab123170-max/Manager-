@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Mail, MessageCircle, MessageSquareText, RefreshCw, Send, X } from 'lucide-react';
+import { Mail, MessageCircle, MessageSquareText, Send, X } from 'lucide-react';
 import {
   getGoogleAccessToken,
   getSpreadsheetIdFromUrl,
