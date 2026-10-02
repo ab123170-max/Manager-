@@ -51,6 +51,18 @@ public class NativeDevicePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void requestNotifications(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            getPermissionState("notifications") == PermissionState.GRANTED) {
+            JSObject result = new JSObject();
+            result.put("notifications", "granted");
+            call.resolve(result);
+            return;
+        }
+        requestPermissionForAlias("notifications", call, "notificationResult");
+    }
+
+    @PluginMethod
     public void requestMicrophone(PluginCall call) {
         if (getPermissionState("microphone") == PermissionState.GRANTED) {
             JSObject result = new JSObject();
@@ -97,6 +109,13 @@ public class NativeDevicePlugin extends Plugin {
     private void cameraPermissionResult(PluginCall call) {
         JSObject result = new JSObject();
         result.put("camera", getPermissionState("camera").toString());
+        call.resolve(result);
+    }
+
+    @PermissionCallback
+    private void notificationResult(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("notifications", getPermissionState("notifications").toString());
         call.resolve(result);
     }
 

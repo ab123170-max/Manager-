@@ -3,6 +3,8 @@ import { Camera } from '@capacitor/camera';
 
 type NativeDevicePlugin = {
   requestPermissions?: () => Promise<{ camera?: string; notifications?: string; microphone?: string }>;
+  requestMicrophone?: () => Promise<{ microphone?: string }>;
+  requestNotifications?: () => Promise<{ notifications?: string }>;
   speak?: (options: { text: string; language?: string; rate?: number }) => Promise<void>;
   notify?: (options: { title?: string; body: string }) => Promise<void>;
   vibrate?: (options?: { duration?: number }) => Promise<void>;
@@ -37,14 +39,30 @@ export async function requestNativeCameraPermission(): Promise<boolean> {
 }
 
 export async function initializeNativeDevice(): Promise<void> {
+  // Native initialization must never trigger permission prompts on app startup.
+  // Individual features request their permission only when the user uses them.
   if (!Capacitor.isNativePlatform()) return;
+}
 
-  // Do not request camera or microphone automatically at app startup.
-  // Camera permission is requested only when the user opens the scanner.
+export async function requestNativeMicrophonePermission(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return true;
   try {
-    await NativeDevice.requestPermissions?.();
+    const result = await NativeDevice.requestMicrophone?.();
+    return result?.microphone === 'granted';
   } catch (error) {
-    console.warn('[NativeDevice] permission request skipped:', error);
+    console.warn('[Microphone] native permission request failed:', error);
+    return false;
+  }
+}
+
+export async function requestNativeNotificationPermission(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return true;
+  try {
+    const result = await NativeDevice.requestNotifications?.();
+    return result?.notifications === 'granted';
+  } catch (error) {
+    console.warn('[Notifications] native permission request failed:', error);
+    return false;
   }
 }
 
