@@ -179,17 +179,8 @@ class SupabaseDataService {
           return [];
         }
 
-        const data = queryRows;
-
-        const { data, error } = await query;
-
-        if (error) {
-          console.error('[supabaseDataService] fetchProducts error:', error.message);
-          return [];
-        }
-
         const result: SavedInventoryItem[] = [];
-        for (const row of (data || []) as DbProductRow[]) {
+        for (const row of (queryRows || []) as DbProductRow[]) {
           if (!row.encrypted_payload) {
             console.warn('[supabaseDataService] Skipping product without encrypted payload:', row.id);
             continue;
