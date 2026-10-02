@@ -237,7 +237,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
           type: 'success',
           message: `Successfully created and exported ${products.length} products to Google Sheets!`,
         });
-        fetchDriveSheets();
+        
       } catch (err: any) {
         setNotification({
           type: 'error',
@@ -273,7 +273,6 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       }
 
       const sheetName = 'Selected Google Sheet';
-      const sheetName = targetSheet?.name || 'Selected Spreadsheet';
 
       setPendingConfirmation({
         type: 'export_overwrite',
