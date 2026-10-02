@@ -1,4 +1,5 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Camera } from '@capacitor/camera';
 
 type NativeDevicePlugin = {
   requestPermissions?: () => Promise<{ camera?: string; notifications?: string; microphone?: string }>;
@@ -8,13 +9,28 @@ type NativeDevicePlugin = {
 
 const NativeDevice = registerPlugin<NativeDevicePlugin>('NativeDevice');
 
+/**
+ * Requests Android/iOS camera permission through the official Capacitor Camera plugin.
+ * The previous implementation called NativeDevice.requestCamera(), but that method
+ * was not implemented by the registered NativeDevice plugin, so it always returned
+ * an undefined permission result and blocked getUserMedia().
+ */
 export async function requestNativeCameraPermission(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return true;
+
   try {
-    const result = await NativeDevice.requestCamera?.();
-    return result?.camera === 'granted';
+    if (!Capacitor.isPluginAvailable('Camera')) {
+      console.warn('[Camera] Capacitor Camera plugin is not available.');
+      return false;
+    }
+
+    const permissions = await Camera.requestPermissions({
+      permissions: ['camera'],
+    });
+
+    return permissions.camera === 'granted';
   } catch (error) {
-    console.warn('[NativeDevice] camera permission request failed:', error);
+    console.warn('[Camera] native permission request failed:', error);
     return false;
   }
 }
@@ -22,9 +38,8 @@ export async function requestNativeCameraPermission(): Promise<boolean> {
 export async function initializeNativeDevice(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
 
-  // Native implementations can request feature-specific permissions when available.
-  // Do not request microphone permission automatically: Manager only needs it for
-  // an actual recording feature.
+  // Do not request camera or microphone automatically at app startup.
+  // Camera permission is requested only when the user opens the scanner.
   try {
     await NativeDevice.requestPermissions?.();
   } catch (error) {
