@@ -15,12 +15,11 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import { SavedInventoryItem, StockTransaction } from '../types';
 
+// Only request the Sheets permission this feature actually needs.
+// Drive-wide scopes are intentionally not requested because Google classifies
+// them as restricted access. A spreadsheet is selected explicitly by its URL/ID.
 export const GOOGLE_SHEETS_SCOPES = [
-  'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/spreadsheets',
-  'https://www.googleapis.com/auth/spreadsheets.readonly',
 ];
 
 // Initialize Firebase App instance singleton
@@ -131,6 +130,23 @@ export const getGoogleUser = (): User | null => {
   return cachedGoogleUser;
 };
 
+/**
+ * Extract a Google Spreadsheet ID from either a full Sheets URL or a raw ID.
+ * This avoids requiring the restricted Drive files.list permission.
+ */
+export const getSpreadsheetIdFromUrl = (input: string): string => {
+  const value = String(input || '').trim();
+  if (!value) throw new Error('Please enter a Google Sheets URL or spreadsheet ID.');
+
+  const urlMatch = value.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  const id = urlMatch?.[1] || (value.match(/^[a-zA-Z0-9_-]{20,}$/)?.[0] ?? '');
+
+  if (!id) {
+    throw new Error('Invalid Google Sheets URL or spreadsheet ID.');
+  }
+  return id;
+};
+
 // ============================================================================
 // GOOGLE DRIVE & SHEETS API METHODS
 // ============================================================================
@@ -145,27 +161,11 @@ export interface GoogleDriveSpreadsheet {
 /**
  * Search/list existing spreadsheets from user's Google Drive
  */
+// Google Sheets API intentionally has no "list my spreadsheets" endpoint.
+// The UI therefore accepts a specific spreadsheet URL/ID instead of using
+// the restricted Drive files.list API.
 export const listGoogleSpreadsheets = async (): Promise<GoogleDriveSpreadsheet[]> => {
-  if (!cachedAccessToken) {
-    throw new Error('Google account is not connected. Please sign in with Google first.');
-  }
-
-  const query = encodeURIComponent("mimeType='application/vnd.google-apps.spreadsheet' and trashed=false");
-  const url = `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=modifiedTime desc&pageSize=30&fields=files(id,name,modifiedTime,webViewLink)`;
-
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${cachedAccessToken}`,
-    },
-  });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error?.message || `Failed to fetch spreadsheets (${res.status})`);
-  }
-
-  const data = await res.json();
-  return data.files || [];
+  return [];
 };
 
 /**
@@ -262,7 +262,7 @@ export const createInventorySpreadsheet = async (
   };
 
   const updateRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Inventory Catalog'!A1?valueInputOption=USER_ENTERED`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent("'Inventory Catalog'!A1")}?valueInputOption=USER_ENTERED`,
     {
       method: 'PUT',
       headers: {
