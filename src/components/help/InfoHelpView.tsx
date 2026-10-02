@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { SeoLandingContent } from '../seo/SeoLandingContent';
 import { ArrowLeft, Search, ChevronDown, Info, ScanLine, Boxes, BarChart3, Bell, UserRound, ShieldCheck, Settings, CircleHelp } from 'lucide-react';
 
 type Section = { id:string; title:string; icon:React.ElementType; text:string };
@@ -15,9 +16,9 @@ const sections:Section[] = [
   {id:'help',title:'Troubleshooting',icon:CircleHelp,text:'If a feature does not work, check your internet connection, camera permissions, account status, and try again. For scanner results, use clear product images and review the extracted data before saving.'},
 ];
 
-interface Props { onClose:()=>void; }
+interface Props { onClose:()=>void; onNavigate?: (section:any, subView:any)=>void; }
 
-export const InfoHelpView:React.FC<Props> = ({onClose}) => {
+export const InfoHelpView:React.FC<Props> = ({onClose, onNavigate}) => {
   const [query,setQuery]=useState('');
   const [open,setOpen]=useState<string|null>(null);
   const filtered=useMemo(()=>{
@@ -66,6 +67,8 @@ export const InfoHelpView:React.FC<Props> = ({onClose}) => {
         </div>
 
         {filtered.length===0 && <div className="text-center py-12 text-sm text-slate-500">No help found. Try another search.</div>}
+
+        <SeoLandingContent onNavigate={onNavigate} />
       </main>
     </div>
   );
