@@ -62,6 +62,12 @@ comment on column public.inventory_transactions.encrypted_payload is
   'AES-256-GCM encrypted transaction payload. id, user_id and product_id remain queryable for RLS.';
 
 
+-- Encrypted payload is now the source of truth, so descriptive plaintext
+-- columns must be nullable before their legacy copies are removed.
+alter table public.products alter column name drop not null;
+alter table public.inventory_transactions alter column transaction_type drop not null;
+alter table public.inventory_transactions alter column quantity drop not null;
+
 -- Remove duplicate plaintext copies after encrypted_payload has been written.
 -- The encrypted payload remains the application source of truth.
 update public.profiles
