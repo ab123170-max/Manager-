@@ -8,6 +8,17 @@ type NativeDevicePlugin = {
 
 const NativeDevice = registerPlugin<NativeDevicePlugin>('NativeDevice');
 
+export async function requestNativeCameraPermission(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return true;
+  try {
+    const result = await NativeDevice.requestCamera?.();
+    return result?.camera === 'granted';
+  } catch (error) {
+    console.warn('[NativeDevice] camera permission request failed:', error);
+    return false;
+  }
+}
+
 export async function initializeNativeDevice(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
 
