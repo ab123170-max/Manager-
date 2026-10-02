@@ -311,7 +311,7 @@ class SupabaseDataService {
           }
           const isOut = row.transaction_type === 'OUT';
           const qty = Number(row.quantity);
-          return {
+          secureTransactions.push({
             id: row.id,
             transactionId: `STK-${row.id.substring(0, 8).toUpperCase()}`,
             productId: row.product_id || '',
@@ -329,22 +329,8 @@ class SupabaseDataService {
             dateTime: row.created_at,
             timestamp: new Date(row.created_at).getTime() || Date.now(),
             notes: row.notes || '',
-          };
-          secureTransactions.push({
-            id: row.id,
-            transactionId: `STK-${row.id.substring(0, 8).toUpperCase()}`,
-            productId: row.product_id || '',
-            productName: row.product_name || 'Inventory Item',
-            transactionType: (row.transaction_type === 'OUT' ? 'stock_out' : 'stock_in') as StockTransaction['transactionType'],
-            subType: (row.subtype as any) || (row.transaction_type === 'OUT' ? 'sale' : 'purchase'),
-            quantity: Number(row.quantity), unit: 'pcs', previousStock: 0, newStock: Number(row.quantity),
-            previousReservedStock: 0, newReservedStock: 0,
-            source: (row.transaction_type === 'OUT' ? 'POS' : 'Purchase') as TransactionSource,
-            referenceId: row.reference_invoice || undefined, dateTime: row.created_at,
-            timestamp: new Date(row.created_at).getTime() || Date.now(), notes: row.notes || '',
           });
-        }
-        return secureTransactions;
+        }        return secureTransactions;
       } catch (e) {
         console.error('[supabaseDataService] Network error in fetchTransactions:', e);
         return [];
