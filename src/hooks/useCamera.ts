@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { CameraState } from '../types';
+import { requestNativeCameraPermission } from '../services/nativeDevice';
 
 /**
  * ============================================================================
@@ -103,6 +104,11 @@ export function useCamera() {
 
       try {
         setCameraState((prev) => ({ ...prev, error: null }));
+
+        const nativeCameraGranted = await requestNativeCameraPermission();
+        if (!nativeCameraGranted) {
+          throw new DOMException('Camera permission was denied.', 'NotAllowedError');
+        }
 
         // Request video stream with fallback constraint handling
         let stream: MediaStream;
