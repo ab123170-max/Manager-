@@ -4,6 +4,7 @@ import './index.css';
 import { LanguageSelectorModal } from './components/common/LanguageSelectorModal';
 import { StartupSplash } from './components/common/StartupSplash';
 import { startWebUpdateChecker } from './utils/webUpdateChecker';
+import { startSeoManager } from './services/seoManager';
 
 type LoadedApp = {
   App: React.ComponentType;
@@ -86,6 +87,10 @@ function Bootstrap() {
   }, []);
 
   useEffect(() => {
+    return startSeoManager();
+  }, []);
+
+  useEffect(() => {
     let active = true;
 
     Promise.all([
@@ -124,16 +129,16 @@ function Bootstrap() {
       <>
         <StartupSplash visible={showStartupSplash} />
         <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#F5F7FA',
-        color: '#092B4C',
-        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-        fontWeight: 700
-      }}>
-        Loading ScanMe AI...
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#F5F7FA',
+          color: '#092B4C',
+          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          fontWeight: 700
+        }}>
+          Loading ScanMe AI...
         </div>
       </>
     );
