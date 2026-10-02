@@ -258,10 +258,12 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       }
 
       // Verify access before showing the overwrite confirmation.
+      let exportTab = selectedExportTab;
       try {
         const metadata = await getSpreadsheetMetadata(exportSheetId);
-        if (!metadata.sheetNames.includes(selectedExportTab)) {
-          setSelectedExportTab(metadata.sheetNames[0] || 'Sheet1');
+        if (!metadata.sheetNames.includes(exportTab)) {
+          exportTab = metadata.sheetNames[0] || 'Sheet1';
+          setSelectedExportTab(exportTab);
         }
       } catch (err: any) {
         setNotification({ type: 'error', message: err.message || 'Cannot access this Google Sheet. Check its URL and Google permissions.' });
@@ -274,11 +276,11 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       setPendingConfirmation({
         type: 'export_overwrite',
         title: `Overwrite Google Sheet: ${sheetName}?`,
-        description: `This will update tab '${selectedExportTab}' in '${sheetName}' with ${products.length} current inventory items. Existing cell data in that range will be replaced.`,
+        description: `This will update tab '${exportTab}' in '${sheetName}' with ${products.length} current inventory items. Existing cell data in that range will be replaced.`,
         action: async () => {
           setIsExporting(true);
           try {
-            await exportToExistingSpreadsheet(exportSheetId, selectedExportTab, products);
+            await exportToExistingSpreadsheet(exportSheetId, exportTab, products);
             const sheetUrl = `https://docs.google.com/spreadsheets/d/${exportSheetId}/edit`;
             setLastExportedUrl(sheetUrl);
             setNotification({
