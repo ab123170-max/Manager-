@@ -1406,6 +1406,10 @@ export default function App() {
             isOpen={true}
             onClose={() => setIsSheetsModalOpen(false)}
             onProductsUpdated={() => setProducts(getProducts())}
+            onOpenCustomerMessaging={() => {
+              setIsSheetsModalOpen(false);
+              setIsCustomerMessagingOpen(true);
+            }}
           />
         </Suspense>
       )}
