@@ -28,8 +28,8 @@ import {
   getGoogleAccessToken,
   getGoogleUser,
   subscribeGoogleAuth,
-  listGoogleSpreadsheets,
   createInventorySpreadsheet,
+  getSpreadsheetIdFromUrl,
   exportToExistingSpreadsheet,
   getSpreadsheetMetadata,
   readSpreadsheetValues,
@@ -71,6 +71,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
     `SmartStock AI - Inventory ${new Date().toISOString().split('T')[0]}`
   );
   const [selectedExportSheetId, setSelectedExportSheetId] = useState<string>('');
+  const [exportSheetInput, setExportSheetInput] = useState<string>('');
   const [availableExportTabs, setAvailableExportTabs] = useState<string[]>([]);
   const [selectedExportTab, setSelectedExportTab] = useState<string>('Inventory Catalog');
   const [isExporting, setIsExporting] = useState(false);
@@ -78,6 +79,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
 
   // Import State
   const [selectedImportSheetId, setSelectedImportSheetId] = useState<string>('');
+  const [importSheetInput, setImportSheetInput] = useState<string>('');
   const [availableImportTabs, setAvailableImportTabs] = useState<string[]>([]);
   const [selectedImportTab, setSelectedImportTab] = useState<string>('');
   const [isLoadingTabs, setIsLoadingTabs] = useState(false);
@@ -107,31 +109,27 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
     });
   }, []);
 
-  // Fetch Drive spreadsheets when user is authenticated
-  const fetchDriveSheets = async () => {
-    if (!hasToken) return;
-    setIsLoadingDrive(true);
+  // Google Sheets cannot be listed through the Sheets API.
+  // Users explicitly provide the spreadsheet URL/ID they want to connect.
+  const loadImportSpreadsheet = async () => {
+    setAuthError(null);
     try {
-      const files = await listGoogleSpreadsheets();
-      setSpreadsheets(files);
-      if (files.length > 0 && !selectedExportSheetId) {
-        setSelectedExportSheetId(files[0].id);
-      }
-      if (files.length > 0 && !selectedImportSheetId) {
-        setSelectedImportSheetId(files[0].id);
-      }
+      const id = getSpreadsheetIdFromUrl(importSheetInput);
+      const metadata = await getSpreadsheetMetadata(id);
+      setSelectedImportSheetId(id);
+      setAvailableImportTabs(metadata.sheetNames);
+      setSelectedImportTab(metadata.sheetNames[0] || '');
+      setNotification({
+        type: 'success',
+        message: `Connected to "${metadata.title}".`,
+      });
     } catch (err: any) {
-      console.error('Failed to list Google Sheets:', err);
-    } finally {
-      setIsLoadingDrive(false);
+      setNotification({
+        type: 'error',
+        message: err.message || 'Could not connect to this Google Sheet.',
+      });
     }
   };
-
-  useEffect(() => {
-    if (isOpen && hasToken) {
-      fetchDriveSheets();
-    }
-  }, [isOpen, hasToken]);
 
   // Load tabs for selected import sheet
   useEffect(() => {
@@ -199,7 +197,6 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
         type: 'success',
         message: 'Google Account connected successfully with Sheets & Drive permissions.',
       });
-      fetchDriveSheets();
     } catch (err: any) {
       setAuthError(err.message || 'Google authentication was cancelled or failed.');
     } finally {
@@ -248,8 +245,30 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
         setIsExporting(false);
       }
     } else {
-      // Overwrite/Update existing sheet -> MANDATORY CONFIRMATION DIALOG
-      const targetSheet = spreadsheets.find((s) => s.id === selectedExportSheetId);
+      // Overwrite/update an explicitly selected spreadsheet.
+      let exportSheetId = selectedExportSheetId;
+      try {
+        if (!exportSheetId) {
+          exportSheetId = getSpreadsheetIdFromUrl(exportSheetInput);
+          setSelectedExportSheetId(exportSheetId);
+        }
+      } catch (err: any) {
+        setNotification({ type: 'error', message: err.message || 'Enter a valid Google Sheet URL or ID.' });
+        return;
+      }
+
+      // Verify access before showing the overwrite confirmation.
+      try {
+        const metadata = await getSpreadsheetMetadata(exportSheetId);
+        if (!metadata.sheetNames.includes(selectedExportTab)) {
+          setSelectedExportTab(metadata.sheetNames[0] || 'Sheet1');
+        }
+      } catch (err: any) {
+        setNotification({ type: 'error', message: err.message || 'Cannot access this Google Sheet. Check its URL and Google permissions.' });
+        return;
+      }
+
+      const sheetName = 'Selected Google Sheet';
       const sheetName = targetSheet?.name || 'Selected Spreadsheet';
 
       setPendingConfirmation({
@@ -259,8 +278,8 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
         action: async () => {
           setIsExporting(true);
           try {
-            await exportToExistingSpreadsheet(selectedExportSheetId, selectedExportTab, products);
-            const sheetUrl = `https://docs.google.com/spreadsheets/d/${selectedExportSheetId}/edit`;
+            await exportToExistingSpreadsheet(exportSheetId, selectedExportTab, products);
+            const sheetUrl = `https://docs.google.com/spreadsheets/d/${exportSheetId}/edit`;
             setLastExportedUrl(sheetUrl);
             setNotification({
               type: 'success',
@@ -453,7 +472,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Allow SmartStock AI to access Google Drive and Google Sheets to export and import your product catalog, with permission from your Google Account.
+                  Allow SmartStock AI to access the Google Sheet you choose, with permission from your Google Account.
                 </p>
                 {authError && (
                   <p className="text-[11px] font-bold text-rose-600 pt-1">
@@ -520,15 +539,6 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={fetchDriveSheets}
-                  disabled={isLoadingDrive}
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-                  title="Refresh Drive Spreadsheets"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDrive ? 'animate-spin' : ''}`} />
-                </button>
                 <button
                   type="button"
                   onClick={handleDisconnect}
@@ -635,22 +645,21 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-800 mb-1">
-                      Select Google Sheet from Drive
+                      Google Sheet URL or ID
                     </label>
-                    <select
-                      value={selectedExportSheetId}
-                      onChange={(e) => setSelectedExportSheetId(e.target.value)}
+                    <input
+                      type="text"
+                      value={exportSheetInput}
+                      onChange={(e) => {
+                        setExportSheetInput(e.target.value);
+                        setSelectedExportSheetId('');
+                      }}
                       className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                    >
-                      {spreadsheets.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                      {spreadsheets.length === 0 && (
-                        <option value="">No Google Sheets found in your Drive</option>
-                      )}
-                    </select>
+                      placeholder="https://docs.google.com/spreadsheets/d/..."
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Paste the Sheet URL. You do not need to share your whole Google Drive.
+                    </p>
                   </div>
 
                   <div>
@@ -722,24 +731,30 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
           {/* TAB 2: IMPORT */}
           {activeTab === 'import' && (
             <div className="space-y-4">
-              <div>
+              <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-800 mb-1">
-                  Choose Spreadsheet to Import From
+                  Google Sheet URL or ID
                 </label>
-                <select
-                  value={selectedImportSheetId}
-                  onChange={(e) => setSelectedImportSheetId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                >
-                  {spreadsheets.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                  {spreadsheets.length === 0 && (
-                    <option value="">No Google Sheets found in your Drive</option>
-                  )}
-                </select>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={importSheetInput}
+                    onChange={(e) => setImportSheetInput(e.target.value)}
+                    className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-medium focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                  />
+                  <button
+                    type="button"
+                    onClick={loadImportSpreadsheet}
+                    disabled={!hasToken || isLoadingTabs || !importSheetInput.trim()}
+                    className="px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold disabled:opacity-50"
+                  >
+                    {isLoadingTabs ? 'Loading…' : 'Load Sheet'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Paste the Sheet URL and allow SmartStock AI to access that spreadsheet.
+                </p>
               </div>
 
               {/* Sheet Tab Picker */}
