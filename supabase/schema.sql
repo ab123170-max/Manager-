@@ -12,6 +12,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   auth_user_id UUID UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  encrypted_payload TEXT,
   full_name TEXT,
   business_name TEXT,
   country TEXT,
@@ -34,6 +35,8 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEA
 
 -- Index for fast lookups by auth_user_id
 CREATE INDEX IF NOT EXISTS idx_profiles_auth_user_id ON public.profiles(auth_user_id);
+
+ALTER TABLE public.profiles ALTER COLUMN encrypted_payload DROP DEFAULT;
 
 -- Enable Row Level Security (RLS) on profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -95,7 +98,8 @@ CREATE TRIGGER on_auth_user_created
 CREATE TABLE IF NOT EXISTS public.products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
+  encrypted_payload TEXT,
+  name TEXT,
   barcode TEXT,
   price NUMERIC DEFAULT 0,
   purchase_price NUMERIC DEFAULT 0,
@@ -156,9 +160,10 @@ CREATE TABLE IF NOT EXISTS public.inventory_transactions (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   product_id UUID REFERENCES public.products(id) ON DELETE CASCADE,
   product_name TEXT,
-  transaction_type TEXT NOT NULL CHECK (transaction_type IN ('IN', 'OUT')),
+  encrypted_payload TEXT,
+  transaction_type TEXT CHECK (transaction_type IN ('IN', 'OUT')),
   subtype TEXT,
-  quantity NUMERIC NOT NULL,
+  quantity NUMERIC,
   price NUMERIC DEFAULT 0,
   total_amount NUMERIC DEFAULT 0,
   notes TEXT,
