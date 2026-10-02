@@ -4,6 +4,7 @@ import { Camera } from '@capacitor/camera';
 type NativeDevicePlugin = {
   requestPermissions?: () => Promise<{ camera?: string; notifications?: string; microphone?: string }>;
   speak?: (options: { text: string; language?: string; rate?: number }) => Promise<void>;
+  notify?: (options: { title?: string; body: string }) => Promise<void>;
   vibrate?: (options?: { duration?: number }) => Promise<void>;
 };
 
@@ -44,6 +45,18 @@ export async function initializeNativeDevice(): Promise<void> {
     await NativeDevice.requestPermissions?.();
   } catch (error) {
     console.warn('[NativeDevice] permission request skipped:', error);
+  }
+}
+
+export async function notifyNative(title: string, body: string): Promise<boolean> {
+  if (!body?.trim() || !Capacitor.isNativePlatform()) return false;
+  try {
+    if (!NativeDevice.notify) return false;
+    await NativeDevice.notify({ title, body });
+    return true;
+  } catch (error) {
+    console.warn('[NativeDevice] notification failed:', error);
+    return false;
   }
 }
 
