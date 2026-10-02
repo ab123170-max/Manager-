@@ -54,11 +54,7 @@ const ToastContainer = lazy(() =>
     default: m.ToastContainer,
   }))
 );
-const SeoLandingContent = lazy(() =>
-  import('./components/seo/SeoLandingContent').then((m) => ({
-    default: m.SeoLandingContent,
-  }))
-);
+
 const HomeScreenActiveExpiryAlerts = lazy(() =>
   import('./components/scanner/HomeScreenActiveExpiryAlerts').then((m) => ({
     default: m.HomeScreenActiveExpiryAlerts,
@@ -1311,10 +1307,6 @@ export default function App() {
         {/* Google AdSense Placement - Non-intrusive container below active dashboard slider */}
         <AdSenseUnit className="max-w-4xl mx-auto my-6" />
 
-        {/* Crawlable Landing Page Content & SEO Knowledge Base */}
-        <Suspense fallback={null}>
-          <SeoLandingContent onNavigate={handleNavigate} />
-        </Suspense>
       </main>
 
       {/* Semantic Site Footer */}
@@ -1385,7 +1377,7 @@ export default function App() {
 
       {isInfoHelpOpen && (
         <Suspense fallback={null}>
-          <InfoHelpViewLazy onClose={() => setIsInfoHelpOpen(false)} />
+          <InfoHelpViewLazy onClose={() => setIsInfoHelpOpen(false)} onNavigate={handleNavigate} />
         </Suspense>
       )}
 
