@@ -187,10 +187,13 @@ export function translateKey(
     text = getNested(fallbackDictionary, key);
   }
 
-  // 3. If still missing, return the human-friendly key leaf so UI remains informative
-  if (!text) {
+  // 3. Never expose numeric/array-index fallbacks in the UI.
+  // This protects guide content from showing values such as "2" when an
+  // older cached dictionary or malformed translation entry is encountered.
+  if (!text || /^\d+$/.test(String(text).trim())) {
     const segments = key.split('.');
-    text = segments[segments.length - 1] || key;
+    const leaf = segments[segments.length - 1] || key;
+    text = leaf && !/^\d+$/.test(leaf) ? leaf : key;
   }
 
   // Parameter replacement: {paramName}
