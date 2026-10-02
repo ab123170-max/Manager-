@@ -60,3 +60,56 @@ comment on column public.products.encrypted_payload is
   'AES-256-GCM encrypted inventory payload. id and user_id remain queryable for RLS.';
 comment on column public.inventory_transactions.encrypted_payload is
   'AES-256-GCM encrypted transaction payload. id, user_id and product_id remain queryable for RLS.';
+
+
+-- Encrypted payload is now the source of truth, so descriptive plaintext
+-- columns must be nullable before their legacy copies are removed.
+alter table public.products alter column name drop not null;
+alter table public.inventory_transactions alter column transaction_type drop not null;
+alter table public.inventory_transactions alter column quantity drop not null;
+
+-- Remove duplicate plaintext copies after encrypted_payload has been written.
+-- The encrypted payload remains the application source of truth.
+update public.profiles
+set full_name = null,
+    business_name = null,
+    country = null,
+    username = null,
+    email = null,
+    phone = null,
+    profile_image_url = null,
+    address = null,
+    language = null,
+    currency = null,
+    onboarding_completed = null
+where encrypted_payload is not null;
+
+update public.products
+set name = null,
+    barcode = null,
+    price = null,
+    purchase_price = null,
+    quantity = null,
+    manufacture_date = null,
+    expiry_date = null,
+    best_before_months = null,
+    unit = null,
+    description = null,
+    category = null,
+    batch_number = null,
+    rack_location = null,
+    supplier = null,
+    mrp = null,
+    min_stock_alert = null
+where encrypted_payload is not null;
+
+update public.inventory_transactions
+set product_name = null,
+    transaction_type = null,
+    subtype = null,
+    quantity = null,
+    price = null,
+    total_amount = null,
+    notes = null,
+    reference_invoice = null
+where encrypted_payload is not null;

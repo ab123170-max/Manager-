@@ -521,11 +521,9 @@ class AuthService {
    */
   private async fetchProfileFromDb(authUserId: string, bypassCache = false): Promise<UserProfile | null> {
     if (!isSupabaseConfigured()) return null;
-
     if (!bypassCache && this.activeSession?.profile?.auth_user_id === authUserId) {
       return this.activeSession.profile;
     }
-
     if (this.profilePromises.has(authUserId)) {
       return this.profilePromises.get(authUserId)!;
     }
@@ -538,33 +536,34 @@ class AuthService {
           .eq('auth_user_id', authUserId)
           .maybeSingle();
 
-        if (error) {
-          console.warn('[authService] fetchProfileFromDb error:', error.message);
+        if (error || !data) return null;
+
+        if (!data.encrypted_payload) {
+          console.warn('[authService] Profile exists without encrypted_payload; refusing to read plaintext profile columns.');
           return null;
         }
 
-        if (!data) return null;
-
+        const decrypted = await decryptUserData<Record<string, any>>(authUserId, data.encrypted_payload);
         return {
           id: data.id,
           auth_user_id: data.auth_user_id,
-          full_name: data.full_name || '',
-          business_name: data.business_name || '',
-          country: data.country || 'Nepal',
-          username: data.username || '',
-          email: data.email || '',
-          phone: data.phone || '',
-          profile_image_url: data.profile_image_url || '',
-          address: data.address || '',
-          language: data.language || 'English',
-          currency: data.currency || 'NPR',
-          onboarding_completed: true,
+          full_name: decrypted.full_name || '',
+          business_name: decrypted.business_name || '',
+          country: decrypted.country || 'Nepal',
+          username: decrypted.username || '',
+          email: decrypted.email || '',
+          phone: decrypted.phone || '',
+          profile_image_url: decrypted.profile_image_url || '',
+          address: decrypted.address || '',
+          language: decrypted.language || 'English',
+          currency: decrypted.currency || 'NPR',
+          onboarding_completed: Boolean(decrypted.onboarding_completed),
           created_at: data.created_at,
           updated_at: data.updated_at,
-          is_profile_complete: true,
+          is_profile_complete: Boolean(decrypted.full_name && (decrypted.business_name || decrypted.username)),
         };
       } catch (e) {
-        console.error('[authService] fetchProfileFromDb exception:', e);
+        console.error('[authService] fetchProfileFromDb decryption error:', e);
         return null;
       } finally {
         this.profilePromises.delete(authUserId);
@@ -582,501 +581,53 @@ class AuthService {
   private async createDefaultProfile(sbUser: any): Promise<UserProfile | null> {
     if (!isSupabaseConfigured()) return null;
 
-    try {
-      const now = new Date().toISOString();
-      const meta = sbUser.user_metadata || {};
-      const defaultName = (meta.full_name || meta.name || '').trim();
-      const defaultBusiness = (meta.business_name || meta.shop_name || '').trim();
-      const defaultCountry = (meta.country || 'Nepal').trim();
-      const defaultUsername = (
-        meta.username ||
-        defaultBusiness.toLowerCase().replace(/[^a-z0-9_]/g, '') ||
-        sbUser.email?.split('@')[0] ||
-        `user_${sbUser.id.substring(0, 6)}`
-      ).toLowerCase().replace(/[^a-zA-Z0-9_]/g, '');
+    const meta = sbUser.user_metadata || {};
+    const defaultName = (meta.full_name || meta.name || '').trim();
+    const defaultBusiness = (meta.business_name || meta.shop_name || '').trim();
+    const defaultCountry = (meta.country || 'Nepal').trim();
+    const defaultUsername = (
+      meta.username ||
+      defaultBusiness.toLowerCase().replace(/[^a-z0-9_]/g, '') ||
+      sbUser.email?.split('@')[0] ||
+      `user_${sbUser.id.substring(0, 6)}`
+    ).toLowerCase().replace(/[^a-zA-Z0-9_]/g, '');
 
-      const initialData = {
-        auth_user_id: sbUser.id,
-        full_name: defaultName,
-        business_name: defaultBusiness,
-        country: defaultCountry,
-        username: defaultUsername,
-        email: sbUser.email || '',
-        phone: sbUser.phone || meta.phone || '',
-        profile_image_url: meta.avatar_url || meta.picture || '',
-        address: '',
-        language: 'English',
-        currency: 'NPR',
-        onboarding_completed: true,
-        created_at: now,
-        updated_at: now,
-      };
+    // Do not write profile fields to plaintext columns. saveProfileDirect
+    // encrypts the complete profile using the authenticated user's key.
+    const encryptedProfile = await this.saveProfileDirect(sbUser.id, {
+      full_name: defaultName || 'Shopkeeper',
+      business_name: defaultBusiness || 'My Store',
+      country: defaultCountry || 'Nepal',
+      username: defaultUsername || `user_${sbUser.id.substring(0, 6)}`,
+      email: sbUser.email || '',
+      phone: sbUser.phone || meta.phone || '',
+      profile_image_url: meta.avatar_url || meta.picture || '',
+      address: '',
+      language: 'English',
+      currency: 'NPR',
+    });
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .insert(initialData)
-        .select()
-        .maybeSingle();
+    if (encryptedProfile) return encryptedProfile;
 
-      if (error) {
-        console.warn('[authService] createDefaultProfile insert failed, checking if already created by DB trigger:', error.message);
-        // If a database trigger or another request already inserted the row, re-fetch
-        const fallback = await this.fetchProfileFromDb(sbUser.id, true);
-        if (fallback) return fallback;
-        // Resilient fallback profile so user is never blocked by database insertion delays
-        return {
-          id: `profile_${sbUser.id.substring(0, 8)}`,
-          auth_user_id: sbUser.id,
-          full_name: defaultName || 'Shopkeeper',
-          business_name: defaultBusiness || 'My Store',
-          country: defaultCountry || 'Nepal',
-          username: defaultUsername || `user_${sbUser.id.substring(0, 6)}`,
-          email: sbUser.email || '',
-          phone: sbUser.phone || meta.phone || '',
-          profile_image_url: meta.avatar_url || meta.picture || '',
-          address: '',
-          language: 'English',
-          currency: 'NPR',
-          onboarding_completed: true,
-          created_at: now,
-          updated_at: now,
-          is_profile_complete: true,
-        };
-      }
-
-      if (!data) {
-        return {
-          id: `profile_${sbUser.id.substring(0, 8)}`,
-          auth_user_id: sbUser.id,
-          full_name: defaultName || 'Shopkeeper',
-          business_name: defaultBusiness || 'My Store',
-          country: defaultCountry || 'Nepal',
-          username: defaultUsername || `user_${sbUser.id.substring(0, 6)}`,
-          email: sbUser.email || '',
-          phone: sbUser.phone || meta.phone || '',
-          profile_image_url: meta.avatar_url || meta.picture || '',
-          address: '',
-          language: 'English',
-          currency: 'NPR',
-          onboarding_completed: true,
-          created_at: now,
-          updated_at: now,
-          is_profile_complete: true,
-        };
-      }
-
-      return {
-        id: data.id,
-        auth_user_id: data.auth_user_id,
-        full_name: data.full_name || '',
-        business_name: data.business_name || '',
-        country: data.country || 'Nepal',
-        username: data.username || '',
-        email: data.email || '',
-        phone: data.phone || '',
-        profile_image_url: data.profile_image_url || '',
-        address: data.address || '',
-        language: data.language || 'English',
-        currency: data.currency || 'NPR',
-        onboarding_completed: true,
-        created_at: data.created_at,
-        updated_at: data.updated_at,
-        is_profile_complete: true,
-      };
-    } catch (e) {
-      console.error('[authService] createDefaultProfile exception:', e);
-      const meta = sbUser.user_metadata || {};
-      return {
-        id: `profile_${sbUser.id.substring(0, 8)}`,
-        auth_user_id: sbUser.id,
-        full_name: (meta.full_name || meta.name || 'Shopkeeper').trim(),
-        business_name: (meta.business_name || 'My Store').trim(),
-        country: (meta.country || 'Nepal').trim(),
-        username: (meta.username || `user_${sbUser.id.substring(0, 6)}`).toLowerCase(),
-        email: sbUser.email || '',
-        phone: sbUser.phone || meta.phone || '',
-        profile_image_url: meta.avatar_url || meta.picture || '',
-        address: '',
-        language: 'English',
-        currency: 'NPR',
-        onboarding_completed: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        is_profile_complete: true,
-      };
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helper for unconfigured Supabase error message
-  // ---------------------------------------------------------------------------
-  private getUnconfiguredError(): string {
-    const missing = getSupabaseMissingVars();
-    return `Supabase authentication is not configured. Missing required environment variables: ${missing.join(', ')}. Please configure them in your environment settings.`;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Session Getters & Setters
-  // ---------------------------------------------------------------------------
-  getSession(): AuthSession | null {
-    // Return active session without automatically calling signOut or clearSession.
-    // Supabase Auth handles automatic token refresh in the background via autoRefreshToken: true.
-    return this.activeSession;
-  }
-
-  setSession(session: AuthSession): void {
-    this.activeSession = session;
-    notifyAuthListeners(session);
-  }
-
-  private clearLocalSessionState(): void {
-    this.activeSession = null;
-    try {
-      localStorage.removeItem(STORAGE_KEYS.SESSION_CACHE);
-    } catch {}
-    notifyAuthListeners(null);
-  }
-
-  async clearSession(): Promise<void> {
-    this.activeSession = null;
-    this.isPasswordRecovery = false;
-    this.clearPendingOnboardingProfile();
-    try {
-      localStorage.removeItem(STORAGE_KEYS.SESSION_CACHE);
-    } catch {}
-
-    if (isSupabaseConfigured()) {
-      try {
-        await supabase.auth.signOut();
-      } catch (e) {
-        console.warn('[authService] Supabase signOut error:', e);
-      }
-    }
-    notifyAuthListeners(null);
-  }
-
-  async logout(): Promise<void> {
-    await this.clearSession();
-  }
-
-  isAuthenticated(): boolean {
-    const session = this.getSession();
-    return Boolean(session && session.user && session.token);
-  }
-
-  getCurrentUser(): AuthUser | null {
-    return this.getSession()?.user || null;
-  }
-
-  getCurrentProfile(): UserProfile | null {
-    return this.getSession()?.profile || null;
-  }
-
-  isOnboardingCompleted(): boolean {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.ONBOARDING_COMPLETED) === 'true';
-    } catch {
-      return false;
-    }
-  }
-
-  setOnboardingCompleted(completed: boolean): void {
-    try {
-      localStorage.setItem(STORAGE_KEYS.ONBOARDING_COMPLETED, completed ? 'true' : 'false');
-    } catch (e) {
-      console.error('[authService] Failed to set onboarding state:', e);
-    }
-  }
-
-  isRecoveryMode(): boolean {
-    return this.isPasswordRecovery;
-  }
-
-  setRecoveryMode(value: boolean): void {
-    this.isPasswordRecovery = value;
-    notifyRecoveryListeners(value);
-  }
-
-  // ---------------------------------------------------------------------------
-  // 1. Email Registration (Sign Up)
-  // ---------------------------------------------------------------------------
-  async registerWithEmail({
-    fullName,
-    email,
-    password,
-    phone,
-  }: RegisterEmailParams): Promise<AuthOperationResult> {
-    if (!isSupabaseConfigured()) {
-      return {
-        success: false,
-        error: this.getUnconfiguredError(),
-      };
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanName = fullName.trim();
-    const cleanPhone = phone?.trim() || undefined;
-
-    if (!cleanName) {
-      return { success: false, error: 'Please enter your full name.' };
-    }
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      return { success: false, error: 'Please enter a valid email address.' };
-    }
-    if (!password || password.length < 6) {
-      return { success: false, error: 'Password must be at least 6 characters.' };
-    }
-
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-        options: {
-          data: {
-            full_name: cleanName,
-            phone: cleanPhone,
-          },
-          emailRedirectTo: window.location.origin,
-        },
-      });
-
-      if (error) {
-        return {
-          success: false,
-          error: formatUserFriendlyError(error, 'Registration failed. Please try again.'),
-        };
-      }
-
-      // Check if user is already registered in Supabase
-      // When email confirmation is on, Supabase returns a user object with an empty identities array for existing users
-      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        return {
-          success: false,
-          isExistingUser: true,
-          error: 'An account with this email address already exists. Please log in with your password, or use "Forgot Password?" to reset your password.',
-        };
-      }
-
-      // Case 1: Supabase email confirmation is enabled (data.user exists, but no active session)
-      if (data.user && !data.session) {
-        return {
-          success: true,
-          emailConfirmationRequired: true,
-          message:
-            'Registration successful! A confirmation email has been sent. Please check your inbox and spam folder to confirm your account.',
-        };
-      }
-
-      // Case 2: Supabase returned an active session immediately
-      if (data.session) {
-        const appSession = await this.handleSupabaseSession(data.session);
-        return {
-          success: true,
-          session: appSession || undefined,
-          isNewUser: false,
-        };
-      }
-
-      return {
-        success: true,
-        emailConfirmationRequired: true,
-        message: 'Account created. Please confirm your email address once. After confirmation, return to the app and sign in.',
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        error: formatUserFriendlyError(err, 'An error occurred during registration.'),
-      };
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // 2. Email Login (Sign In With Password)
-  // ---------------------------------------------------------------------------
-  async loginWithEmailPassword(
-    email: string,
-    password: string
-  ): Promise<AuthOperationResult> {
-    if (!isSupabaseConfigured()) {
-      return {
-        success: false,
-        error: this.getUnconfiguredError(),
-      };
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      return { success: false, error: 'Please enter a valid email address.' };
-    }
-    if (!password) {
-      return { success: false, error: 'Please enter your password.' };
-    }
-
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
-
-      if (error) {
-        return {
-          success: false,
-          error: formatUserFriendlyError(error, 'Invalid email or password.'),
-        };
-      }
-
-      if (data.session) {
-        const appSession = await this.handleSupabaseSession(data.session);
-        return {
-          success: true,
-          session: appSession || undefined,
-          isNewUser: false,
-        };
-      }
-
-      return {
-        success: false,
-        error: 'Unable to establish an authenticated session. Please try again.',
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        error: formatUserFriendlyError(err, 'Email login error.'),
-      };
-    }
-  }
-
-  // Backward compatible alias
-  async loginWithEmail(
-    email: string,
-    mode: 'login' | 'signup' = 'login',
-    password?: string
-  ): Promise<AuthOperationResult> {
-    if (mode === 'signup') {
-      return this.registerWithEmail({
-        fullName: email.split('@')[0],
-        email,
-        password: password || 'TempPass123!',
-      });
-    }
-    return this.loginWithEmailPassword(email, password || '');
-  }
-
-  // ---------------------------------------------------------------------------
-  // 3. Forgot Password / Password Reset Flow
-  // ---------------------------------------------------------------------------
-  async resetPasswordForEmail(email: string): Promise<{ success: boolean; message: string; error?: string }> {
-    if (!isSupabaseConfigured()) {
-      return {
-        success: false,
-        message: this.getUnconfiguredError(),
-        error: 'SUPABASE_UNCONFIGURED',
-      };
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      return {
-        success: false,
-        message: 'Please enter a valid email address.',
-        error: 'INVALID_EMAIL',
-      };
-    }
-
-    try {
-      const resetRedirectUrl = 'https://scanme-ai-ab123170-max.vercel.app/reset-password';
-
-      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-        redirectTo: resetRedirectUrl,
-      });
-
-      if (error) {
-        // Only surface network or rate limit errors; don't leak user existence
-        const msg = String(error.message || '').toLowerCase();
-        if (msg.includes('rate limit') || msg.includes('too many')) {
-          return {
-            success: false,
-            message: 'Too many requests. Please wait a few moments before trying again.',
-            error: error.message,
-          };
-        }
-        if (msg.includes('network') || msg.includes('fetch')) {
-          return {
-            success: false,
-            message: 'Network connection error. Please verify your connection.',
-            error: error.message,
-          };
-        }
-      }
-
-      return {
-        success: true,
-        message:
-          'If an account exists for this email, a password reset link has been sent. Please check your inbox and spam folder.',
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        message: formatUserFriendlyError(err, 'Failed to send password reset email.'),
-        error: err.message,
-      };
-    }
-  }
-
-  async updateUserPassword(newPassword: string): Promise<{ success: boolean; message: string; error?: string }> {
-    if (!isSupabaseConfigured()) {
-      return {
-        success: false,
-        message: this.getUnconfiguredError(),
-        error: 'SUPABASE_UNCONFIGURED',
-      };
-    }
-
-    if (!newPassword || newPassword.length < 6) {
-      return {
-        success: false,
-        message: 'Password must be at least 6 characters long.',
-        error: 'PASSWORD_TOO_SHORT',
-      };
-    }
-
-    try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
-      if (error) {
-        return {
-          success: false,
-          message: formatUserFriendlyError(error, 'Failed to update password.'),
-          error: error.message,
-        };
-      }
-
-      // End the recovery session so the user returns to the normal login
-      // flow instead of being silently treated as already signed in.
-      this.isPasswordRecovery = false;
-      notifyRecoveryListeners(false);
-
-      try {
-        await supabase.auth.signOut();
-      } catch (signOutError) {
-        console.warn('[authService] Recovery signOut after password update failed:', signOutError);
-      }
-
-      this.clearLocalSessionState();
-
-      return {
-        success: true,
-        message: 'Your password has been successfully updated. You can now log in with your new password.',
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        message: formatUserFriendlyError(err, 'Password update error.'),
-        error: err.message,
-      };
-    }
+    // Keep an in-memory fallback only; never persist this plaintext profile.
+    return {
+      id: `profile_${sbUser.id.substring(0, 8)}`,
+      auth_user_id: sbUser.id,
+      full_name: defaultName || 'Shopkeeper',
+      business_name: defaultBusiness || 'My Store',
+      country: defaultCountry || 'Nepal',
+      username: defaultUsername || `user_${sbUser.id.substring(0, 6)}`,
+      email: sbUser.email || '',
+      phone: sbUser.phone || meta.phone || '',
+      profile_image_url: meta.avatar_url || meta.picture || '',
+      address: '',
+      language: 'English',
+      currency: 'NPR',
+      onboarding_completed: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      is_profile_complete: true,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -1460,47 +1011,62 @@ class AuthService {
     };
 
     try {
+      const encrypted_payload = await encryptUserData(authUserId, {
+        full_name: updatedProfile.full_name,
+        business_name: updatedProfile.business_name,
+        country: updatedProfile.country,
+        username: updatedProfile.username,
+        email: updatedProfile.email,
+        phone: updatedProfile.phone,
+        profile_image_url: updatedProfile.profile_image_url,
+        address: updatedProfile.address,
+        language: updatedProfile.language,
+        currency: updatedProfile.currency,
+        onboarding_completed: true,
+      });
+
       const { data, error } = await supabase
         .from('profiles')
         .upsert(
           {
             auth_user_id: authUserId,
-            full_name: updatedProfile.full_name,
-            business_name: updatedProfile.business_name,
-            country: updatedProfile.country,
-            username: updatedProfile.username,
-            email: updatedProfile.email,
-            phone: updatedProfile.phone,
-            profile_image_url: updatedProfile.profile_image_url,
-            address: updatedProfile.address,
-            language: updatedProfile.language,
-            currency: updatedProfile.currency,
-            onboarding_completed: true,
+            encrypted_payload,
             updated_at: now,
           },
           { onConflict: 'auth_user_id' }
         )
-        .select()
+        .select('id, auth_user_id, encrypted_payload, created_at, updated_at')
         .single();
 
       if (error) {
         console.error('[authService] saveProfile Supabase error:', error);
         return {
           success: false,
-          error: formatUserFriendlyError(error, 'Failed to save profile in database.'),
+          error: formatUserFriendlyError(error, 'Failed to save encrypted profile in database.'),
         };
       }
 
-      if (data) {
+      if (data?.encrypted_payload) {
+        const decrypted = await decryptUserData<Record<string, any>>(authUserId, data.encrypted_payload);
         updatedProfile.id = data.id;
-        updatedProfile.created_at = data.created_at;
-        updatedProfile.updated_at = data.updated_at;
+        updatedProfile.created_at = data.created_at || now;
+        updatedProfile.updated_at = data.updated_at || now;
+        updatedProfile.full_name = decrypted.full_name || '';
+        updatedProfile.business_name = decrypted.business_name || '';
+        updatedProfile.country = decrypted.country || 'Nepal';
+        updatedProfile.username = decrypted.username || '';
+        updatedProfile.email = decrypted.email || '';
+        updatedProfile.phone = decrypted.phone || '';
+        updatedProfile.profile_image_url = decrypted.profile_image_url || '';
+        updatedProfile.address = decrypted.address || '';
+        updatedProfile.language = decrypted.language || 'English';
+        updatedProfile.currency = decrypted.currency || 'NPR';
       }
     } catch (err: any) {
-      console.error('[authService] saveProfile network error:', err);
+      console.error('[authService] saveProfile encryption/network error:', err);
       return {
         success: false,
-        error: formatUserFriendlyError(err, 'Network error saving profile.'),
+        error: formatUserFriendlyError(err, 'Failed to securely save profile.'),
       };
     }
 

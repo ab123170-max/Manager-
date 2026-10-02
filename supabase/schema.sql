@@ -72,40 +72,15 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  BEGIN
-    INSERT INTO public.profiles (
-      auth_user_id,
-      full_name,
-      username,
-      email,
-      phone,
-      profile_image_url,
-      language,
-      currency,
-      created_at,
-      updated_at
-    )
-    VALUES (
-      NEW.id,
-      COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', ''),
-      LOWER(REGEXP_REPLACE(COALESCE(NEW.raw_user_meta_data->>'username', SPLIT_PART(NEW.email, '@', 1), 'user_' || SUBSTRING(NEW.id::text, 1, 6)), '[^a-zA-Z0-9_]', '', 'g')),
-      COALESCE(NEW.email, ''),
-      COALESCE(NEW.phone, ''),
-      COALESCE(NEW.raw_user_meta_data->>'avatar_url', NEW.raw_user_meta_data->>'picture', ''),
-      'English',
-      'NPR',
-      NOW(),
-      NOW()
-    )
-    ON CONFLICT (auth_user_id) DO NOTHING;
-  EXCEPTION WHEN OTHERS THEN
-    -- Prevent trigger errors from aborting the user creation in auth.users
-    RAISE WARNING 'handle_new_user non-fatal error: %', SQLERRM;
-  END;
+  -- Create only the ownership row. Profile fields are written by the app
+  -- through the encrypted_payload column after authentication.
+  INSERT INTO public.profiles (auth_user_id)
+  VALUES (NEW.id)
+  ON CONFLICT (auth_user_id) DO NOTHING;
 
   RETURN NEW;
 END;
-$$;
+$$
 
 -- Drop existing trigger if present and recreate
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
