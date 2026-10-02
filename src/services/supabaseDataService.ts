@@ -296,11 +296,15 @@ class SupabaseDataService {
         const limit = options?.limit ?? 100;
         const offset = options?.offset ?? 0;
 
+        const { data: authData } = await supabase.auth.getUser();
+        if (!authData.user || authData.user.id !== userId) {
+          console.warn('[supabaseDataService] Refusing transaction read for non-authenticated user.');
+          return [];
+        }
+
         const { data, error } = await supabase
           .from('inventory_transactions')
-          .select(
-            'id, user_id, product_id, product_name, transaction_type, subtype, quantity, price, total_amount, notes, reference_invoice, created_at, encrypted_payload'
-          )
+          .select('id, user_id, product_id, encrypted_payload, created_at')
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .range(offset, offset + limit - 1);
@@ -312,14 +316,16 @@ class SupabaseDataService {
 
         const secureTransactions: StockTransaction[] = [];
         for (const row of (data || []) as DbTransactionRow[]) {
-          if (row.encrypted_payload) {
-            try {
-              secureTransactions.push(await decryptUserData<StockTransaction>(userId, row.encrypted_payload));
-              continue;
-            } catch (e) {
-              console.warn('[supabaseDataService] encrypted transaction could not be decrypted; using legacy row:', e);
-            }
+          if (!row.encrypted_payload) {
+            console.warn('[supabaseDataService] Skipping transaction without encrypted payload:', row.id);
+            continue;
           }
+          try {
+            secureTransactions.push(await decryptUserData<StockTransaction>(userId, row.encrypted_payload));
+          } catch (e) {
+            console.warn('[supabaseDataService] encrypted transaction could not be decrypted; skipping row:', e);
+          }
+          continue;
           const isOut = row.transaction_type === 'OUT';
           const qty = Number(row.quantity);
           secureTransactions.push({
