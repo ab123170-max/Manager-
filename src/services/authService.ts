@@ -1459,47 +1459,62 @@ class AuthService {
     };
 
     try {
+      const encrypted_payload = await encryptUserData(authUserId, {
+        full_name: updatedProfile.full_name,
+        business_name: updatedProfile.business_name,
+        country: updatedProfile.country,
+        username: updatedProfile.username,
+        email: updatedProfile.email,
+        phone: updatedProfile.phone,
+        profile_image_url: updatedProfile.profile_image_url,
+        address: updatedProfile.address,
+        language: updatedProfile.language,
+        currency: updatedProfile.currency,
+        onboarding_completed: true,
+      });
+
       const { data, error } = await supabase
         .from('profiles')
         .upsert(
           {
             auth_user_id: authUserId,
-            full_name: updatedProfile.full_name,
-            business_name: updatedProfile.business_name,
-            country: updatedProfile.country,
-            username: updatedProfile.username,
-            email: updatedProfile.email,
-            phone: updatedProfile.phone,
-            profile_image_url: updatedProfile.profile_image_url,
-            address: updatedProfile.address,
-            language: updatedProfile.language,
-            currency: updatedProfile.currency,
-            onboarding_completed: true,
+            encrypted_payload,
             updated_at: now,
           },
           { onConflict: 'auth_user_id' }
         )
-        .select()
+        .select('id, auth_user_id, encrypted_payload, created_at, updated_at')
         .single();
 
       if (error) {
         console.error('[authService] saveProfile Supabase error:', error);
         return {
           success: false,
-          error: formatUserFriendlyError(error, 'Failed to save profile in database.'),
+          error: formatUserFriendlyError(error, 'Failed to save encrypted profile in database.'),
         };
       }
 
-      if (data) {
+      if (data?.encrypted_payload) {
+        const decrypted = await decryptUserData<Record<string, any>>(authUserId, data.encrypted_payload);
         updatedProfile.id = data.id;
-        updatedProfile.created_at = data.created_at;
-        updatedProfile.updated_at = data.updated_at;
+        updatedProfile.created_at = data.created_at || now;
+        updatedProfile.updated_at = data.updated_at || now;
+        updatedProfile.full_name = decrypted.full_name || '';
+        updatedProfile.business_name = decrypted.business_name || '';
+        updatedProfile.country = decrypted.country || 'Nepal';
+        updatedProfile.username = decrypted.username || '';
+        updatedProfile.email = decrypted.email || '';
+        updatedProfile.phone = decrypted.phone || '';
+        updatedProfile.profile_image_url = decrypted.profile_image_url || '';
+        updatedProfile.address = decrypted.address || '';
+        updatedProfile.language = decrypted.language || 'English';
+        updatedProfile.currency = decrypted.currency || 'NPR';
       }
     } catch (err: any) {
-      console.error('[authService] saveProfile network error:', err);
+      console.error('[authService] saveProfile encryption/network error:', err);
       return {
         success: false,
-        error: formatUserFriendlyError(err, 'Network error saving profile.'),
+        error: formatUserFriendlyError(err, 'Failed to securely save profile.'),
       };
     }
 
