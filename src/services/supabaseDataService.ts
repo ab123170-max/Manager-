@@ -5,6 +5,7 @@
 
 import { supabase, isSupabaseConfigured } from '../lib/supabaseClient';
 import { SavedInventoryItem, StockTransaction, TransactionSource } from '../types';
+import { encryptUserData, decryptUserData } from './encryptionService';
 
 /**
  * UUID helper: Ensures ID is a valid RFC-4122 UUID for PostgreSQL uuid columns.
@@ -45,6 +46,7 @@ export interface DbProductRow {
   min_stock_alert: number;
   created_at: string;
   updated_at: string;
+  encrypted_payload?: string | null;
 }
 
 export interface DbTransactionRow {
@@ -60,6 +62,7 @@ export interface DbTransactionRow {
   notes: string | null;
   reference_invoice: string | null;
   created_at: string;
+  encrypted_payload?: string | null;
 }
 
 /**
@@ -161,7 +164,7 @@ class SupabaseDataService {
         let query = supabase
           .from('products')
           .select(
-            'id, user_id, name, barcode, price, purchase_price, quantity, manufacture_date, expiry_date, best_before_months, unit, description, category, batch_number, rack_location, supplier, mrp, min_stock_alert, created_at, updated_at'
+            'id, user_id, name, barcode, price, purchase_price, quantity, manufacture_date, expiry_date, best_before_months, unit, description, category, batch_number, rack_location, supplier, mrp, min_stock_alert, created_at, updated_at, encrypted_payload'
           )
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
@@ -174,7 +177,19 @@ class SupabaseDataService {
           return [];
         }
 
-        return (data || []).map((row: DbProductRow) => mapDbRowToProduct(row));
+        const result: SavedInventoryItem[] = [];
+        for (const row of (data || []) as DbProductRow[]) {
+          if (row.encrypted_payload) {
+            try {
+              result.push(await decryptUserData<SavedInventoryItem>(userId, row.encrypted_payload));
+              continue;
+            } catch (e) {
+              console.warn('[supabaseDataService] encrypted product could not be decrypted; using legacy row:', e);
+            }
+          }
+          result.push(mapDbRowToProduct(row));
+        }
+        return result;
       } catch (e) {
         console.error('[supabaseDataService] Network error in fetchProducts:', e);
         return [];
@@ -195,12 +210,22 @@ class SupabaseDataService {
 
     try {
       const dbRow = mapProductToDbRow(item, userId);
+      const encrypted_payload = await encryptUserData(userId, {
+        ...item,
+        id: dbRow.id,
+        user_id: userId,
+        updatedAt: dbRow.updated_at,
+      });
+      const secureRow = {
+        id: dbRow.id,
+        user_id: userId,
+        encrypted_payload,
+        updated_at: dbRow.updated_at,
+      };
       const { data, error } = await supabase
         .from('products')
-        .upsert(dbRow)
-        .select(
-          'id, user_id, name, barcode, price, purchase_price, quantity, manufacture_date, expiry_date, best_before_months, unit, description, category, batch_number, rack_location, supplier, mrp, min_stock_alert, created_at, updated_at'
-        )
+        .upsert(secureRow)
+        .select('id, user_id, encrypted_payload, created_at, updated_at')
         .single();
 
       if (error) {
@@ -208,7 +233,8 @@ class SupabaseDataService {
         return null;
       }
 
-      return mapDbRowToProduct(data as DbProductRow);
+      const decrypted = await decryptUserData<SavedInventoryItem>(userId, (data as DbProductRow).encrypted_payload!);
+      return { ...decrypted, id: data.id, user_id: userId, savedAt: data.created_at, updatedAt: data.updated_at } as SavedInventoryItem;
     } catch (e) {
       console.error('[supabaseDataService] Network error in upsertProduct:', e);
       return null;
@@ -262,7 +288,7 @@ class SupabaseDataService {
         const { data, error } = await supabase
           .from('inventory_transactions')
           .select(
-            'id, user_id, product_id, product_name, transaction_type, subtype, quantity, price, total_amount, notes, reference_invoice, created_at'
+            'id, user_id, product_id, product_name, transaction_type, subtype, quantity, price, total_amount, notes, reference_invoice, created_at, encrypted_payload'
           )
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
@@ -273,7 +299,16 @@ class SupabaseDataService {
           return [];
         }
 
-        return (data || []).map((row: DbTransactionRow) => {
+        const secureTransactions: StockTransaction[] = [];
+        for (const row of (data || []) as DbTransactionRow[]) {
+          if (row.encrypted_payload) {
+            try {
+              secureTransactions.push(await decryptUserData<StockTransaction>(userId, row.encrypted_payload));
+              continue;
+            } catch (e) {
+              console.warn('[supabaseDataService] encrypted transaction could not be decrypted; using legacy row:', e);
+            }
+          }
           const isOut = row.transaction_type === 'OUT';
           const qty = Number(row.quantity);
           return {
@@ -295,7 +330,21 @@ class SupabaseDataService {
             timestamp: new Date(row.created_at).getTime() || Date.now(),
             notes: row.notes || '',
           };
-        });
+          secureTransactions.push({
+            id: row.id,
+            transactionId: `STK-${row.id.substring(0, 8).toUpperCase()}`,
+            productId: row.product_id || '',
+            productName: row.product_name || 'Inventory Item',
+            transactionType: (row.transaction_type === 'OUT' ? 'stock_out' : 'stock_in') as StockTransaction['transactionType'],
+            subType: (row.subtype as any) || (row.transaction_type === 'OUT' ? 'sale' : 'purchase'),
+            quantity: Number(row.quantity), unit: 'pcs', previousStock: 0, newStock: Number(row.quantity),
+            previousReservedStock: 0, newReservedStock: 0,
+            source: (row.transaction_type === 'OUT' ? 'POS' : 'Purchase') as TransactionSource,
+            referenceId: row.reference_invoice || undefined, dateTime: row.created_at,
+            timestamp: new Date(row.created_at).getTime() || Date.now(), notes: row.notes || '',
+          });
+        }
+        return secureTransactions;
       } catch (e) {
         console.error('[supabaseDataService] Network error in fetchTransactions:', e);
         return [];
@@ -326,25 +375,33 @@ class SupabaseDataService {
       const validProductId = txn.productId && ensureValidUuid(txn.productId);
       const subTypeVal = txn.subType || txn.subtype || (txnType === 'OUT' ? 'sale' : 'purchase');
 
-      const dbRow: Partial<DbTransactionRow> = {
-        id: ensureValidUuid(txn.id),
+      const id = ensureValidUuid(txn.id);
+      const createdAt = new Date().toISOString();
+      const transactionPayload = {
+        ...txn,
+        id,
+        user_id: userId,
+        transactionType: txnType === 'OUT' ? 'stock_out' : 'stock_in',
+        quantity: qty,
+        unitPrice,
+        totalAmount,
+        subtype: subTypeVal,
+        referenceInvoice: txn.referenceId || txn.referenceInvoice,
+        dateTime: createdAt,
+      };
+      const encrypted_payload = await encryptUserData(userId, transactionPayload);
+      const dbRow = {
+        id,
         user_id: userId,
         product_id: validProductId || null,
-        product_name: txn.productName || null,
-        transaction_type: txnType,
-        subtype: subTypeVal,
-        quantity: qty,
-        price: unitPrice,
-        total_amount: totalAmount,
-        notes: txn.notes || null,
-        reference_invoice: txn.referenceId || txn.referenceInvoice || null,
-        created_at: new Date().toISOString(),
+        encrypted_payload,
+        created_at: createdAt,
       };
 
       const { data, error } = await supabase
         .from('inventory_transactions')
         .insert(dbRow)
-        .select()
+        .select('id, user_id, product_id, encrypted_payload, created_at')
         .single();
 
       if (error) {
@@ -362,26 +419,16 @@ class SupabaseDataService {
           .eq('user_id', userId);
       }
 
-      const isOut = data.transaction_type === 'OUT';
+      const decrypted = await decryptUserData<any>(userId, data.encrypted_payload);
       return {
+        ...decrypted,
         id: data.id,
-        transactionId: txn.transactionId || `STK-${data.id.substring(0, 8).toUpperCase()}`,
-        productId: data.product_id || '',
-        productName: data.product_name || '',
-        transactionType: isOut ? 'stock_out' : 'stock_in',
-        subType: (data.subtype as any) || (isOut ? 'sale' : 'purchase'),
-        quantity: Number(data.quantity),
-        unit: txn.unit || 'pcs',
+        productId: data.product_id || decrypted.productId || '',
         previousStock: currentStock ?? 0,
-        newStock: isOut ? (currentStock ? currentStock - qty : 0) : ((currentStock ?? 0) + qty),
-        previousReservedStock: 0,
-        newReservedStock: 0,
-        source: txn.source || 'Manual Entry',
-        referenceId: data.reference_invoice || undefined,
+        newStock: txnType === 'OUT' ? Math.max(0, (currentStock ?? 0) - qty) : ((currentStock ?? 0) + qty),
         dateTime: data.created_at,
         timestamp: new Date(data.created_at).getTime() || Date.now(),
-        notes: data.notes || '',
-      };
+      } as StockTransaction;
     } catch (e) {
       console.error('[supabaseDataService] Network error in recordTransaction:', e);
       return null;
