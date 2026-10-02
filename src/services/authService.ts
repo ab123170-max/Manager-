@@ -521,11 +521,9 @@ class AuthService {
    */
   private async fetchProfileFromDb(authUserId: string, bypassCache = false): Promise<UserProfile | null> {
     if (!isSupabaseConfigured()) return null;
-
     if (!bypassCache && this.activeSession?.profile?.auth_user_id === authUserId) {
       return this.activeSession.profile;
     }
-
     if (this.profilePromises.has(authUserId)) {
       return this.profilePromises.get(authUserId)!;
     }
@@ -538,33 +536,34 @@ class AuthService {
           .eq('auth_user_id', authUserId)
           .maybeSingle();
 
-        if (error) {
-          console.warn('[authService] fetchProfileFromDb error:', error.message);
+        if (error || !data) return null;
+
+        if (!data.encrypted_payload) {
+          console.warn('[authService] Profile exists without encrypted_payload; refusing to read plaintext profile columns.');
           return null;
         }
 
-        if (!data) return null;
-
+        const decrypted = await decryptUserData<Record<string, any>>(authUserId, data.encrypted_payload);
         return {
           id: data.id,
           auth_user_id: data.auth_user_id,
-          full_name: data.full_name || '',
-          business_name: data.business_name || '',
-          country: data.country || 'Nepal',
-          username: data.username || '',
-          email: data.email || '',
-          phone: data.phone || '',
-          profile_image_url: data.profile_image_url || '',
-          address: data.address || '',
-          language: data.language || 'English',
-          currency: data.currency || 'NPR',
-          onboarding_completed: true,
+          full_name: decrypted.full_name || '',
+          business_name: decrypted.business_name || '',
+          country: decrypted.country || 'Nepal',
+          username: decrypted.username || '',
+          email: decrypted.email || '',
+          phone: decrypted.phone || '',
+          profile_image_url: decrypted.profile_image_url || '',
+          address: decrypted.address || '',
+          language: decrypted.language || 'English',
+          currency: decrypted.currency || 'NPR',
+          onboarding_completed: Boolean(decrypted.onboarding_completed),
           created_at: data.created_at,
           updated_at: data.updated_at,
-          is_profile_complete: true,
+          is_profile_complete: Boolean(decrypted.full_name && (decrypted.business_name || decrypted.username)),
         };
       } catch (e) {
-        console.error('[authService] fetchProfileFromDb exception:', e);
+        console.error('[authService] fetchProfileFromDb decryption error:', e);
         return null;
       } finally {
         this.profilePromises.delete(authUserId);
