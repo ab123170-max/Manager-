@@ -21,6 +21,7 @@ import {
   Check,
   Loader2,
   FileCheck,
+  Send,
 } from 'lucide-react';
 import {
   connectGoogleAccount,
@@ -43,6 +44,7 @@ interface GoogleSheetsSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   onProductsUpdated?: () => void;
+  onOpenCustomerMessaging?: () => void;
 }
 
 export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
