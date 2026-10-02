@@ -5,6 +5,7 @@ import { LanguageSelectorModal } from './components/common/LanguageSelectorModal
 import { StartupSplash } from './components/common/StartupSplash';
 import { startWebUpdateChecker } from './utils/webUpdateChecker';
 import { startSeoManager } from './services/seoManager';
+import { initializeNativeDevice } from './services/nativeDevice';
 
 type LoadedApp = {
   App: React.ComponentType;
@@ -156,5 +157,6 @@ function Bootstrap() {
 }
 
 startWebUpdateChecker();
+initializeNativeDevice();
 
 createRoot(document.getElementById('root')!).render(<Bootstrap />);
