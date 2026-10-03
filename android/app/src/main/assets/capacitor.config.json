@@ -1,12 +1,24 @@
 {
 	"appId": "com.martmartai.inventory",
-	"appName": "MartMart AI Inventory",
+	"appName": "ScanMe AI",
 	"webDir": "dist",
-	"bundledWebRuntime": false,
 	"server": {
-		"androidScheme": "https"
+		"url": "https://scanme-ai.vercel.app",
+		"androidScheme": "https",
+		"cleartext": false
 	},
 	"android": {
-		"allowMixedContent": true
+		"allowMixedContent": false
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 1600,
+			"launchAutoHide": true,
+			"launchFadeOutDuration": 350,
+			"backgroundColor": "#092B4C",
+			"showSpinner": false,
+			"androidSplashResourceName": "splash",
+			"androidScaleType": "CENTER_CROP"
+		}
 	}
 }

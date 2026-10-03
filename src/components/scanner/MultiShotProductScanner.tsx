@@ -22,6 +22,8 @@ import {
 import { useCamera } from '../../hooks/useCamera';
 import { captureFrameFromVideo, fileToBase64 } from '../../utils/imageEncoder';
 import { SampleDoc } from '../../types';
+import { Camera as CapCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Capacitor } from '@capacitor/core';
 
 interface MultiShotProductScannerProps {
   onAnalyze: (images: string[]) => void;
@@ -72,6 +74,52 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
       stopCamera();
     };
   }, [activeTab, cameraStarted, disabled, startCamera, stopCamera]);
+
+  const handleNativeTakePhoto = async () => {
+    if (capturedPhotos.length >= MAX_PHOTOS) return;
+    try {
+      if (Capacitor.isPluginAvailable('Camera')) {
+        const photo = await CapCamera.getPhoto({
+          quality: 85,
+          allowEditing: false,
+          resultType: CameraResultType.DataUrl,
+          source: CameraSource.Camera,
+        });
+        if (photo?.dataUrl) {
+          setCapturedPhotos((prev) => [...prev, photo.dataUrl!]);
+          return;
+        }
+      }
+    } catch (err: any) {
+      if (!err?.message?.includes('User cancelled') && !err?.message?.includes('canceled')) {
+        console.warn('[Camera] Native camera error:', err);
+      }
+    }
+  };
+
+  const handleNativePickGallery = async () => {
+    if (capturedPhotos.length >= MAX_PHOTOS) return;
+    try {
+      if (Capacitor.isPluginAvailable('Camera')) {
+        const photo = await CapCamera.getPhoto({
+          quality: 85,
+          allowEditing: false,
+          resultType: CameraResultType.DataUrl,
+          source: CameraSource.Photos,
+        });
+        if (photo?.dataUrl) {
+          setCapturedPhotos((prev) => [...prev, photo.dataUrl!]);
+          return;
+        }
+      }
+    } catch (err: any) {
+      if (!err?.message?.includes('User cancelled') && !err?.message?.includes('canceled')) {
+        console.warn('[Camera] Native gallery error:', err);
+      }
+    }
+    // Fallback to HTML input
+    fileInputRef.current?.click();
+  };
 
   const handleStartCamera = () => {
     setCameraStarted(true);
@@ -209,6 +257,29 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
 
       {/* Main Viewport Content */}
       <div className="p-4 sm:p-6 space-y-4">
+        {/* Native Android / Quick Action Bar */}
+        <div className="grid grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={handleNativeTakePhoto}
+            disabled={capturedPhotos.length >= MAX_PHOTOS}
+            className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
+          >
+            <Camera className="w-4 h-4 text-emerald-400" />
+            <span>Take Photo</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleNativePickGallery}
+            disabled={capturedPhotos.length >= MAX_PHOTOS}
+            className="py-2.5 px-3 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50"
+          >
+            <ImageIcon className="w-4 h-4 text-indigo-600" />
+            <span>Choose from Gallery</span>
+          </button>
+        </div>
+
         {/* Recommended Shot Suggestion Pill - Only shown when user opens tips */}
         {showTips && capturedPhotos.length < MAX_PHOTOS && (
           <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-indigo-50/80 border border-indigo-100 text-indigo-900 text-xs animate-in fade-in duration-150">

@@ -41,6 +41,7 @@ import { HomeDashboard } from './components/home/HomeDashboard';
 import { SliderPageWrapper } from './components/slider/SliderPageWrapper';
 import { AdSenseUnit } from './components/ads/AdSenseUnit';
 import { StartupSplash } from './components/common/StartupSplash';
+import { formatUserFriendlyError } from './config/apiConfig';
 
 // ============================================================================
 // CODE-SPLIT / LAZY-LOADED HEAVY VIEW CHUNKS
@@ -648,12 +649,9 @@ export default function App() {
       setExtractedData(data);
     } catch (err: unknown) {
       setIsFormExtracting(false);
-      const error = err as Error;
-      console.error('Multi-shot extraction error:', error);
-      setExtractionError(
-        error.message ||
-          'Failed to extract data. Please ensure the label photos are clear and try again.'
-      );
+      const friendlyMsg = formatUserFriendlyError(err);
+      console.warn('[AI Analysis] Multi-shot extraction error:', (err as Error)?.message || err);
+      setExtractionError(friendlyMsg);
       // Keep on form so user can still enter details manually, or switch to error if empty
       if (!productScanResult?.productName) {
         setCurrentStage('error');

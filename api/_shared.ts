@@ -5,7 +5,78 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { mapProductDateLabels } from "./serverDateMappingEngine";
+const MFD_LABEL_REGEX =
+  /(?:\b(?:DATE\s+OF\s+MANUFACTURE|MANUFACTURED\s+DATE|MANUFACTURED|MFG\s+DATE|MFD\s+DATE|MF\s+DATE|MANF\s+DATE|DATE\s+MFG|MADE\s+ON|DATE\s+MADE|D\.O\.M|DOM|MFD|MFG|MFR|MANF|MAN|MF|MFO|M\.F\.D|M\.F\.G)\b)/i;
+const PKD_LABEL_REGEX =
+  /(?:\b(?:PACKAGING\s+DATE|PACKED\s+DATE|PACKED\s+ON|PACK\s+DATE|DATE\s+PACKED|PACKED|P\.K\.D|PKD|PKG|PKO)\b)/i;
+const EXP_LABEL_REGEX =
+  /(?:\b(?:EXPIRATION\s+DATE|EXPIRY\s+DATE|EXP\s+DATE|EXPIRATION|EXPIRY|USE\s+BY|USE\s+BEFORE|VALID\s+UNTIL|VALID\s+UP\s+TO|BEST\s+BEFORE\s+END\s+DATE|BEST\s+BEFORE\s+END|EXPD|EXD|EXP|EXR)\b)/i;
+const BEST_BEFORE_LABEL_REGEX =
+  /(?:\b(?:BEST\s+BEFORE\s+DATE|BEST\s+BEFORE|BEST\s+BY\s+DATE|BEST\s+BY|BBE|BBD|B8E|B\.B\.E|BB)\b)/i;
+const DURATION_REGEX =
+  /(?:(?:BEST\s+BEFORE|USE\s+WITHIN|SHELF\s+LIFE|VALID\s+FOR|EXPIRY\s+AFTER)[\s:]*(\d{1,2})\s*(?:MONTHS?|MTHS?|MOS?|YEARS?|YRS?))/i;
+const DATE_TOKEN_REGEX =
+  /(?:(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2})|(?:\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})|(?:\d{1,2}[-/.]\d{2,4})|(?:(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[a-z]*[\s,.-]+\d{2,4})|(?:\d{1,2}[\s,.-]+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[a-z]*[\s,.-]+\d{2,4}))/i;
+
+export function mapProductDateLabels(rawTextOrLines: string | string[]) {
+  const lines: string[] = Array.isArray(rawTextOrLines) ? rawTextOrLines : (rawTextOrLines || '').split(/[\r\n]+/);
+  const result = {
+    manufacture_date: '',
+    expiry_date: '',
+    best_before: '',
+    packed_date: '',
+    best_before_months: null as number | null,
+    detected_labels: [] as string[],
+    confidence: 1.0,
+    needs_review: false,
+  };
+  const detectedLabelsSet = new Set<string>();
+  let hasLowConfidenceOrCorrupted = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.length < 2) continue;
+    const durationMatch = line.match(DURATION_REGEX);
+    if (durationMatch) {
+      const months = parseInt(durationMatch[1], 10);
+      if (!isNaN(months)) {
+        result.best_before_months = months;
+        detectedLabelsSet.add('BEST_BEFORE_DURATION');
+        if (!result.best_before) result.best_before = `${months} months from manufacture`;
+      }
+    }
+    const segments = line.split(/(?=[A-Z]{2,}\b)/g);
+    const partsToExamine = segments.length > 1 ? segments : [line];
+    for (const part of partsToExamine) {
+      const cleanPart = part.trim();
+      if (!cleanPart) continue;
+      const dateMatch = cleanPart.match(DATE_TOKEN_REGEX);
+      const extractedDate = dateMatch ? dateMatch[0].trim() : '';
+      if (MFD_LABEL_REGEX.test(cleanPart)) {
+        detectedLabelsSet.add('MFD');
+        if (extractedDate && !result.manufacture_date) result.manufacture_date = extractedDate;
+        else if (!extractedDate && !result.manufacture_date) hasLowConfidenceOrCorrupted = true;
+      }
+      if (PKD_LABEL_REGEX.test(cleanPart)) {
+        detectedLabelsSet.add('PKD');
+        if (extractedDate && !result.packed_date) result.packed_date = extractedDate;
+        else if (!extractedDate && !result.packed_date) hasLowConfidenceOrCorrupted = true;
+      }
+      if (EXP_LABEL_REGEX.test(cleanPart)) {
+        detectedLabelsSet.add('EXP');
+        if (extractedDate && !result.expiry_date) result.expiry_date = extractedDate;
+        else if (!extractedDate && !result.expiry_date) hasLowConfidenceOrCorrupted = true;
+      }
+      if (BEST_BEFORE_LABEL_REGEX.test(cleanPart)) {
+        detectedLabelsSet.add('BEST_BEFORE');
+        if (extractedDate && !result.best_before) result.best_before = extractedDate;
+      }
+    }
+  }
+  result.detected_labels = Array.from(detectedLabelsSet);
+  result.confidence = result.detected_labels.length === 0 ? 0.5 : (hasLowConfidenceOrCorrupted ? 0.75 : 0.98);
+  return result;
+}
 
 dotenv.config();
 

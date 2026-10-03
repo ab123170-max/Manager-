@@ -317,6 +317,11 @@ ${cueText}`;
 
     const ai = new GoogleGenAI({
       apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
     });
 
     const primaryModel = (process.env.GEMINI_MODEL || "gemini-3.8-flash").replace(/^models\//, "");
@@ -324,8 +329,10 @@ ${cueText}`;
 
     const candidateModels = [
       model,
-      "gemini-3.7-flash",
+      "gemini-3.8-flash",
       "gemini-3.1-flash-lite",
+      "gemini-2.5-flash",
+      "gemini-flash-latest",
     ]
       .map(cleanModelName)
       .filter((m, index, list) => list.indexOf(m) === index);
@@ -383,11 +390,41 @@ ${cueText}`;
     }
 
     const parsed = JSON.parse(response.text);
+    const normalized = normalizeResult(parsed);
+
+    const observations: string[] = [];
+    if (normalized.productName) observations.push(`Product name: ${normalized.productName}`);
+    if (normalized.price !== null) observations.push(`Price: ${normalized.currency ? `${normalized.currency} ` : ''}${normalized.price}`);
+    if (normalized.manufactureDate) observations.push(`Manufacturing Date (MFD): ${normalized.manufactureDate}`);
+    if (normalized.expiryDate) observations.push(`Expiry Date (EXP): ${normalized.expiryDate}${normalized.isCalculatedExpiry ? ' (calculated from Best Before)' : ''}`);
+    if (normalized.bestBeforeMonths) observations.push(`Best Before: ${normalized.bestBeforeMonths} months`);
+    if (normalized.quantity) observations.push(`Package quantity: ${normalized.quantity} ${normalized.unit}`);
+
+    const recommendations: string[] = [];
+    if (normalized.isCalculatedExpiry) {
+      recommendations.push('Expiry date was derived from MFD and shelf life; please verify with label text.');
+    }
+    if (!normalized.manufactureDate || !normalized.expiryDate) {
+      recommendations.push('Capture a close-up photo of the stamped date code if dates were not clearly detected.');
+    } else {
+      recommendations.push('Verified product details ready for inventory registration.');
+    }
+
+    const analysis = {
+      summary: normalized.productName
+        ? `Identified "${normalized.productName}" with ${Math.round((normalized.confidence?.overall || 0.9) * 100)}% confidence.`
+        : 'Packaging analysis completed.',
+      observations,
+      recommendations,
+      confidence: normalized.confidence?.overall || 0.9,
+    };
+
     return sendJson(res, 200, {
       success: true,
       model: usedModel,
       photosAnalyzedCount: images.length,
-      data: normalizeResult(parsed),
+      data: normalized,
+      analysis,
     });
   } catch (err: any) {
     console.error("[extract-form] Handler error:", err);

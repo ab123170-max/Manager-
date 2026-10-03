@@ -13,7 +13,7 @@ import {
   handleSaveProfile,
   handleUploadAvatar,
   handleGetAvatar,
-} from "./authHandlers";
+} from "./authHandlers.ts";
 
 export default async function handler(req: any, res: any) {
   const url = req.url || "";

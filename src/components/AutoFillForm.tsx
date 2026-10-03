@@ -515,19 +515,31 @@ export const AutoFillForm: React.FC<AutoFillFormProps> = ({
       </div>
 
       {/* Live AI Extraction Status Banner */}
-      {isExtracting && (
+      {isExtracting ? (
         <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-between text-indigo-900 animate-pulse">
           <div className="flex items-center gap-2.5">
             <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
             <span className="text-xs font-bold">
-              Extracting product details from photos... fields will auto-fill live as detected.
+              Analyzing image... Extracting product name, price, and dates from packaging.
             </span>
           </div>
           <span className="text-[11px] font-semibold text-indigo-600 bg-white px-2 py-0.5 rounded-md border border-indigo-200">
-            Streaming
+            Analyzing
           </span>
         </div>
-      )}
+      ) : productName ? (
+        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between text-emerald-900">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span className="text-xs font-bold">
+              Analysis completed. Verify detected fields below.
+            </span>
+          </div>
+          <span className="text-[10px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-md border border-emerald-200">
+            Ready
+          </span>
+        </div>
+      ) : null}
 
       {/* Warnings & Low Confidence Notice */}
       {hasUncertainFields && !isExtracting && (

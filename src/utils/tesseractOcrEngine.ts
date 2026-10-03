@@ -4,6 +4,7 @@
  */
 
 import { mapLabelOcrText, NormalizedLabelResult } from './labelMappingEngine';
+import { getApiUrl } from '../config/apiConfig';
 
 /**
  * ============================================================================
@@ -87,7 +88,7 @@ export async function runProductOcr(
 
     if (fallbackToServer && typeof imageSource === 'string') {
       try {
-        const response = await fetch('/api/ocr', {
+        const response = await fetch(getApiUrl('/api/ocr'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ imageBase64: imageSource }),

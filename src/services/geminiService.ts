@@ -9,6 +9,7 @@ import { GEMINI_MODEL } from '../config/model';
 import { reconcileProductDates } from '../utils/productDateCalculator';
 import { getAppSettings } from '../utils/unifiedDataStore';
 import { autoCropAndOptimizeBatch, tempImageManager } from '../utils/smartLabelCropper';
+import { getApiUrl, formatUserFriendlyError } from '../config/apiConfig';
 
 /**
  * ============================================================================
@@ -93,12 +94,17 @@ export async function extractProduct5FieldsFromImages(
   });
 
   let response: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
+
   try {
-    response = await fetch('/api/extract-form', {
+    const endpoint = getApiUrl('/api/extract-form');
+    response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: controller.signal,
       body: JSON.stringify({
         images: parsedImages,
         localOcrCues: options?.localOcrCues,
@@ -107,31 +113,28 @@ export async function extractProduct5FieldsFromImages(
           (API_KEY_PLACEHOLDER !== 'YOUR_API_KEY' ? API_KEY_PLACEHOLDER : undefined),
       }),
     });
-  } catch (netErr) {
-    throw new Error(
-      'Network failure: Could not reach the server API. Check your internet connection.'
-    );
+  } catch (netErr: unknown) {
+    const err = netErr as Error;
+    console.warn('[AI Analysis] Network request failed:', err?.message || err);
+    if (err?.name === 'AbortError') {
+      const timeoutErr = new Error('Analysis timed out. Please check your internet connection and try again.');
+      (timeoutErr as any).code = 'TIMEOUT';
+      throw timeoutErr;
+    }
+    const connectionErr = new Error('Network unavailable. Please check your internet connection and try again.');
+    (connectionErr as any).code = 'NETWORK_ERROR';
+    throw connectionErr;
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const result = await response.json().catch(() => ({}));
 
   if (!response.ok || !result.success) {
-    const errorCode = result.code || 'UNKNOWN_ERROR';
-    let userFriendlyMsg = result.error || 'Product scan extraction failed.';
-
-    if (errorCode === 'API_KEY_INVALID' || response.status === 401) {
-      userFriendlyMsg =
-        'Gemini API Key Error: Your GEMINI_API_KEY is missing or invalid. Please verify it in Settings or the environment.';
-    } else if (errorCode === 'MODEL_NOT_FOUND') {
-      userFriendlyMsg = `Model Error: Model '${GEMINI_MODEL}' was not found.`;
-    } else if (response.status === 404) {
-      userFriendlyMsg =
-        'Backend Route 404: The server endpoint (/api/extract-form) was not found.';
-    } else if (errorCode === 'RATE_LIMIT_EXCEEDED' || response.status === 429) {
-      userFriendlyMsg = 'Rate limit reached. Please wait a few moments and try again.';
-    }
-
-    const customErr = new Error(userFriendlyMsg);
+    const errorCode = result.code || (response.status === 429 ? 'RATE_LIMIT_EXCEEDED' : response.status === 401 ? 'API_KEY_INVALID' : 'EXTRACTION_FAILED');
+    console.warn(`[AI Analysis] Server returned ${response.status}:`, result?.error || errorCode);
+    const friendlyMsg = formatUserFriendlyError({ code: errorCode, message: result?.error });
+    const customErr = new Error(friendlyMsg);
     (customErr as unknown as { code: string }).code = errorCode;
     throw customErr;
   }
@@ -258,12 +261,17 @@ export async function extractFormDataFromImages(
   });
 
   let response: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
+
   try {
-    response = await fetch('/api/extract-form', {
+    const endpoint = getApiUrl('/api/extract-form');
+    response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: controller.signal,
       body: JSON.stringify({
         images: parsedImages,
         localOcrCues: options?.localOcrCues,
@@ -273,43 +281,28 @@ export async function extractFormDataFromImages(
           (API_KEY_PLACEHOLDER !== 'YOUR_API_KEY' ? API_KEY_PLACEHOLDER : undefined),
       }),
     });
-  } catch (netErr) {
-    throw new Error(
-      'Network failure: Could not reach the server API. Check your internet connection.'
-    );
+  } catch (netErr: unknown) {
+    const err = netErr as Error;
+    console.warn('[AI Analysis] Network request failed:', err?.message || err);
+    if (err?.name === 'AbortError') {
+      const timeoutErr = new Error('Analysis timed out. Please check your internet connection and try again.');
+      (timeoutErr as any).code = 'TIMEOUT';
+      throw timeoutErr;
+    }
+    const connectionErr = new Error('Network unavailable. Please check your internet connection and try again.');
+    (connectionErr as any).code = 'NETWORK_ERROR';
+    throw connectionErr;
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const result = await response.json().catch(() => ({}));
 
   if (!response.ok || !result.success) {
-    const errorCode = result.code || 'UNKNOWN_ERROR';
-    let userFriendlyMsg = result.error || 'Extraction failed.';
-
-    if (errorCode === 'API_KEY_INVALID' || response.status === 401) {
-      userFriendlyMsg =
-        'Gemini API Key Error: Your GEMINI_API_KEY is missing or invalid. Please verify it in Settings or the environment.';
-    } else if (errorCode === 'MODEL_NOT_FOUND') {
-      userFriendlyMsg = `Model Error: Model '${GEMINI_MODEL}' was not found. Please verify your API access or update the model in Settings.`;
-    } else if (response.status === 404) {
-      userFriendlyMsg =
-        'Backend Route 404: The server endpoint (/api/extract-form) was not found on this deployment. If deployed on Vercel as a static SPA, configure serverless routes or deploy to a container platform (Cloud Run / Render).';
-    } else if (errorCode === 'INVALID_MODEL_NAME') {
-      userFriendlyMsg = `Model Identifier Error: ${result.error || `Invalid model format. System reverted to ${GEMINI_MODEL}.`}`;
-    } else if (errorCode === 'MODEL_HIGH_DEMAND' || response.status === 503) {
-      userFriendlyMsg =
-        'High Demand: Gemini is temporarily experiencing high traffic. Please retry in a few moments.';
-    } else if (errorCode === 'RATE_LIMIT_EXCEEDED' || response.status === 429) {
-      userFriendlyMsg =
-        'Rate Limit Reached: Gemini API quota exceeded. Please wait a few seconds and retry.';
-    } else if (errorCode === 'JSON_PARSE_ERROR') {
-      userFriendlyMsg =
-        'AI Parse Error: Gemini returned an unparseable response. Retrying with a clearer image usually resolves this.';
-    } else if (errorCode === 'IMAGE_PROCESSING_FAILED') {
-      userFriendlyMsg =
-        'Image Error: Could not decode the captured images. Please retake the photos.';
-    }
-
-    const customErr = new Error(userFriendlyMsg);
+    const errorCode = result.code || (response.status === 429 ? 'RATE_LIMIT_EXCEEDED' : response.status === 401 ? 'API_KEY_INVALID' : 'EXTRACTION_FAILED');
+    console.warn(`[AI Analysis] Server returned ${response.status}:`, result?.error || errorCode);
+    const friendlyMsg = formatUserFriendlyError({ code: errorCode, message: result?.error });
+    const customErr = new Error(friendlyMsg);
     (customErr as unknown as { code: string }).code = errorCode;
     throw customErr;
   }
@@ -412,7 +405,7 @@ export async function superviseBarcodePipeline(params: {
   });
 
   try {
-    const response = await fetch('/api/supervise-barcode-pipeline', {
+    const response = await fetch(getApiUrl('/api/supervise-barcode-pipeline'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

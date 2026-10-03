@@ -35,14 +35,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
     <div className="min-h-[100svh] bg-[#F5F7FA] text-slate-900 flex flex-col overflow-x-hidden">
       <header className="h-14 shrink-0 bg-white/95 backdrop-blur border-b border-slate-200 px-4 flex items-center justify-between">
         <a href="/" onClick={(e) => handleLinkClick(e, '/')} className="flex items-center gap-2" aria-label="ScanMe AI home">
-          <div className="w-9 h-9 rounded-xl bg-[#1473EA] text-white flex items-center justify-center shadow-sm"><Camera className="w-5 h-5" /></div>
+          <img src="/favicon.png" alt="ScanMe AI Logo" className="w-9 h-9 rounded-xl object-cover shadow-sm shrink-0" referrerPolicy="no-referrer" />
           <div className="leading-none"><div className="font-black text-[15px] tracking-tight">ScanMe <span className="text-[#1473EA]">AI</span></div><div className="text-[9px] text-slate-400 font-medium mt-1">{t('landing.tagline')}</div></div>
         </a>
         <div className="flex items-center gap-1"><LanguageSelectorButton variant="compact" /><button type="button" onClick={onLogin} className="h-10 px-3 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 active:scale-95 transition-all flex items-center gap-1.5"><LogIn className="w-4 h-4 text-[#1473EA]" />{t('landing.login')}</button></div>
       </header>
       <main className="flex-1 w-full max-w-md mx-auto px-4 py-5 flex flex-col justify-center">
         <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} className="text-center">
-          <div className="mx-auto mb-4 w-16 h-16 rounded-[22px] bg-white border border-slate-200 shadow-sm flex items-center justify-center"><Camera className="w-8 h-8 text-[#1473EA]" /></div>
+          <img src="/favicon.png" alt="ScanMe AI Logo" className="w-16 h-16 rounded-[22px] object-cover border border-slate-200/90 shadow-md mx-auto mb-4" referrerPolicy="no-referrer" />
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#1473EA] mb-2">{t('landing.smartInventory')}</p>
           <h1 className="text-[30px] leading-[1.08] font-black tracking-tight">{t('landing.heroTitle')}</h1>
           <p className="mt-3 text-sm leading-5 text-slate-500 max-w-xs mx-auto">{t('landing.heroText')}</p>

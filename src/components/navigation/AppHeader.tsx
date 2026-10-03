@@ -62,9 +62,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </button>
 
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <div className="w-8 h-8 rounded-lg bg-[#1473EA] text-white flex items-center justify-center shadow-sm shrink-0">
-            <Zap className="w-4 h-4" />
-          </div>
+          <img
+            src="/favicon.png"
+            alt="ScanMe AI Logo"
+            className="w-8 h-8 rounded-lg object-cover shadow-sm shrink-0"
+            referrerPolicy="no-referrer"
+          />
           <div className="min-w-0">
             <div className="text-[10px] font-bold text-slate-500 leading-none">ScanMe AI</div>
             <div className="text-sm font-extrabold text-slate-900 truncate leading-tight">{title}</div>
