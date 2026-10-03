@@ -224,6 +224,11 @@ class AuthService {
     void refreshOnResume();
   }
 
+  /** Returns the current application session restored from Supabase. */
+  getSession(): AuthSession | null {
+    return this.activeSession;
+  }
+
   isAuthReady(): boolean {
     return this.isInitialized;
   }
