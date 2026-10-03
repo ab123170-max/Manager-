@@ -316,28 +316,8 @@ class SupabaseDataService {
           } catch (e) {
             console.warn('[supabaseDataService] encrypted transaction could not be decrypted; skipping row:', e);
           }
-          continue;
-          const qty = Number(row.quantity);
-          secureTransactions.push({
-            id: row.id,
-            transactionId: `STK-${row.id.substring(0, 8).toUpperCase()}`,
-            productId: row.product_id || '',
-            productName: row.product_name || 'Inventory Item',
-            transactionType: (isOut ? 'stock_out' : 'stock_in') as StockTransaction['transactionType'],
-            subType: (row.subtype as any) || (isOut ? 'sale' : 'purchase'),
-            quantity: qty,
-            unit: 'pcs',
-            previousStock: 0,
-            newStock: qty,
-            previousReservedStock: 0,
-            newReservedStock: 0,
-            source: (isOut ? 'POS' : 'Purchase') as TransactionSource,
-            referenceId: row.reference_invoice || undefined,
-            dateTime: row.created_at,
-            timestamp: new Date(row.created_at).getTime() || Date.now(),
-            notes: row.notes || '',
-          });
-        }        return secureTransactions;
+        }
+        return secureTransactions;
       } catch (e) {
         console.error('[supabaseDataService] Network error in fetchTransactions:', e);
         return [];

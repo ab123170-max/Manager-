@@ -5,12 +5,13 @@
 
 import { supabase, isSupabaseConfigured, getSupabaseMissingVars } from '../lib/supabaseClient';
 import { AuthSession, AuthUser, UserProfile, AuthProviderType, PendingOnboardingProfile } from '../types';
+import { encryptUserData, decryptUserData } from './encryptionService';
 
 const STORAGE_KEYS = {
   ONBOARDING_COMPLETED: 'ais_onboarding_completed_v1',
   PENDING_PROFILE_DRAFT: 'scanme_onboarding_pending_v1',
   LAST_AVATAR_PATH: 'ais_last_avatar_path_v1',
-  SESSION_CACHE: 'ais_auth_session_cache_v1', // Kept for cleanup on signout
+  SESSION_CACHE: 'ais_auth_session_cache_v1',
 };
 
 type AuthListener = (session: AuthSession | null) => void;
@@ -103,7 +104,6 @@ export function formatUserFriendlyError(err: any, defaultMsg: string): string {
   if (msg.includes('user already registered') || msg.includes('already exists') || msg.includes('already registered')) {
     return 'An account with this email already exists. Please sign in.';
   }
-  // Handle token invalid / expired errors specifically
   if (msg.includes('token has expired or is invalid') || msg.includes('token is expired or invalid')) {
     return 'Invalid verification code. Please check your email and enter the latest 6-digit code.';
   }
@@ -161,14 +161,55 @@ class AuthService {
     this.checkInitialUrlHash();
   }
 
-  /**
-   * Keeps a persisted Supabase session fresh when the web app/PWA/Capacitor
-   * WebView is reopened, resumed, or regains connectivity.
-   *
-   * Supabase already persists the session in localStorage. This lifecycle
-   * refresh makes the resume/reopen behavior explicit so returning users do
-   * not get unnecessarily sent back to the login screen.
-   */
+  private clearLocalSessionState(): void {
+    this.activeSession = null;
+    this.isPasswordRecovery = false;
+    this.clearPendingOnboardingProfile();
+    notifyAuthListeners(null);
+  }
+
+  private getUnconfiguredError(): string {
+    return `Supabase authentication is not configured. Missing environment variables: ${getSupabaseMissingVars().join(', ')}.`;
+  }
+
+  getCurrentUser(): AuthUser | null {
+    return this.activeSession?.user || null;
+  }
+
+  getCurrentProfile(): UserProfile | null {
+    return this.activeSession?.profile || null;
+  }
+
+  isAuthenticated(): boolean {
+    return Boolean(this.activeSession?.user);
+  }
+
+  async setOnboardingCompleted(completed = true): Promise<void> {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEYS.ONBOARDING_COMPLETED, completed ? 'true' : 'false');
+      } catch {}
+    }
+    if (this.activeSession?.profile) {
+      await this.saveProfile({ onboarding_completed: completed });
+    }
+  }
+
+  async logout(): Promise<void> {
+    return this.signOut();
+  }
+
+  async signOut(): Promise<void> {
+    if (isSupabaseConfigured()) {
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {
+        console.warn('[authService] Error signing out from Supabase:', e);
+      }
+    }
+    this.clearLocalSessionState();
+  }
+
   private setupLifecycleSessionRefresh(): void {
     if (typeof window === 'undefined' || !isSupabaseConfigured()) return;
 
@@ -220,11 +261,9 @@ class AuthService {
     window.addEventListener('pageshow', onPageShow);
     window.addEventListener('online', onOnline);
 
-    // Also verify the persisted session shortly after the initial app mount.
     void refreshOnResume();
   }
 
-  /** Returns the current application session restored from Supabase. */
   getSession(): AuthSession | null {
     return this.activeSession;
   }
@@ -233,9 +272,6 @@ class AuthService {
     return this.isInitialized;
   }
 
-  /**
-   * Temporary Onboarding Profile Storage (Pre-Auth State)
-   */
   getPendingOnboardingProfile(): PendingOnboardingProfile | null {
     if (this.pendingProfile) return this.pendingProfile;
     if (typeof window !== 'undefined') {
@@ -281,10 +317,6 @@ class AuthService {
     }
   }
 
-  /**
-   * Dedicated startup session restoration calling supabase.auth.getSession().
-   * Handles INITIAL_SESSION, SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, and USER_UPDATED.
-   */
   async initAuthSession(): Promise<AuthSession | null> {
     if (!isSupabaseConfigured()) {
       this.isInitialized = true;
@@ -295,9 +327,6 @@ class AuthService {
     try {
       const { data, error } = await supabase.auth.getSession();
       if (!error && data?.session && data.session.user) {
-        // During a password-recovery visit, keep the Supabase recovery session
-        // available for updateUser({ password }) but do not treat the user as
-        // normally authenticated and redirect them to the dashboard.
         if (this.isPasswordRecovery) {
           this.activeSession = null;
           this.isInitialized = true;
@@ -323,10 +352,6 @@ class AuthService {
     }
   }
 
-  /**
-   * Initializes real-time listener for Supabase Auth state changes:
-   * SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED, INITIAL_SESSION, PASSWORD_RECOVERY.
-   */
   private setupSupabaseAuthListener(): void {
     if (!isSupabaseConfigured()) {
       this.isInitialized = true;
@@ -337,16 +362,12 @@ class AuthService {
     try {
       supabase.auth.onAuthStateChange(async (event, sbSession) => {
         if (event === 'PASSWORD_RECOVERY') {
-          // Supabase has established a recovery session. Do not convert it
-          // into the normal app session or send the user to the dashboard.
           this.isPasswordRecovery = true;
           this.activeSession = null;
           notifyRecoveryListeners(true);
           return;
         }
 
-        // While the recovery form is open, keep the recovery session isolated
-        // from the normal application session until the password is changed.
         if (this.isPasswordRecovery) {
           if (event === 'SIGNED_OUT') {
             this.clearLocalSessionState();
@@ -372,9 +393,6 @@ class AuthService {
     }
   }
 
-  /**
-   * Transforms a Supabase session into an application AuthSession and ensures a profile exists.
-   */
   private async handleSupabaseSession(sbSession: any): Promise<AuthSession | null> {
     try {
       const sbUser = sbSession.user;
@@ -398,10 +416,8 @@ class AuthService {
         lastLoginAt: sbUser.last_sign_in_at || new Date().toISOString(),
       };
 
-      // Fetch existing profile from public.profiles table
       let profile = await this.fetchProfileFromDb(sbUser.id);
 
-      // Check if user has a pending onboarding profile draft from step 1
       const pending = this.getPendingOnboardingProfile();
       if (pending) {
         const saved = await this.saveProfileDirect(sbUser.id, {
@@ -420,7 +436,6 @@ class AuthService {
           this.clearPendingOnboardingProfile();
         }
       } else if (!profile) {
-        // Safe default profile creation if neither profile nor draft exists
         profile = await this.createDefaultProfile(sbUser);
       }
 
@@ -440,10 +455,6 @@ class AuthService {
     }
   }
 
-  /**
-   * Directly creates or updates a profile by authUserId.
-   * Ensures the profile is committed immediately after auth verification.
-   */
   async saveProfileDirect(authUserId: string, profileData: Partial<UserProfile>): Promise<UserProfile | null> {
     if (!isSupabaseConfigured()) return null;
     const now = new Date().toISOString();
@@ -521,9 +532,6 @@ class AuthService {
     }
   }
 
-  /**
-   * Fetches user profile from Supabase profiles table with explicit columns.
-   */
   private async fetchProfileFromDb(authUserId: string, bypassCache = false): Promise<UserProfile | null> {
     if (!isSupabaseConfigured()) return null;
     if (!bypassCache && this.activeSession?.profile?.auth_user_id === authUserId) {
@@ -579,10 +587,6 @@ class AuthService {
     return promise;
   }
 
-  /**
-   * Safely creates an initial profile record in Supabase profiles table.
-   * Handles concurrency where a database trigger might create the row simultaneously.
-   */
   private async createDefaultProfile(sbUser: any): Promise<UserProfile | null> {
     if (!isSupabaseConfigured()) return null;
 
@@ -597,8 +601,6 @@ class AuthService {
       `user_${sbUser.id.substring(0, 6)}`
     ).toLowerCase().replace(/[^a-zA-Z0-9_]/g, '');
 
-    // Do not write profile fields to plaintext columns. saveProfileDirect
-    // encrypts the complete profile using the authenticated user's key.
     const encryptedProfile = await this.saveProfileDirect(sbUser.id, {
       full_name: defaultName || 'Shopkeeper',
       business_name: defaultBusiness || 'My Store',
@@ -614,7 +616,6 @@ class AuthService {
 
     if (encryptedProfile) return encryptedProfile;
 
-    // Keep an in-memory fallback only; never persist this plaintext profile.
     return {
       id: `profile_${sbUser.id.substring(0, 8)}`,
       auth_user_id: sbUser.id,
@@ -635,9 +636,236 @@ class AuthService {
     };
   }
 
-  // ---------------------------------------------------------------------------
-  // 4. Google & Facebook OAuth Authentication
-  // ---------------------------------------------------------------------------
+  async loginWithEmailPassword(
+    email: string,
+    password: string
+  ): Promise<AuthOperationResult> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
+      };
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) {
+      return {
+        success: false,
+        error: 'Please enter both email address and password.',
+      };
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          error: formatUserFriendlyError(error, 'Failed to sign in. Please check your email and password.'),
+        };
+      }
+
+      if (data.session) {
+        const appSession = await this.handleSupabaseSession(data.session);
+        return {
+          success: true,
+          session: appSession || undefined,
+        };
+      }
+
+      return {
+        success: false,
+        error: 'Login succeeded but session could not be established.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: formatUserFriendlyError(err, 'An error occurred during sign in.'),
+      };
+    }
+  }
+
+  async registerWithEmail(params: RegisterEmailParams): Promise<AuthOperationResult> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
+      };
+    }
+
+    const cleanEmail = params.email.trim().toLowerCase();
+    const cleanName = params.fullName.trim();
+
+    if (!cleanEmail || !params.password || !cleanName) {
+      return {
+        success: false,
+        error: 'Full name, email address, and password are required.',
+      };
+    }
+
+    this.setPendingOnboardingProfile({
+      fullName: cleanName,
+      businessName: '',
+      country: 'Nepal',
+      address: '',
+      language: 'English',
+      currency: 'NPR',
+      phone: params.phone || '',
+    });
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: params.password,
+        options: {
+          data: {
+            full_name: cleanName,
+            phone: params.phone || '',
+          },
+        },
+      });
+
+      if (error) {
+        const userMsg = formatUserFriendlyError(error, 'Registration failed.');
+        const isExisting =
+          error.message?.toLowerCase().includes('already registered') ||
+          error.message?.toLowerCase().includes('already exists');
+        return {
+          success: false,
+          error: userMsg,
+          isExistingUser: isExisting,
+        };
+      }
+
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+        return {
+          success: false,
+          error: 'An account with this email already exists. Please sign in.',
+          isExistingUser: true,
+        };
+      }
+
+      if (data.user && !data.session) {
+        return {
+          success: true,
+          emailConfirmationRequired: true,
+          message: `Account created. Please enter the verification code sent to ${cleanEmail}.`,
+        };
+      }
+
+      if (data.session) {
+        const appSession = await this.handleSupabaseSession(data.session);
+        return {
+          success: true,
+          session: appSession || undefined,
+          isNewUser: true,
+        };
+      }
+
+      return {
+        success: true,
+        emailConfirmationRequired: true,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: formatUserFriendlyError(err, 'An error occurred during registration.'),
+      };
+    }
+  }
+
+  async resetPasswordForEmail(
+    email: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
+      };
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      return {
+        success: false,
+        error: 'Please enter a valid email address.',
+      };
+    }
+
+    try {
+      const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined;
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: redirectUrl,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          message: formatUserFriendlyError(error, 'Failed to send password reset email.'),
+          error: error.message,
+        };
+      }
+
+      return {
+        success: true,
+        message: `Password reset link sent to ${cleanEmail}. Please check your inbox.`,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: formatUserFriendlyError(err, 'Failed to request password reset.'),
+        error: err.message,
+      };
+    }
+  }
+
+  async updateUserPassword(
+    newPassword: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        error: this.getUnconfiguredError(),
+      };
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return {
+        success: false,
+        error: 'Password must be at least 6 characters long.',
+      };
+    }
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        return {
+          success: false,
+          message: formatUserFriendlyError(error, 'Failed to update password.'),
+          error: error.message,
+        };
+      }
+
+      this.isPasswordRecovery = false;
+      return {
+        success: true,
+        message: 'Password updated successfully.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: formatUserFriendlyError(err, 'Failed to update password.'),
+        error: err.message,
+      };
+    }
+  }
+
   async loginWithOAuth(
     provider: 'google' | 'facebook'
   ): Promise<{ success: boolean; error?: string }> {
@@ -677,9 +905,6 @@ class AuthService {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 5. Email OTP Authentication (Passwordless)
-  // ---------------------------------------------------------------------------
   async sendEmailOtp(
     email: string
   ): Promise<{ success: boolean; message: string; error?: string }> {
@@ -701,7 +926,7 @@ class AuthService {
     }
 
     try {
-      const { data, error } = await supabase.auth.signInWithOtp({
+      const { error } = await supabase.auth.signInWithOtp({
         email: cleanEmail,
       });
 
@@ -808,7 +1033,6 @@ class AuthService {
         type: verificationType,
       });
 
-      // If initial attempt failed and type was 'signup', also try 'email' (or vice versa)
       if (error && (verificationType === 'signup' || verificationType === 'email')) {
         const altType = verificationType === 'signup' ? 'email' : 'signup';
         const altResult = await supabase.auth.verifyOtp({
@@ -850,9 +1074,6 @@ class AuthService {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 6. WhatsApp Status Check
-  // ---------------------------------------------------------------------------
   async checkWhatsAppStatus(): Promise<{ success: boolean; message: string; error?: string }> {
     return {
       success: false,
@@ -861,9 +1082,6 @@ class AuthService {
     };
   }
 
-  // ---------------------------------------------------------------------------
-  // 7. Supabase Storage Profile Photo Upload & Replacement
-  // ---------------------------------------------------------------------------
   async uploadAvatar(
     fileOrBase64: string | File | Blob,
     mimeType = 'image/jpeg'
@@ -894,7 +1112,6 @@ class AuthService {
       finalMime = fileOrBase64.type || mimeType;
     }
 
-    // Validate mime type
     const validMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
     if (!validMimes.includes(finalMime.toLowerCase())) {
       return {
@@ -903,7 +1120,6 @@ class AuthService {
       };
     }
 
-    // Validate size (maximum 5MB)
     if (uploadBlob.size > 5 * 1024 * 1024) {
       return {
         success: false,
@@ -916,7 +1132,6 @@ class AuthService {
       const fileName = `profile_${Date.now()}.${fileExt}`;
       const filePath = `${userId}/${fileName}`;
 
-      // 1. Upload new image to Supabase Storage: profile-images/{userId}/{fileName}
       const { error: uploadError } = await supabase.storage
         .from('profile-images')
         .upload(filePath, uploadBlob, {
@@ -933,14 +1148,12 @@ class AuthService {
         };
       }
 
-      // 2. Retrieve public URL
       const { data: urlData } = supabase.storage
         .from('profile-images')
         .getPublicUrl(filePath);
 
       const publicUrl = urlData.publicUrl;
 
-      // 3. Delete previous photo from storage only after new upload succeeds
       const previousPath = localStorage.getItem(STORAGE_KEYS.LAST_AVATAR_PATH);
       if (previousPath && previousPath !== filePath) {
         try {
@@ -951,7 +1164,6 @@ class AuthService {
       }
       localStorage.setItem(STORAGE_KEYS.LAST_AVATAR_PATH, filePath);
 
-      // 4. Update profile in database immediately
       await this.saveProfile({ profile_image_url: publicUrl });
 
       return {
@@ -967,9 +1179,6 @@ class AuthService {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // 8. User Profile Update in Supabase profiles table
-  // ---------------------------------------------------------------------------
   async saveProfile(
     profileData: Partial<UserProfile>
   ): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
@@ -1075,7 +1284,6 @@ class AuthService {
       };
     }
 
-    // Update active session and notify subscribers
     const newSession: AuthSession = {
       ...session,
       profile: updatedProfile,

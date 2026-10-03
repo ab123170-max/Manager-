@@ -63,6 +63,8 @@ export interface ProductScanResult extends Product5Fields {
 export interface ProductLabelData {
   productName: string;
   price?: number | null;
+  currency?: string;
+  detectedLanguage?: string;
   sku: string;
   barcode: string;
   batchNumber: string;
@@ -191,8 +193,10 @@ export interface LocalOcrHypothesis {
 export interface SavedInventoryItem {
   id: string;
   savedAt: string;
+  created_at?: string;
   updatedAt?: string;
   productName: string;
+  product_name?: string;
   brand: string;
   category: string;
   sku: string;
@@ -200,8 +204,11 @@ export interface SavedInventoryItem {
   qrCode?: string;
   batchNumber: string;
   manufacturingDate: string;
+  manufacturing_date?: string;
+  manufactureDate?: string;
   packedDate?: string;
   expiryDate: string;
+  expiry_date?: string;
   bestBefore: string;
   bestBeforeMonths?: number | null;
   isCalculatedExpiry?: boolean;
@@ -212,10 +219,12 @@ export interface SavedInventoryItem {
   detectedLanguage?: string;
   mrp: string;
   sellingPrice: string;
+  price?: string;
   purchasePrice: string;
   stockQuantity: number;
   reservedStock?: number;
   minStockAlert: number;
+  min_reorder_level?: number;
   supplier?: string;
   rackLocation?: string;
   ingredients?: string;
@@ -224,6 +233,7 @@ export interface SavedInventoryItem {
   missingFields: string[];
   dateMapping?: DateMappingResult;
   imageThumbnail?: string;
+  image_url?: string;
   additionalPhotos?: string[];
   status?: 'in_stock' | 'low_stock' | 'out_of_stock' | 'expiring_soon' | 'expired' | 'reserved' | 'negative_stock';
   lastPurchaseDate?: string;
@@ -685,6 +695,7 @@ export interface UserProfile {
   address: string;
   language: string;
   currency: string;
+  preferred_currency?: string;
   created_at: string;
   updated_at: string;
   onboarding_completed?: boolean;

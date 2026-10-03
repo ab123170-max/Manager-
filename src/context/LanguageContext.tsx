@@ -101,7 +101,7 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
     const unsub = subscribeAuth((session) => {
       const profile = session?.profile as any;
       const profileLanguage = profile?.language ? normalizeLanguageCode(profile.language) : null;
-      const name = String(profile?.full_name || profile?.fullName || profile?.name || profile?.display_name || session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || '').trim();
+      const name = String(profile?.full_name || profile?.fullName || profile?.name || profile?.display_name || session?.user?.displayName || (session?.user as any)?.user_metadata?.full_name || (session?.user as any)?.user_metadata?.name || '').trim();
       if (name) setLanguageSelectionUserName(name);
       try {
         const manuallyChosen = localStorage.getItem(STORAGE_KEYS.MANUAL_FLAG) === 'true';

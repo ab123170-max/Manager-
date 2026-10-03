@@ -295,7 +295,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
                 <div className="flex gap-2 justify-center pt-2">
                   <button
                     type="button"
-                    onClick={startCamera}
+                    onClick={() => startCamera()}
                     className="py-2 px-3.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1.5"
                   >
                     <RotateCcw className="w-3.5 h-3.5" /> Try Again

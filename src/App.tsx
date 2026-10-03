@@ -23,6 +23,7 @@ import {
   getInventoryValuation,
   getScanHistory,
   subscribeToStore,
+  type InventoryValuation,
 } from './utils/unifiedDataStore';
 import {
   X,
@@ -242,7 +243,9 @@ export default function App() {
         const restoredSession = await authService.initAuthSession();
         if (!isMounted) return;
 
-        if (authService.isRecoveryMode()) {
+        const isRecovery = typeof window !== 'undefined' && window.location.hash.includes('type=recovery');
+
+        if (isRecovery) {
           // Password recovery is a special authenticated Supabase session.
           // Keep the user on the reset-password form instead of opening Home.
           setSession(null);
@@ -331,7 +334,8 @@ export default function App() {
     const authRoutes = ['/login', '/signup', '/forgot-password', '/reset-password'];
 
     // A recovery session must always stay on the password-reset screen.
-    if (authService.isRecoveryMode()) {
+    const isRecovery = typeof window !== 'undefined' && window.location.hash.includes('type=recovery');
+    if (isRecovery) {
       if (currentPath !== '/reset-password') {
         if (typeof window !== 'undefined') {
           window.history.replaceState(null, '', '/reset-password');
@@ -404,20 +408,8 @@ export default function App() {
   const [products, setProducts] = useState<SavedInventoryItem[]>(() => {
     return rootMode === 'dashboard' ? getProducts() : [];
   });
-  const [valuation, setValuation] = useState(() => {
-    return rootMode === 'dashboard'
-      ? getInventoryValuation()
-      : {
-          totalInventoryValue: 0,
-          totalRetailValue: 0,
-          potentialProfit: 0,
-          marginPercent: 0,
-          totalUnits: 0,
-          productCount: 0,
-          lowStockCount: 0,
-          expiringCount: 0,
-          expiredCount: 0,
-        };
+  const [valuation, setValuation] = useState<InventoryValuation>(() => {
+    return getInventoryValuation();
   });
   const [scanHistory, setScanHistory] = useState<any[]>(() => {
     return rootMode === 'dashboard' ? getScanHistory() : [];
@@ -454,7 +446,7 @@ export default function App() {
       import('./utils/unifiedDataStore').then((m) => {
         m.ensureProductsSynced(session.user.id);
       });
-    } else if (navState.activeSection === 'inventory_out' || navState.activeSection === 'reports') {
+    } else if (navState.activeSection === 'inventory_out' || (navState.activeSubView as string) === 'reports') {
       import('./utils/unifiedDataStore').then((m) => {
         m.ensureProductsSynced(session.user.id);
         m.ensureTransactionsSynced(session.user.id);
@@ -1006,7 +998,7 @@ export default function App() {
               <HomeDashboard
                 productCount={products.length}
                 lowStockCount={valuation.lowStockCount}
-                expiringCount={valuation.expiringCount}
+                expiringCount={valuation.expiringSoonCount}
                 expiredCount={valuation.expiredCount}
                 onNavigate={handleNavigate}
               />
@@ -1317,8 +1309,9 @@ export default function App() {
         <Suspense fallback={null}>
           <PayloadModal
             isOpen={true}
+            data={submittedData}
             onClose={() => setIsModalOpen(false)}
-            formData={submittedData}
+            onResetWorkflow={handleResetWorkflow}
           />
         </Suspense>
       )}
@@ -1398,10 +1391,6 @@ export default function App() {
             isOpen={true}
             onClose={() => setIsSheetsModalOpen(false)}
             onProductsUpdated={() => setProducts(getProducts())}
-            onOpenCustomerMessaging={() => {
-              setIsSheetsModalOpen(false);
-              setIsCustomerMessagingOpen(true);
-            }}
           />
         </Suspense>
       )}

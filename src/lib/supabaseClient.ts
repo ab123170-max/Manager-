@@ -61,6 +61,24 @@ if (!isSupabaseConfigured()) {
 const fallbackUrl = 'https://placeholder-project.supabase.co';
 const fallbackKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key';
 
+// Synchronously detect password recovery URL flags before createClient processes or clears URL hash/search
+if (typeof window !== 'undefined') {
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+  const pathname = window.location.pathname || '';
+  if (
+    hash.includes('type=recovery') ||
+    search.includes('type=recovery') ||
+    pathname === '/reset-password' ||
+    pathname.startsWith('/reset-password')
+  ) {
+    try {
+      sessionStorage.setItem('scanme_password_recovery_active_v1', 'true');
+      localStorage.setItem('scanme_password_recovery_active_v1', 'true');
+    } catch {}
+  }
+}
+
 /**
  * Single reusable Supabase client instance used across the entire application.
  * Utilizes the public publishable key with Row Level Security (RLS).
@@ -73,8 +91,6 @@ export const supabase: SupabaseClient = createClient(
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      // Allow Supabase Auth to consume the recovery URL and establish the
-      // PASSWORD_RECOVERY session when the user clicks the email link.
       detectSessionInUrl: true,
       storage: typeof window !== 'undefined' ? window.localStorage : undefined,
     },

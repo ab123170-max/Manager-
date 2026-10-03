@@ -58,6 +58,7 @@ interface InventoryOverviewViewProps {
   onRecordSale?: (product: SavedInventoryItem) => void;
   onSelectProduct?: (product: SavedInventoryItem) => void;
   onNavigateSection?: (section: MenuSection, subView: string) => void;
+  onOpenGoogleSheets?: () => void;
 }
 
 export const InventoryOverviewView: React.FC<InventoryOverviewViewProps> = ({

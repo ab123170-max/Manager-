@@ -70,10 +70,14 @@ export interface InventoryValuation {
   totalStockQuantity: number;
   totalPurchaseValue: number;
   estimatedSellingValue: number;
+  totalRetailValue?: number;
   expectedProfit: number;
+  potentialProfit?: number;
   lowStockCount: number;
+  lowStockProducts?: number;
   expiringSoonCount: number;
   expiredCount: number;
+  expiredProducts?: number;
 }
 
 // Simple event-emitter listener for reactive updates
@@ -1414,10 +1418,14 @@ export function getInventoryValuation() {
     totalStockQuantity,
     totalPurchaseValue,
     estimatedSellingValue,
+    totalRetailValue: estimatedSellingValue,
     expectedProfit: Math.max(0, estimatedSellingValue - totalPurchaseValue),
+    potentialProfit: Math.max(0, estimatedSellingValue - totalPurchaseValue),
     lowStockCount,
+    lowStockProducts: lowStockCount,
     expiringSoonCount,
     expiredCount,
+    expiredProducts: expiredCount,
   };
   return cachedValuation;
 }

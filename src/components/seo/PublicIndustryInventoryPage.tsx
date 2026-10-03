@@ -91,6 +91,6 @@ export const PublicIndustryInventoryPage: React.FC<{ kind: IndustryKey; onNaviga
       <section className="grid md:grid-cols-3 gap-4">{page.sections.map(section => <article key={section.title} className="bg-white rounded-3xl p-6 border border-slate-200"><CheckCircle2 className="w-5 h-5 text-[#1473EA]" /><h2 className="mt-3 font-black text-slate-900">{section.title}</h2><p className="mt-2 text-sm text-slate-600 leading-relaxed">{section.text}</p></article>)}</section>
       <section className="bg-[#092B4C] text-white rounded-3xl p-6 sm:p-8"><h2 className="text-xl font-black">Related ScanMe AI tools</h2><div className="mt-4 flex flex-wrap gap-3 text-sm"><a href="/ai-product-scanner" onClick={e => { e.preventDefault(); onNavigatePath('/ai-product-scanner'); }} className="underline">AI product scanner</a><a href="/barcode-scanner" onClick={e => { e.preventDefault(); onNavigatePath('/barcode-scanner'); }} className="underline">Barcode scanner</a><a href="/expiry-date-scanner" onClick={e => { e.preventDefault(); onNavigatePath('/expiry-date-scanner'); }} className="underline">Expiry date scanner</a><a href="/inventory-management" onClick={e => { e.preventDefault(); onNavigatePath('/inventory-management'); }} className="underline">Inventory management</a></div></section>
     </main>
-    <PublicSeoFooter />
+    <PublicSeoFooter onNavigatePath={onNavigatePath} onLaunchApp={onLaunchApp} />
   </div>;
 };

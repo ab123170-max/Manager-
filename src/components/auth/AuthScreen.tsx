@@ -37,7 +37,7 @@ export type AuthScreenView =
   | 'email_otp';
 
 interface AuthScreenProps {
-  initialMode?: 'login' | 'signup' | 'forgot_password';
+  initialMode?: 'login' | 'signup' | 'forgot_password' | 'reset_password';
   onSuccess: (session: AuthSession, isNewUser: boolean) => void;
   onBackToLanding: () => void;
 }
@@ -69,7 +69,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 }) => {
   const { t } = useLanguage();
   const [view, setView] = useState<AuthScreenView>(() => {
-    if (authService.isRecoveryMode()) return 'reset_password';
+    const isRecovery = typeof window !== 'undefined' && window.location.hash.includes('type=recovery');
+    if (isRecovery || initialMode === 'reset_password') return 'reset_password';
+    if (initialMode === 'forgot_password') return 'forgot_password';
     return initialMode === 'signup' ? 'register' : 'login';
   });
 
@@ -108,6 +110,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [confirmNewPassword, setConfirmNewPassword] = useState<string>('');
   const [showNewPassword, setShowNewPassword] = useState<boolean>(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState<boolean>(false);
+  const [isLinkInvalidOrExpired, setIsLinkInvalidOrExpired] = useState<boolean>(false);
+  const [passwordResetSuccess, setPasswordResetSuccess] = useState<boolean>(false);
 
   // Email OTP State
   const [otpEmail, setOtpEmail] = useState<string>('');
@@ -119,10 +123,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [otpRemainingMs, setOtpRemainingMs] = useState<number>(0);
   const [resendRemainingMs, setResendRemainingMs] = useState<number>(0);
 
+  // Check URL parameters for explicit Supabase error codes (e.g. otp_expired, access_denied)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    if (
+      hash.includes('otp_expired') ||
+      hash.includes('error=access_denied') ||
+      search.includes('otp_expired') ||
+      search.includes('error=access_denied')
+    ) {
+      setIsLinkInvalidOrExpired(true);
+      setErrorMessage('Password reset link is invalid or expired.');
+      setView('reset_password');
+    }
+  }, []);
+
   // Listen for Password Recovery events (e.g. user clicked recovery link in email)
   useEffect(() => {
     const unsub = subscribePasswordRecovery((isRecovery) => {
       if (isRecovery) {
+        setIsLinkInvalidOrExpired(false);
         setView('reset_password');
         clearFeedback();
       }
@@ -130,9 +152,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     return unsub;
   }, []);
 
-  // Synchronize view state when initialMode changes (e.g. navigation between /login and /signup)
+  // Synchronize view state when initialMode changes (e.g. navigation between /login, /signup, /reset-password)
   useEffect(() => {
-    if (authService.isRecoveryMode()) {
+    const isRecovery = typeof window !== 'undefined' && window.location.hash.includes('type=recovery');
+    if (isRecovery || initialMode === 'reset_password') {
       setView('reset_password');
     } else if (initialMode === 'signup') {
       setView('register');
@@ -178,6 +201,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   const switchView = (newView: AuthScreenView) => {
     clearFeedback();
+    setIsLinkInvalidOrExpired(false);
+    setPasswordResetSuccess(false);
     if (newView !== 'email_otp') {
       setOtpExpiresAt(null);
       setResendAvailableAt(null);
@@ -186,6 +211,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       setOtpDigits(['', '', '', '', '', '']);
     }
     setView(newView);
+
+    if (typeof window !== 'undefined') {
+      let targetPath = '/login';
+      if (newView === 'forgot_password') targetPath = '/forgot-password';
+      else if (newView === 'reset_password') targetPath = '/reset-password';
+      else if (newView === 'register') targetPath = '/signup';
+      else if (newView === 'login') targetPath = '/login';
+
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState(null, '', targetPath);
+      }
+    }
   };
 
   // Helper formatting 5-minute countdown as MM:SS (e.g. 05:00, 04:59 ... 00:00)
@@ -358,7 +395,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
 
     if (!forgotEmail.trim()) {
-      setErrorMessage('Please enter your email address.');
+      setErrorMessage('Please enter your registered email address.');
       return;
     }
 
@@ -369,7 +406,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       const res = await authService.resetPasswordForEmail(forgotEmail);
       if (res.success) {
         setForgotSubmitted(true);
-        setSuccessMessage(res.message);
+        setSuccessMessage('Password reset link sent. Please check your email.');
       } else {
         setErrorMessage(res.message || res.error || 'Failed to send password reset email.');
       }
@@ -396,13 +433,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
-    if (!newPassword || newPassword.length < 6) {
+    if (!newPassword.trim()) {
+      setErrorMessage('Please enter your new password.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
       setErrorMessage('Password must be at least 6 characters long.');
       return;
     }
 
     if (newPassword !== confirmNewPassword) {
-      setErrorMessage('Passwords do not match. Please re-enter.');
+      setErrorMessage('Confirm password does not match. Please re-enter.');
       return;
     }
 
@@ -412,16 +454,31 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     try {
       const res = await authService.updateUserPassword(newPassword);
       if (res.success) {
-        setSuccessMessage('Password updated successfully! You can now log in with your new password.');
-        setTimeout(() => {
-          setView('login');
-          setLoginPassword('');
-        }, 1500);
+        setPasswordResetSuccess(true);
+        setSuccessMessage('Password updated successfully.');
+        setNewPassword('');
+        setConfirmNewPassword('');
       } else {
-        setErrorMessage(res.message || res.error || 'Failed to update password.');
+        const errorText = res.message || res.error || 'Failed to update password.';
+        if (
+          errorText.toLowerCase().includes('invalid') ||
+          errorText.toLowerCase().includes('expired') ||
+          errorText.toLowerCase().includes('session missing')
+        ) {
+          setIsLinkInvalidOrExpired(true);
+        }
+        setErrorMessage(errorText);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Password update failed.');
+      const msg = err.message || 'Password update failed.';
+      if (
+        msg.toLowerCase().includes('invalid') ||
+        msg.toLowerCase().includes('expired') ||
+        msg.toLowerCase().includes('session missing')
+      ) {
+        setIsLinkInvalidOrExpired(true);
+      }
+      setErrorMessage(msg);
     } finally {
       setIsLoading(false);
     }
@@ -775,7 +832,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           {errorMessage && (
             <div className="mb-5 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2.5 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-              <div className="flex-1 font-medium">{errorMessage}</div>
+              <div className="flex-1 font-medium space-y-1.5">
+                <div>{errorMessage}</div>
+                {(errorMessage.toLowerCase().includes('invalid') || errorMessage.toLowerCase().includes('expired')) && view === 'reset_password' && (
+                  <button
+                    type="button"
+                    onClick={() => switchView('forgot_password')}
+                    className="text-[11px] font-bold text-[#1473EA] hover:underline flex items-center gap-1"
+                  >
+                    <span>Request a new password reset link</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -1173,7 +1242,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           {/* VIEW 3: FORGOT PASSWORD                                          */}
           {/* ================================================================= */}
           {view === 'forgot_password' && (
-            <div className="space-y-5">
+            <div className="space-y-6">
               <div className="text-center space-y-1">
                 <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1473EA] flex items-center justify-center mx-auto mb-2">
                   <KeyRound className="w-6 h-6" />
@@ -1190,7 +1259,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
-                      Email Address
+                      Email
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -1200,7 +1269,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         autoComplete="email"
                         value={forgotEmail}
                         onChange={(e) => setForgotEmail(e.target.value)}
-                        placeholder="e.g. user@example.com"
+                        placeholder="Enter your registered email"
                         disabled={isLoading}
                         id="input-forgot-email"
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-3.5 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
@@ -1217,11 +1286,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     {isLoading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>{loadingText || 'Sending reset email…'}</span>
+                        <span>{loadingText || 'Sending reset link…'}</span>
                       </>
                     ) : (
                       <>
-                        <span>Send Password Reset Link</span>
+                        <span>Send Reset Link</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -1232,16 +1301,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     onClick={() => switchView('login')}
                     className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
                   >
-                    Cancel and Return to Login
+                    Back to Login
                   </button>
                 </form>
               ) : (
                 <div className="space-y-4 text-center">
                   <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-xs text-blue-900 space-y-2">
-                    <p className="font-bold">Check Your Email</p>
+                    <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mx-auto mb-1">
+                      <Mail className="w-5 h-5" />
+                    </div>
+                    <p className="font-bold text-sm">Check Your Email</p>
                     <p className="text-blue-800/80 leading-relaxed">
-                      If an account exists for <strong className="text-blue-950">{forgotEmail}</strong>,
-                      you will receive an email shortly with a secure password reset link.
+                      Password reset link sent. Please check your email.
+                    </p>
+                    <p className="text-[11px] text-blue-600/80">
+                      Sent to: <strong className="text-blue-950 font-bold">{forgotEmail}</strong>
                     </p>
                   </div>
 
@@ -1254,7 +1328,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     id="btn-forgot-return-login"
                     className="w-full py-3 rounded-2xl bg-[#092B4C] hover:bg-slate-900 text-white font-bold text-xs transition-colors"
                   >
-                    Return to Login
+                    Back to Login
                   </button>
                 </div>
               )}
@@ -1266,100 +1340,179 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           {/* ================================================================= */}
           {view === 'reset_password' && (
             <div className="space-y-5">
-              <div className="text-center space-y-1">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-2">
-                  <Lock className="w-6 h-6" />
-                </div>
-                <h2 className="text-xl sm:text-2xl font-black text-[#092B4C] tracking-tight">
-                  Set New Password
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Choose a secure new password for your account
-                </p>
-              </div>
+              {isLinkInvalidOrExpired ? (
+                <div className="space-y-5 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto mb-2">
+                    <AlertCircle className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-black text-[#092B4C] tracking-tight">
+                    Reset Link Invalid or Expired
+                  </h2>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                    Password reset link is invalid or expired.
+                  </p>
 
-              <form onSubmit={handleUpdatePasswordSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
-                    New Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type={showNewPassword ? 'text' : 'password'}
-                      required
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Minimum 6 characters"
-                      disabled={isLoading}
-                      id="input-reset-new-password"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
-                    />
+                  <div className="pt-2 space-y-3">
                     <button
                       type="button"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      tabIndex={-1}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                      onClick={() => {
+                        setIsLinkInvalidOrExpired(false);
+                        switchView('forgot_password');
+                      }}
+                      id="btn-request-new-reset-link"
+                      className="w-full py-3.5 rounded-2xl bg-[#1473EA] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-[#1473EA]/20 transition-all flex items-center justify-center gap-2 active:scale-98"
                     >
-                      {showNewPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
-                    Confirm New Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type={showConfirmNewPassword ? 'text' : 'password'}
-                      required
-                      value={confirmNewPassword}
-                      onChange={(e) => setConfirmNewPassword(e.target.value)}
-                      placeholder="Re-enter new password"
-                      disabled={isLoading}
-                      id="input-reset-confirm-password"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
-                      tabIndex={-1}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-                    >
-                      {showConfirmNewPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isLoading || !newPassword || !confirmNewPassword}
-                  id="btn-submit-update-password"
-                  className="w-full py-3.5 rounded-2xl bg-[#1473EA] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-[#1473EA]/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Updating password…</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Update Password</span>
+                      <span>Request New Reset Link</span>
                       <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </form>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLinkInvalidOrExpired(false);
+                        switchView('login');
+                      }}
+                      className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+                    >
+                      Back to Login
+                    </button>
+                  </div>
+                </div>
+              ) : passwordResetSuccess ? (
+                <div className="space-y-5 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-2">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-black text-[#092B4C] tracking-tight">
+                    Password Updated Successfully
+                  </h2>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                    Password updated successfully.
+                  </p>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPasswordResetSuccess(false);
+                        switchView('login');
+                      }}
+                      id="btn-continue-to-login"
+                      className="w-full py-3.5 rounded-2xl bg-[#1473EA] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-[#1473EA]/20 transition-all flex items-center justify-center gap-2 active:scale-98"
+                    >
+                      <span>Continue to Login</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-center space-y-1">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-2">
+                      <Lock className="w-6 h-6" />
+                    </div>
+                    <h2 className="text-xl sm:text-2xl font-black text-[#092B4C] tracking-tight">
+                      Reset Password
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      Enter your new password below to regain access to your account
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleUpdatePasswordSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
+                        New Password
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type={showNewPassword ? 'text' : 'password'}
+                          required
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Enter new password"
+                          disabled={isLoading}
+                          id="input-reset-new-password"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          tabIndex={-1}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                        >
+                          {showNewPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-[#092B4C] mb-1.5">
+                        Confirm New Password
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type={showConfirmNewPassword ? 'text' : 'password'}
+                          required
+                          value={confirmNewPassword}
+                          onChange={(e) => setConfirmNewPassword(e.target.value)}
+                          placeholder="Confirm new password"
+                          disabled={isLoading}
+                          id="input-reset-confirm-password"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-10 py-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1473EA]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                          tabIndex={-1}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                        >
+                          {showConfirmNewPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isLoading || !newPassword || !confirmNewPassword}
+                      id="btn-submit-update-password"
+                      className="w-full py-3.5 rounded-2xl bg-[#1473EA] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-[#1473EA]/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Updating password…</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Update Password</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        switchView('login');
+                      }}
+                      className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors"
+                    >
+                      Back to Login
+                    </button>
+                  </form>
+                </>
+              )}
             </div>
           )}
 
