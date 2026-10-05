@@ -7,7 +7,7 @@ import { updateDocumentSeo } from '../../utils/seoHelper';
 interface PublicShareAppPageProps { onNavigatePath?: (path: string) => void; }
 
 const APP_URL = 'https://scanme-ai.vercel.app/';
-const APK_URL = 'https://github.com/ab123170-max/Manager-/releases/latest/download/app-debug.apk';
+const APK_URL = '/api/download-apk';
 
 export const PublicShareAppPage: React.FC<PublicShareAppPageProps> = ({ onNavigatePath }) => {
   const [copied, setCopied] = useState(false);
