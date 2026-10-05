@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useCamera } from '../hooks/useCamera';
-import { captureFrameFromVideo, fileToBase64 } from '../utils/imageEncoder';
+import { fileToBase64 } from '../utils/imageEncoder';
 import { SampleDoc } from '../types';
 
 interface CameraViewportProps {
@@ -222,7 +222,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
             {/* TAB 1: LIVE CAMERA VIEWPORT */}
             {activeTab === 'camera' && (
               <div className="space-y-4">
-                <div className="relative aspect-[4/3] sm:aspect-[16/10] max-h-[420px] w-full bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
+                <div className="relative aspect-[4/3] sm:aspect-[16/10] max-h-[420px] w-full bg-transparent rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
                   {/* HTML5 Video Element rendering live stream */}
                   <div ref={previewRef} className={`absolute inset-0 bg-transparent transition-opacity duration-300 ${cameraState.isStreaming ? 'opacity-100' : 'opacity-0'}`} />
 
