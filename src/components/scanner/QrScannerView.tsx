@@ -56,6 +56,15 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
     isTorchAvailable,
     toggleTorch,
   } = useLiveCamera();
+  const animationFrameRef = useRef<number | null>(null);
+  const lastScanTimeRef = useRef<number>(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    void startCamera('environment');
+    return () => stopCamera();
+  }, [startCamera, stopCamera]);
+
   const [isScanning, setIsScanning] = useState<boolean>(true);
   const cameraActive = cameraState.isStreaming;
   const cameraError = cameraState.error;
