@@ -47,6 +47,7 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
 }) => {
   const {
     videoRef,
+    previewRef,
     streamRef,
     cameraState,
     startCamera,
@@ -55,6 +56,7 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
     isTorchOn: torchOn,
     isTorchAvailable,
     toggleTorch,
+    captureFrame,
   } = useLiveCamera();
   const animationFrameRef = useRef<number | null>(null);
   const lastScanTimeRef = useRef<number>(0);
@@ -98,7 +100,7 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
   }, [soundEnabled]);
 
   const processVideoFrame = useCallback(async () => {
-    if (!videoRef.current || !isScanning || videoRef.current.readyState < 2) {
+    if (!isScanning) {
       animationFrameRef.current = requestAnimationFrame(processVideoFrame);
       return;
     }
@@ -108,7 +110,9 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
       lastScanTimeRef.current = now;
 
       try {
-        const codes = await detectCodesInFrame(videoRef.current, 'qr');
+        let codes: DetectedCode[] = [];
+        if (!videoRef.current) { const image = await captureFrame(); if (image) codes = await detectCodesInImage(image, 'qr'); }
+        else if (videoRef.current.readyState >= 2) codes = await detectCodesInFrame(videoRef.current, 'qr');
         if (codes.length > 0) {
           const code = codes[0];
           handleDetectedCode(code);
@@ -119,12 +123,7 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
     }
 
     animationFrameRef.current = requestAnimationFrame(processVideoFrame);
-  }, [isScanning, handleDetectedCode]);
-
-  useEffect(() => {
-    startCamera();
-    return () => stopCamera();
-  }, [startCamera, stopCamera]);
+  }, [isScanning, handleDetectedCode, captureFrame]);
 
   useEffect(() => {
     if (cameraActive && isScanning) {
@@ -240,13 +239,7 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
           <div className="relative bg-slate-950 rounded-3xl overflow-hidden aspect-square sm:aspect-4/3 border border-slate-800 shadow-xl flex items-center justify-center">
             {cameraActive ? (
               <>
-                <video
-                  ref={videoRef}
-                  playsInline
-                  autoPlay
-                  muted
-                  className="w-full h-full object-cover"
-                />
+                <div ref={previewRef} className="absolute inset-0 bg-transparent" aria-label="Native camera preview" />
 
                 {/* Square QR Target Zone */}
                 <div className="absolute w-56 h-56 sm:w-64 sm:h-64 border-2 border-indigo-400 rounded-3xl pointer-events-none flex flex-col justify-between p-3">
