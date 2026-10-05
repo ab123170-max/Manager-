@@ -5,7 +5,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { CameraState } from '../types';
-import { requestNativeCameraPermission } from '../services/nativeDevice';
 import { Capacitor } from '@capacitor/core';
 
 /**
@@ -106,16 +105,11 @@ export function useCamera() {
       try {
         setCameraState((prev) => ({ ...prev, error: null }));
 
-        // On Android/iOS, request the native CAMERA permission first, then
-        // continue with WebView getUserMedia(). This is important because the
-        // scanner UI is an in-app <video> preview; using Camera.getPhoto() here
-        // would open a separate native camera screen instead of the live preview.
-        // Capacitor's WebChromeClient then grants VIDEO_CAPTURE to the WebView
-        // once the Android CAMERA permission is already granted.
-        const nativeCameraGranted = await requestNativeCameraPermission();
-        if (!nativeCameraGranted) {
-          throw new DOMException('Camera permission was denied.', 'NotAllowedError');
-        }
+        // On Android, the WebView's onPermissionRequest bridge in MainActivity
+        // requests/grants CAMERA for navigator.mediaDevices.getUserMedia().
+        // Do not pre-request through the Capacitor Camera plugin here: that plugin
+        // is intended for native photo capture and can report a separate permission
+        // state from the WebView's VIDEO_CAPTURE request.
 
         // Request video stream with fallback constraint handling
         let stream: MediaStream;
