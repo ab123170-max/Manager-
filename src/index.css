@@ -85,3 +85,17 @@ img {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Native Android Camera Preview Layering */
+body.camera-preview-active,
+html.camera-preview-active,
+#root.camera-preview-active {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.camera-preview-transparent {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
