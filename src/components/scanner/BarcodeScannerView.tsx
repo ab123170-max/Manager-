@@ -99,6 +99,7 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrateEnabled, setVibrateEnabled] = useState(true);
   const [isScanning, setIsScanning] = useState(true);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const cameraActive = cameraState.isStreaming;
 
   useEffect(() => {
