@@ -29,7 +29,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
   onImageSelected,
   disabled = false,
 }) => {
-  const { videoRef, cameraState, startCamera, stopCamera, toggleFacingMode } = useCamera();
+  const { videoRef, previewRef, cameraState, startCamera, stopCamera, toggleFacingMode, captureFrame } = useCamera();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'samples'>('camera');
   const [dragActive, setDragActive] = useState(false);
@@ -66,10 +66,10 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
    * Captures the live frame from videoRef, encodes it to Base64 via Canvas,
    * stops the stream to free camera resources, and passes it forward.
    */
-  const handleCapturePhoto = () => {
-    if (!videoRef.current) return;
+  const handleCapturePhoto = async () => {
+    if (!cameraState.isStreaming) return;
     try {
-      const base64Data = captureFrameFromVideo(videoRef.current, 0.95);
+      const base64Data = await captureFrame();
       setCapturedPreview(base64Data);
       stopCamera();
       onImageSelected(base64Data, 'camera');
@@ -224,15 +224,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
               <div className="space-y-4">
                 <div className="relative aspect-[4/3] sm:aspect-[16/10] max-h-[420px] w-full bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
                   {/* HTML5 Video Element rendering live stream */}
-                  <video
-                    ref={videoRef}
-                    playsInline
-                    muted
-                    autoPlay
-                    className={`w-full h-full object-cover transition-opacity duration-300 ${
-                      cameraState.isStreaming ? 'opacity-100' : 'opacity-0'
-                    }`}
-                  />
+                  <div ref={previewRef} className={`absolute inset-0 bg-transparent transition-opacity duration-300 ${cameraState.isStreaming ? 'opacity-100' : 'opacity-0'}`} />
 
                   {/* Document Viewfinder Boundary Guides (Overlay) */}
                   {cameraState.isStreaming && (
