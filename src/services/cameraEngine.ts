@@ -33,6 +33,7 @@ export async function requestCameraStream(options: { facingMode?: CameraFacingMo
 }
 
 export async function startNativeCamera(parent: string, facingMode: CameraFacingMode) {
+  await CameraPreview.requestPermissions({ disableAudio: true });
   await CameraPreview.start({
     parent,
     position: facingMode === 'environment' ? 'rear' : 'front',
