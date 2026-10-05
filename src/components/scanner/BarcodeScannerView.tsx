@@ -3,36 +3,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useCallback, ChangeEvent } from 'react';
-import { useLiveCamera } from '../../hooks/useLiveCamera';
+import React, { useState, useRef, useCallback, ChangeEvent } from 'react';
 import {
-  Camera,
   Barcode as BarcodeIcon,
-  RefreshCw,
-  Zap,
-  ZapOff,
   Volume2,
   VolumeX,
-  AlertCircle,
-  Plus,
   ShoppingBag,
   Tag,
   CheckCircle2,
   Layers,
   Package,
-  Edit3,
   Loader2,
-  WifiOff,
   PlusCircle,
-  Copy,
-  Check,
   RotateCcw,
   Sparkles,
   UploadCloud,
-  FileImage,
+  Search,
+  AlertTriangle,
 } from 'lucide-react';
 import {
-  detectCodesInFrame,
   detectCodesInImage,
   playScanBeep,
   triggerHapticFeedback,
@@ -41,7 +30,6 @@ import {
   DetectedCode,
   SavedInventoryItem,
   ScannedProductMapping,
-  ValueConflict,
   MergedRecognitionResult,
 } from '../../types';
 import {
@@ -52,14 +40,9 @@ import {
 import {
   lookupBarcodeProduct,
   normalizeBarcode,
-  BarcodeLookupResult,
-  BarcodeLookupProduct,
-  LookupStatusType,
 } from '../../services/barcodeLookup';
 import {
   runProductOcr,
-  captureStillFrameFromVideo,
-  OcrEngineResult,
 } from '../../utils/tesseractOcrEngine';
 import { mergeProductRecognition } from '../../utils/productMerger';
 import { TwoEngineProductCard } from './TwoEngineProductCard';
@@ -78,93 +61,48 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
   onViewProduct,
   onOpenManualEntry,
 }) => {
-  // Unified live camera engine: one permission, one stream, one lifecycle.
-  const {
-    videoRef,
-    previewRef,
-    streamRef,
-    cameraState,
-    startCamera,
-    stopCamera,
-    toggleFacingMode,
-    isTorchOn: torchOn,
-    isTorchAvailable,
-    toggleTorch,
-    captureFrame,
-  } = useLiveCamera();
-  const animationFrameRef = useRef<number | null>(null);
-  const lastScanTimeRef = useRef<number>(0);
-  const isProcessingRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrateEnabled, setVibrateEnabled] = useState(true);
-  const [isScanning, setIsScanning] = useState(true);
+  const [manualBarcodeInput, setManualBarcodeInput] = useState('');
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const cameraActive = cameraState.isStreaming;
-
-  useEffect(() => {
-    void startCamera('environment');
-    return () => stopCamera();
-  }, [startCamera, stopCamera]);
-
+  const [isSearching, setIsSearching] = useState(false);
 
   // Two-Engine Pipeline States
   const [pipelineStage, setPipelineStage] = useState<
     'idle' | 'barcode_detected' | 'running_ocr' | 'looking_up_db' | 'completed' | 'error'
   >('idle');
-  const [statusMessage, setStatusMessage] = useState<string>('Align barcode in viewfinder...');
+  const [statusMessage, setStatusMessage] = useState<string>('Upload a barcode photo or enter barcode manually');
   const [detectedCode, setDetectedCode] = useState<DetectedCode | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [mergedResult, setMergedResult] = useState<MergedRecognitionResult | null>(null);
   const [matchedInventoryItem, setMatchedInventoryItem] = useState<SavedInventoryItem | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [copiedBarcode, setCopiedBarcode] = useState<boolean>(false);
 
   // Fallback modal
   const [isPipelineModalOpen, setIsPipelineModalOpen] = useState<boolean>(false);
 
   /**
-   * TWO-ENGINE PIPELINE EXECUTION:
-   * 1. Barcode Engine (ZXing) detected
-   * 2. Capture still frame snapshot (Single-run OCR)
-   * 3. Run OCR once (Tesseract.js) + Database lookup in parallel
-   * 4. Merge results & detect conflicts
-   * 5. Display Product Card
+   * TWO-ENGINE PIPELINE EXECUTION
    */
   const handleTwoEnginePipeline = useCallback(
     async (code: DetectedCode, customImageDataUrl?: string) => {
-      if (isProcessingRef.current) return;
-      isProcessingRef.current = true;
-      setIsScanning(false);
-
       const normalized = normalizeBarcode(code.value);
-      if (!normalized) {
-        isProcessingRef.current = false;
-        setIsScanning(true);
-        return;
-      }
+      if (!normalized) return;
 
       if (soundEnabled) playScanBeep();
       if (vibrateEnabled) triggerHapticFeedback();
 
       setDetectedCode(code);
       setPipelineStage('barcode_detected');
-      setStatusMessage(`Barcode detected: ${normalized}`);
+      setStatusMessage(`Barcode: ${normalized}`);
 
-      // 1. Capture still frame for OCR (Single snapshot)
-      let stillDataUrl = customImageDataUrl || '';
-      if (!stillDataUrl && videoRef.current) {
-        const snap = captureStillFrameFromVideo(videoRef.current);
-        if (snap) {
-          stillDataUrl = snap.dataUrl;
-          setCapturedImage(snap.dataUrl);
-        }
-      } else if (stillDataUrl) {
-        setCapturedImage(stillDataUrl);
+      if (customImageDataUrl) {
+        setCapturedImage(customImageDataUrl);
       }
 
-      // Check if item already exists in local inventory first (Duplicate Protection)
+      // Check if item already exists in local inventory first
       const existingInventory = getProducts();
       const existingItem = existingInventory.find(
         (p) => p.barcode && normalizeBarcode(p.barcode) === normalized
@@ -173,8 +111,7 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
       if (existingItem) {
         setMatchedInventoryItem(existingItem);
         setPipelineStage('completed');
-        setStatusMessage('Product already exists in inventory');
-        isProcessingRef.current = false;
+        setStatusMessage('Product found in inventory');
         return;
       }
 
@@ -182,9 +119,8 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
       setStatusMessage('Extracting label details & querying database...');
 
       try {
-        // Run OCR and Database lookup in parallel
         const [ocrRes, dbLookupRes] = await Promise.all([
-          stillDataUrl ? runProductOcr(stillDataUrl) : Promise.resolve(null),
+          customImageDataUrl ? runProductOcr(customImageDataUrl) : Promise.resolve(null),
           lookupBarcodeProduct(normalized),
         ]);
 
@@ -192,7 +128,6 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
         const ocrMapping = ocrRes?.mapping || null;
         const rawOcrText = ocrRes?.rawText || '';
 
-        // Merge results and find conflicts
         const merged = mergeProductRecognition(
           normalized,
           code.format || 'EAN-13',
@@ -210,7 +145,6 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
         );
       } catch (pipelineErr) {
         console.error('Two-engine pipeline execution failed:', pipelineErr);
-        // Fallback gracefully to basic barcode result
         const fallbackMerged = mergeProductRecognition(
           normalized,
           code.format || 'EAN-13',
@@ -220,56 +154,29 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
         );
         setMergedResult(fallbackMerged);
         setPipelineStage('completed');
-        setStatusMessage('Barcode captured (OCR fallback)');
-      } finally {
-        isProcessingRef.current = false;
+        setStatusMessage('Barcode captured');
       }
     },
     [soundEnabled, vibrateEnabled]
   );
 
-  // Fast continuous video frame loop for Barcode decoding ONLY (ZXing)
-  const processVideoFrame = useCallback(async () => {
-    if (!isScanning || isProcessingRef.current) {
-      animationFrameRef.current = requestAnimationFrame(processVideoFrame);
-      return;
-    }
+  const handleManualSearch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = manualBarcodeInput.trim();
+    if (!clean) return;
 
-    const now = Date.now();
-    // Scan frame for barcode every 160ms
-    if (now - lastScanTimeRef.current > 160) {
-      lastScanTimeRef.current = now;
-
-      try {
-        if (!videoRef.current) { const image = await captureFrame(); if (image) { const codes = await detectCodesInImage(image, 'barcode'); if (codes.length) { handleTwoEnginePipeline(codes[0], image); return; } } }
-        else if (videoRef.current.readyState >= 2) { const codes = await detectCodesInFrame(videoRef.current, 'barcode');
-        if (codes.length > 0) {
-          const code = codes[0];
-          if (!detectedCode || normalizeBarcode(detectedCode.value) !== normalizeBarcode(code.value)) {
-            handleTwoEnginePipeline(code);
-            return;
-          }
-        } }
-      } catch {
-        // Silent frame skip
-      }
-    }
-
-    animationFrameRef.current = requestAnimationFrame(processVideoFrame);
-  }, [isScanning, detectedCode, handleTwoEnginePipeline, captureFrame]);
-
-  useEffect(() => {
-    if (cameraActive && isScanning) {
-      animationFrameRef.current = requestAnimationFrame(processVideoFrame);
-    }
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+    setIsSearching(true);
+    const code: DetectedCode = {
+      type: 'barcode',
+      format: 'Barcode',
+      value: clean,
+      raw_value: clean,
+      confidence: 1.0,
+      timestamp: Date.now(),
     };
-  }, [cameraActive, isScanning, processVideoFrame]);
+    void handleTwoEnginePipeline(code).finally(() => setIsSearching(false));
+  };
 
-  // Handle Image File Upload for Barcode Scan (Fallback when camera permission is blocked)
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -284,9 +191,7 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
           if (codes.length > 0) {
             handleTwoEnginePipeline(codes[0], dataUrl);
           } else {
-            // Also run OCR directly if barcode was not crisp
             const ocrRes = await runProductOcr(dataUrl);
-            // Search for 8-14 digit barcode in raw OCR text
             const digitMatches = ocrRes.rawText.match(/\b\d{8,14}\b/g) || [];
             const possibleBarcode = digitMatches[0] || '';
             if (possibleBarcode) {
@@ -316,19 +221,16 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
     }
   };
 
-  // Reset scanner to scan again
   const handleScanAgain = () => {
     setDetectedCode(null);
     setCapturedImage(null);
     setMergedResult(null);
     setMatchedInventoryItem(null);
+    setManualBarcodeInput('');
     setPipelineStage('idle');
-    setStatusMessage('Align barcode in viewfinder...');
-    setIsScanning(true);
-    isProcessingRef.current = false;
+    setStatusMessage('Upload a barcode photo or enter barcode manually');
   };
 
-  // Quick Stock Increment for Duplicate / Existing Item
   const handleQuickAddStock = (delta = 1) => {
     if (!matchedInventoryItem) return;
     const updated = adjustProductStock(matchedInventoryItem.id, delta);
@@ -340,7 +242,6 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
     }
   };
 
-  // Add recognized product directly to inventory
   const handleSaveToInventory = (product: ScannedProductMapping) => {
     setIsSaving(true);
     try {
@@ -385,7 +286,6 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
     }
   };
 
-  // Edit in manual form
   const handleEditProduct = (product: ScannedProductMapping) => {
     if (onOpenManualEntry) {
       onOpenManualEntry(product.barcode, {
@@ -408,7 +308,12 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto space-y-5 pb-12">
-      {/* Hidden File Input for Image Upload Scanning */}
+      {/* Notice Banner */}
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-2.5 text-amber-900 text-xs">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+        <span>Camera scanner temporarily unavailable. You can upload an image or enter a barcode manually.</span>
+      </div>
+
       <input
         ref={fileInputRef}
         type="file"
@@ -417,367 +322,232 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
         className="hidden"
       />
 
-      {/* Top Banner */}
+      {/* Top Header Card */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 sm:p-5 rounded-3xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-indigo-300 text-xs font-bold uppercase tracking-wider mb-1">
             <Sparkles className="w-4 h-4 text-indigo-400" />
-            <span>Two-Engine Recognition System</span>
+            <span>Barcode Product Lookup</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-            Barcode + OCR Product Pipeline
+            Barcode Search &amp; Image Decode
           </h1>
           <p className="text-xs text-slate-300 mt-0.5 max-w-lg">
-            ZXing Barcode Engine + Tesseract.js Label OCR with automated inventory matching &amp; conflict resolution.
+            Lookup any barcode from image or number with instant Open Food Facts &amp; local inventory lookup.
           </p>
         </div>
 
-        {/* Controls Bar */}
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors flex items-center gap-1.5 text-xs font-bold"
+            className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer"
             title="Upload Barcode Photo"
           >
             <UploadCloud className="w-4 h-4" />
-            <span className="hidden sm:inline">Upload Photo</span>
+            <span>Upload Photo</span>
           </button>
 
           <button
             type="button"
-            onClick={toggleTorch}
-            className={`p-2.5 rounded-xl border transition-colors ${
-              torchOn
-                ? 'bg-amber-400 text-slate-950 border-amber-300'
-                : 'bg-white/10 text-white border-white/10 hover:bg-white/20'
-            }`}
-            title="Toggle Flashlight"
+            onClick={() => setSoundEnabled((prev) => !prev)}
+            className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+            title={soundEnabled ? 'Mute Beep' : 'Enable Beep'}
           >
-            {torchOn ? <Zap className="w-4 h-4" /> : <ZapOff className="w-4 h-4" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2.5 rounded-xl border transition-colors ${
-              soundEnabled
-                ? 'bg-white/20 text-white border-white/20'
-                : 'bg-white/5 text-slate-400 border-white/10'
-            }`}
-            title="Toggle Beep Sound"
-          >
-            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              toggleFacingMode()
-            }
-            className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors"
-            title="Switch Camera"
-          >
-            <RefreshCw className="w-4 h-4" />
+            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-rose-400" />}
           </button>
         </div>
       </div>
 
-      {/* Main Viewport & Two-Engine Results */}
+      {feedbackMessage && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl text-xs font-bold flex items-center gap-2 shadow-xs animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{feedbackMessage}</span>
+        </div>
+      )}
+
+      {/* Main Grid: Left Column Manual Entry & Upload / Right Column Product Output */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left Column: Viewfinder */}
-        <div className="lg:col-span-6 space-y-3">
-          <div className="relative bg-transparent rounded-3xl overflow-hidden aspect-4/3 sm:aspect-16/10 border border-slate-800 shadow-xl flex items-center justify-center">
-            {cameraActive ? (
-              <>
-                <div ref={previewRef} className="absolute inset-0 bg-transparent" aria-label="Native camera preview" />
+        {/* Left Column: Manual Barcode Entry + Upload Dropzone */}
+        <div className="lg:col-span-5 space-y-4">
+          {/* Manual Barcode Search Form */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
+            <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+              <BarcodeIcon className="w-4 h-4 text-indigo-600" />
+              <span>Enter Barcode Number</span>
+            </h2>
 
-                {/* Red laser scanning line animation when active */}
-                {isScanning && (
-                  <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 h-0.5 bg-rose-500 shadow-[0_0_14px_#f43f5e] animate-pulse pointer-events-none" />
-                )}
+            <form onSubmit={handleManualSearch} className="space-y-3">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={manualBarcodeInput}
+                  onChange={(e) => setManualBarcodeInput(e.target.value)}
+                  placeholder="e.g. 8901030383749"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 text-sm font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
 
-                {/* Viewfinder Target Reticle */}
-                <div className="absolute inset-8 sm:inset-10 border-2 border-dashed border-indigo-400/80 rounded-2xl pointer-events-none flex flex-col justify-between p-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-white bg-slate-900/80 px-2 py-0.5 rounded-md">
-                      ZXing Scanner
-                    </span>
-                    <span className="text-[10px] text-emerald-400 font-mono bg-slate-900/80 px-2 py-0.5 rounded-md flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                      Live
-                    </span>
-                  </div>
-                  <div className="text-center text-[10px] text-slate-300 bg-slate-900/80 py-0.5 px-2 rounded-md self-center">
-                    EAN-13 • EAN-8 • UPC-A • UPC-E • Code 128 • QR
-                  </div>
-                </div>
+              <button
+                type="submit"
+                disabled={!manualBarcodeInput.trim() || isSearching}
+                className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+              >
+                {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                <span>Lookup Barcode</span>
+              </button>
+            </form>
+          </div>
 
-                {/* Live Status Pill at Bottom of Viewfinder */}
-                <div className="absolute bottom-3 inset-x-3 flex items-center justify-between px-3 py-2 bg-slate-900/90 backdrop-blur-md rounded-xl text-xs text-white">
-                  <div className="flex items-center gap-2">
-                    {pipelineStage === 'running_ocr' || pipelineStage === 'looking_up_db' ? (
-                      <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
-                    ) : pipelineStage === 'completed' ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                    )}
-                    <span className="text-[11px] font-bold tracking-tight">
-                      {statusMessage}
-                    </span>
-                  </div>
-
-                  {!isScanning && (
-                    <button
-                      type="button"
-                      onClick={handleScanAgain}
-                      className="text-[11px] font-bold text-indigo-300 hover:text-white flex items-center gap-1 transition-colors"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      <span>Resume</span>
-                    </button>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="p-6 text-center space-y-3 max-w-sm">
-                <div className="w-12 h-12 rounded-2xl bg-slate-800 text-indigo-400 flex items-center justify-center mx-auto">
-                  <BarcodeIcon className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Camera Standby / Permission</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {cameraError || 'Camera feed paused or awaiting permission.'}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2 justify-center pt-2">
-                  <button
-                    type="button"
-                    onClick={startCamera}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors"
-                  >
-                    Retry Camera
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
-                  >
-                    <UploadCloud className="w-3.5 h-3.5" />
-                    <span>Upload Barcode Image</span>
-                  </button>
-                </div>
+          {/* Upload Image Dropzone */}
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className="bg-white rounded-3xl p-6 border-2 border-dashed border-slate-300 hover:border-indigo-500 hover:bg-indigo-50/20 transition-all text-center cursor-pointer space-y-2.5 shadow-sm"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center">
+              <UploadCloud className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-900">Upload Barcode Image</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Drop barcode photo or browse files (JPEG, PNG)
+              </p>
+            </div>
+            {isUploadingImage && (
+              <div className="flex items-center justify-center gap-1.5 text-xs text-indigo-600 font-semibold pt-1">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Decoding barcode...</span>
               </div>
             )}
           </div>
-
-          {/* Quick Fallback Action Tiles */}
-          <div className="flex items-center justify-between gap-2 p-3 bg-white border border-slate-200 rounded-2xl shadow-2xs">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploadingImage}
-              className="flex-1 py-2 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-200 transition-colors"
-            >
-              {isUploadingImage ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <FileImage className="w-3.5 h-3.5 text-indigo-600" />
-              )}
-              <span>Upload Barcode Photo</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (onOpenManualEntry) onOpenManualEntry();
-                else setIsPipelineModalOpen(true);
-              }}
-              className="flex-1 py-2 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-200 transition-colors"
-            >
-              <PlusCircle className="w-3.5 h-3.5 text-slate-600" />
-              <span>Enter Barcode Manually</span>
-            </button>
-          </div>
         </div>
 
-        {/* Right Column: Result Card & Conflict Resolution */}
-        <div className="lg:col-span-6 space-y-3">
-          {feedbackMessage && (
-            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 font-bold flex items-center gap-2 animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>{feedbackMessage}</span>
+        {/* Right Column: Two-Engine Result Output */}
+        <div className="lg:col-span-7 space-y-4">
+          {pipelineStage === 'idle' && !matchedInventoryItem && !mergedResult && (
+            <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center text-slate-500 space-y-2 shadow-sm">
+              <BarcodeIcon className="w-10 h-10 text-slate-300 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-800">No Product Scanned Yet</h3>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Enter a barcode number or upload an image of a barcode label to see product information and stock controls.
+              </p>
             </div>
           )}
 
-          {/* 1. MATCHED EXISTING ITEM (DUPLICATE PROTECTION) */}
-          {matchedInventoryItem && (
-            <div className="p-5 rounded-3xl bg-emerald-50/90 border border-emerald-200 shadow-md space-y-4 animate-in fade-in">
-              <div className="flex items-start gap-3">
-                {matchedInventoryItem.imageThumbnail ? (
-                  <img
-                    src={matchedInventoryItem.imageThumbnail}
-                    alt={matchedInventoryItem.productName}
-                    loading="lazy"
-                    className="w-16 h-16 rounded-2xl object-cover border border-emerald-200 shrink-0 bg-white"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                    <Package className="w-8 h-8" />
-                  </div>
-                )}
+          {pipelineStage === 'running_ocr' && (
+            <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center space-y-3 shadow-sm">
+              <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mx-auto" />
+              <h3 className="text-sm font-bold text-slate-900">{statusMessage}</h3>
+              <p className="text-xs text-slate-500">Querying Open Food Facts database and running text OCR...</p>
+            </div>
+          )}
 
-                <div className="flex-1 min-w-0">
-                  <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 tracking-wider">
-                    Product already exists in inventory
+          {/* Existing Inventory Item Match */}
+          {matchedInventoryItem && (
+            <div className="bg-white rounded-3xl p-5 sm:p-6 border border-emerald-300 shadow-md space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="p-2 rounded-xl bg-emerald-100 text-emerald-700">
+                    <CheckCircle2 className="w-5 h-5" />
                   </span>
-                  <h3 className="font-extrabold text-slate-900 text-base mt-1 truncate">
-                    {matchedInventoryItem.productName}
-                  </h3>
-                  <p className="text-xs text-slate-600 font-medium">
-                    {matchedInventoryItem.brand} • {matchedInventoryItem.category}
-                  </p>
-                  <p className="text-xs font-mono font-bold text-slate-700 mt-0.5">
-                    Barcode: {matchedInventoryItem.barcode}
-                  </p>
+                  <div>
+                    <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">
+                      Already in Inventory
+                    </span>
+                    <h3 className="text-base font-extrabold text-slate-900">
+                      {matchedInventoryItem.productName}
+                    </h3>
+                  </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleScanAgain}
+                  className="p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Clear</span>
+                </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-xs pt-3 border-t border-emerald-200 text-slate-700">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-slate-50 p-3 rounded-2xl border border-slate-200">
                 <div>
-                  <span className="text-[10px] text-slate-500 block">Selling Price:</span>
-                  <span className="font-black text-emerald-800 text-sm">
-                    ${matchedInventoryItem.sellingPrice || matchedInventoryItem.mrp || '0.00'}
+                  <span className="text-slate-400 block text-[10px]">Current Stock</span>
+                  <span className="font-bold text-slate-900 text-sm">{matchedInventoryItem.stockQuantity}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Selling Price</span>
+                  <span className="font-bold text-slate-900 text-sm">
+                    {matchedInventoryItem.sellingPrice ? `₹${matchedInventoryItem.sellingPrice}` : '-'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 block">Current Stock:</span>
-                  <span className="font-black text-slate-900 text-sm">
-                    {matchedInventoryItem.stockQuantity} units
-                  </span>
+                  <span className="text-slate-400 block text-[10px]">Barcode</span>
+                  <span className="font-bold font-mono text-slate-900 text-xs">{matchedInventoryItem.barcode || '-'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Expiry Date</span>
+                  <span className="font-bold text-slate-900 text-xs">{matchedInventoryItem.expiryDate || '-'}</span>
                 </div>
               </div>
 
               {/* Quick Actions */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => handleQuickAddStock(1)}
-                  className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all"
+                  className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Update Stock (+1)</span>
+                  <PlusCircle className="w-3.5 h-3.5" /> +1 Stock
                 </button>
 
-                {onRecordSale ? (
+                {onRecordSale && (
                   <button
                     type="button"
                     onClick={() => onRecordSale(matchedInventoryItem)}
-                    className="py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all"
+                    className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer"
                   >
-                    <ShoppingBag className="w-4 h-4" />
-                    <span>Sell Item</span>
+                    <ShoppingBag className="w-3.5 h-3.5" /> Record Sale
                   </button>
-                ) : (
+                )}
+
+                {onViewProduct && (
                   <button
                     type="button"
-                    onClick={handleScanAgain}
-                    className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold flex items-center justify-center gap-1.5"
+                    onClick={onViewProduct}
+                    className="py-2 px-3 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
                   >
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Scan Next</span>
+                    <Package className="w-3.5 h-3.5" /> View Inventory
                   </button>
                 )}
               </div>
             </div>
           )}
 
-          {/* 2. RECOGNIZED PRODUCT CARD (WITH OCR & CONFLICT RESOLUTION) */}
-          {!matchedInventoryItem && mergedResult && (
+          {/* New Product Recognition Result Card */}
+          {mergedResult && !matchedInventoryItem && (
             <TwoEngineProductCard
               product={mergedResult.product}
               conflicts={mergedResult.conflicts}
-              rawOcrText={mergedResult.product.rawOcrText}
-              onEdit={handleEditProduct}
-              onAddToInventory={handleSaveToInventory}
-              onScanAgain={handleScanAgain}
+              rawOcrText={mergedResult.ocrResult?.rawText}
               isSaving={isSaving}
+              onAddToInventory={handleSaveToInventory}
+              onEdit={handleEditProduct}
+              onScanAgain={handleScanAgain}
             />
-          )}
-
-          {/* 3. LOADING RECOGNITION SPINNER */}
-          {!matchedInventoryItem && !mergedResult && pipelineStage === 'running_ocr' && (
-            <div className="p-8 rounded-3xl bg-white border border-slate-200 text-center space-y-4 shadow-sm">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center mx-auto text-indigo-600">
-                <Loader2 className="w-6 h-6 animate-spin" />
-              </div>
-              <div>
-                <h3 className="text-sm font-black text-slate-900">
-                  Running Two-Engine Analysis...
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Decoding barcode, extracting printed label details via Tesseract OCR, and normalizing fields.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* 4. IDLE STATE */}
-          {!matchedInventoryItem && !mergedResult && pipelineStage === 'idle' && (
-            <div className="p-8 rounded-3xl bg-white border border-slate-200/80 text-center space-y-3 shadow-xs">
-              <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-                <BarcodeIcon className="w-6 h-6" />
-              </div>
-              <h3 className="text-sm font-bold text-slate-800">
-                Ready for Scanner Input
-              </h3>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                Hold product steady in front of the camera or upload a clear photo of the barcode. The scanner decodes the code and checks your inventory + Tesseract OCR in a single pass.
-              </p>
-              <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800"
-                >
-                  <UploadCloud className="w-3.5 h-3.5" />
-                  <span>Upload Barcode Image</span>
-                </button>
-                <span className="text-slate-300">•</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onOpenManualEntry) onOpenManualEntry();
-                    else setIsPipelineModalOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-800"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  <span>Enter Barcode Manually</span>
-                </button>
-              </div>
-            </div>
           )}
         </div>
       </div>
 
-      {/* Barcode-to-Product Pipeline Modal */}
       {isPipelineModalOpen && (
         <BarcodeToProductPipelineModal
           isOpen={isPipelineModalOpen}
           detectedCode={detectedCode}
           onClose={() => setIsPipelineModalOpen(false)}
           onScanNext={handleScanAgain}
-          onProductSaved={(prod) => {
-            setMatchedInventoryItem(prod);
+          onProductSaved={(saved) => {
+            setMatchedInventoryItem(saved);
             setIsPipelineModalOpen(false);
-          }}
-          onOpenManualEntryWithBarcode={(barcode) => {
-            setIsPipelineModalOpen(false);
-            if (onOpenManualEntry) {
-              onOpenManualEntry(barcode);
-            }
           }}
         />
       )}

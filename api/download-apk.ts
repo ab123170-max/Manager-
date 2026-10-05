@@ -1,9 +1,7 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
 const APK_URL =
   'https://github.com/ab123170-max/Manager-/releases/latest/download/app-debug.apk';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return res.status(405).setHeader('Allow', 'GET, HEAD').send('Method Not Allowed');
   }

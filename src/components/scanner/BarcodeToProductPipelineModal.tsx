@@ -129,11 +129,6 @@ export const BarcodeToProductPipelineModal: React.FC<BarcodeToProductPipelineMod
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
   const [copiedBarcode, setCopiedBarcode] = useState<boolean>(false);
 
-  // Label capture camera (optional photo capture)
-  const labelVideoRef = useRef<HTMLVideoElement | null>(null);
-  const labelStreamRef = useRef<MediaStream | null>(null);
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
-
   // Execute Lookup Pipeline on open
   useEffect(() => {
     if (!isOpen || !detectedCode) return;

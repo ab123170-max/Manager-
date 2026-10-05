@@ -8,15 +8,6 @@ import { DetectedCode } from '../types';
 
 export class QrScannerEngine {
   /**
-   * Decodes QR code from video element with QR format check.
-   */
-  public async decodeVideo(video: HTMLVideoElement): Promise<DetectedCode | null> {
-    const code = await barcodeScanner.decodeVideoFrame(video);
-    if (!code) return null;
-    return code;
-  }
-
-  /**
    * Decodes QR code from Data URL.
    */
   public async decodeDataUrl(dataUrl: string): Promise<DetectedCode | null> {

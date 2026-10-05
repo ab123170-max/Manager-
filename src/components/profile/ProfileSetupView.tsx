@@ -122,11 +122,6 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
   );
   const [isUploadingPhoto, setIsUploadingPhoto] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
-
-  // Camera Live Modal State
-  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Status & Validation
@@ -218,72 +213,6 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
       setIsUploadingPhoto(false);
       setUploadProgress(0);
       if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  // Start Camera Capture for profile photo
-  const handleStartCamera = async () => {
-    setErrorMessage(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
-        audio: false,
-      });
-      mediaStreamRef.current = stream;
-      setIsCameraActive(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-      }, 100);
-    } catch (e: any) {
-      setErrorMessage('Camera access was denied or is unavailable on this device.');
-    }
-  };
-
-  const handleStopCamera = () => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-      mediaStreamRef.current = null;
-    }
-    setIsCameraActive(false);
-  };
-
-  const handleCaptureCamera = async () => {
-    if (!videoRef.current) return;
-    const video = videoRef.current;
-    const canvas = document.createElement('canvas');
-    const size = Math.min(video.videoWidth, video.videoHeight);
-    const targetSize = Math.min(size, 600);
-
-    canvas.width = targetSize;
-    canvas.height = targetSize;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const startX = (video.videoWidth - size) / 2;
-    const startY = (video.videoHeight - size) / 2;
-
-    ctx.drawImage(video, startX, startY, size, size, 0, 0, targetSize, targetSize);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-
-    handleStopCamera();
-    setAvatarPreview(dataUrl);
-
-    if (user?.id) {
-      setIsUploadingPhoto(true);
-      try {
-        const uploadRes = await authService.uploadAvatar(dataUrl, 'image/jpeg');
-        if (uploadRes.success && uploadRes.avatarUrl) {
-          setAvatarPreview(uploadRes.avatarUrl);
-        }
-      } catch {
-        // Direct dataUrl fallback
-      } finally {
-        setIsUploadingPhoto(false);
-      }
     }
   };
 
@@ -496,16 +425,6 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
               >
                 <Upload className="w-3.5 h-3.5 text-indigo-600" />
                 <span>Upload Logo / Photo</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleStartCamera}
-                disabled={isUploadingPhoto}
-                className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
-              >
-                <Camera className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Take Photo</span>
               </button>
 
               {avatarPreview && (
@@ -738,55 +657,6 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Live Camera Modal */}
-      {isCameraActive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="bg-slate-900 rounded-3xl p-5 max-w-sm w-full border border-slate-700 text-white space-y-4 text-center">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-300">Take Store Photo</span>
-              <button
-                type="button"
-                onClick={handleStopCamera}
-                className="p-1 rounded-xl text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="relative aspect-square rounded-2xl overflow-hidden bg-black border-2 border-slate-700">
-              <video
-                ref={videoRef}
-                playsInline
-                autoPlay
-                muted
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-52 h-52 rounded-full border-2 border-indigo-500 border-dashed shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]" />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-center gap-3 pt-1">
-              <button
-                type="button"
-                onClick={handleStopCamera}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 text-xs font-bold text-slate-300 hover:bg-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCaptureCamera}
-                className="px-6 py-2.5 rounded-xl bg-indigo-600 text-xs font-bold text-white hover:bg-indigo-700 flex items-center gap-1.5 shadow-md shadow-indigo-600/30"
-              >
-                <Camera className="w-4 h-4" />
-                <span>Capture</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

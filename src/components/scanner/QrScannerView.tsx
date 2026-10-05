@@ -3,29 +3,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useEffect, useCallback, ChangeEvent } from 'react';
-import { useLiveCamera } from '../../hooks/useLiveCamera';
+import React, { useState, useRef, useCallback, ChangeEvent } from 'react';
 import {
   QrCode,
   Volume2,
   VolumeX,
-  Zap,
-  ZapOff,
-  RefreshCw,
   Copy,
   ExternalLink,
   Check,
   Package,
   Plus,
-  AlertCircle,
   FileCode,
   UploadCloud,
-  FileImage,
   Loader2,
+  AlertTriangle,
+  Search,
+  RotateCcw,
 } from 'lucide-react';
 import { DetectedCode, SavedInventoryItem } from '../../types';
 import {
-  detectCodesInFrame,
   detectCodesInImage,
   playScanBeep,
   triggerHapticFeedback,
@@ -45,33 +41,10 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
   onRegisterProduct,
   onRecordSale,
 }) => {
-  const {
-    videoRef,
-    previewRef,
-    streamRef,
-    cameraState,
-    startCamera,
-    stopCamera,
-    toggleFacingMode,
-    isTorchOn: torchOn,
-    isTorchAvailable,
-    toggleTorch,
-    captureFrame,
-  } = useLiveCamera();
-  const animationFrameRef = useRef<number | null>(null);
-  const lastScanTimeRef = useRef<number>(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    void startCamera('environment');
-    return () => stopCamera();
-  }, [startCamera, stopCamera]);
-
-  const [isScanning, setIsScanning] = useState<boolean>(true);
-  const cameraActive = cameraState.isStreaming;
-  const cameraError = cameraState.error;
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [copied, setCopied] = useState<boolean>(false);
+  const [manualQrInput, setManualQrInput] = useState<string>('');
   const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
 
   const [detectedCode, setDetectedCode] = useState<DetectedCode | null>(null);
@@ -99,40 +72,34 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
     });
   }, [soundEnabled]);
 
-  const processVideoFrame = useCallback(async () => {
-    if (!isScanning) {
-      animationFrameRef.current = requestAnimationFrame(processVideoFrame);
-      return;
-    }
+  const handleManualSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = manualQrInput.trim();
+    if (!clean) return;
 
-    const now = Date.now();
-    if (now - lastScanTimeRef.current > 180) {
-      lastScanTimeRef.current = now;
-
+    const isUrl = /^https?:\/\//i.test(clean);
+    let isJson = false;
+    let parsedJson: Record<string, unknown> | null = null;
+    if (clean.startsWith('{') && clean.endsWith('}')) {
       try {
-        let codes: DetectedCode[] = [];
-        if (!videoRef.current) { const image = await captureFrame(); if (image) codes = await detectCodesInImage(image, 'qr'); }
-        else if (videoRef.current.readyState >= 2) codes = await detectCodesInFrame(videoRef.current, 'qr');
-        if (codes.length > 0) {
-          const code = codes[0];
-          handleDetectedCode(code);
-        }
-      } catch {
-        // Skip frame
-      }
+        parsedJson = JSON.parse(clean);
+        isJson = true;
+      } catch {}
     }
 
-    animationFrameRef.current = requestAnimationFrame(processVideoFrame);
-  }, [isScanning, handleDetectedCode, captureFrame]);
-
-  useEffect(() => {
-    if (cameraActive && isScanning) {
-      animationFrameRef.current = requestAnimationFrame(processVideoFrame);
-    }
-    return () => {
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    const code: DetectedCode = {
+      type: 'qr',
+      format: 'QR_CODE',
+      value: clean,
+      raw_value: clean,
+      confidence: 1.0,
+      timestamp: Date.now(),
+      isUrl,
+      isJson,
+      parsedJson,
     };
-  }, [cameraActive, isScanning, processVideoFrame]);
+    handleDetectedCode(code);
+  };
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -168,9 +135,20 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleClear = () => {
+    setDetectedCode(null);
+    setMatchedProduct(null);
+    setManualQrInput('');
+  };
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12">
-      {/* Hidden File Input for QR Image Upload */}
+    <div className="max-w-4xl mx-auto space-y-5 pb-12">
+      {/* Notice Banner */}
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-2.5 text-amber-900 text-xs">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+        <span>Camera scanner temporarily unavailable. You can upload an image or enter QR code data manually.</span>
+      </div>
+
       <input
         ref={fileInputRef}
         type="file"
@@ -187,10 +165,10 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
             <span>2D QR &amp; Matrix Scanner</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-            High Precision QR Code Scanner
+            QR Code Lookup &amp; Image Decode
           </h1>
           <p className="text-xs text-slate-300 mt-1 max-w-lg">
-            Scan 2D QR codes, product matrix codes, serialized batches, and encrypted URLs.
+            Decode QR codes from images or parse serialized batch data, URLs, and product payloads manually.
           </p>
         </div>
 
@@ -198,179 +176,207 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors flex items-center gap-1.5 text-xs font-bold"
+            className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer"
             title="Upload QR Image"
           >
             <UploadCloud className="w-4 h-4" />
-            <span className="hidden sm:inline">Upload Photo</span>
+            <span>Upload Image</span>
           </button>
 
           <button
             type="button"
-            onClick={toggleTorch}
-            className={`p-2.5 rounded-xl border transition-colors ${
-              torchOn
-                ? 'bg-amber-400 text-slate-950 border-amber-300'
-                : 'bg-white/10 text-white border-white/10 hover:bg-white/20'
-            }`}
+            onClick={() => setSoundEnabled((prev) => !prev)}
+            className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+            title={soundEnabled ? 'Mute Sound' : 'Enable Sound'}
           >
-            {torchOn ? <Zap className="w-4 h-4" /> : <ZapOff className="w-4 h-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors"
-          >
-            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={toggleFacingMode}
-            className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
+            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-rose-400" />}
           </button>
         </div>
       </div>
 
-      {/* Main Viewport & Analysis */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-7 space-y-4">
-          <div className="relative bg-transparent rounded-3xl overflow-hidden aspect-square sm:aspect-4/3 border border-slate-800 shadow-xl flex items-center justify-center">
-            {cameraActive ? (
-              <>
-                <div ref={previewRef} className="absolute inset-0 bg-transparent" aria-label="Native camera preview" />
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Left Column: Manual Form + Image Upload */}
+        <div className="lg:col-span-5 space-y-4">
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
+            <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+              <QrCode className="w-4 h-4 text-indigo-600" />
+              <span>Enter QR Code / URL Text</span>
+            </h2>
 
-                {/* Square QR Target Zone */}
-                <div className="absolute w-56 h-56 sm:w-64 sm:h-64 border-2 border-indigo-400 rounded-3xl pointer-events-none flex flex-col justify-between p-3">
-                  <div className="flex justify-between">
-                    <div className="w-4 h-4 border-t-2 border-l-2 border-indigo-300 rounded-tl-md" />
-                    <div className="w-4 h-4 border-t-2 border-r-2 border-indigo-300 rounded-tr-md" />
-                  </div>
-                  <div className="text-center text-[10px] font-bold text-white bg-slate-900/80 py-0.5 px-2 rounded-md self-center">
-                    Center QR Code
-                  </div>
-                  <div className="flex justify-between">
-                    <div className="w-4 h-4 border-b-2 border-l-2 border-indigo-300 rounded-bl-md" />
-                    <div className="w-4 h-4 border-b-2 border-r-2 border-indigo-300 rounded-br-md" />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="p-6 text-center space-y-3 max-w-xs">
-                <div className="w-12 h-12 rounded-2xl bg-slate-800 text-indigo-400 flex items-center justify-center mx-auto">
-                  <QrCode className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Camera Standby</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {cameraError || 'Camera stream paused.'}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2 justify-center pt-2">
-                  <button
-                    type="button"
-                    onClick={() => startCamera()}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors"
-                  >
-                    Retry Camera
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
-                  >
-                    <UploadCloud className="w-3.5 h-3.5" />
-                    <span>Upload QR Photo</span>
-                  </button>
-                </div>
-              </div>
-            )}
+            <form onSubmit={handleManualSubmit} className="space-y-3">
+              <textarea
+                value={manualQrInput}
+                onChange={(e) => setManualQrInput(e.target.value)}
+                placeholder="Paste QR payload, URL, or JSON..."
+                rows={3}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-slate-900 text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              />
+
+              <button
+                type="submit"
+                disabled={!manualQrInput.trim()}
+                className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+              >
+                <Search className="w-4 h-4" />
+                <span>Process QR Data</span>
+              </button>
+            </form>
           </div>
 
-          {/* Upload helper card */}
-          <div className="p-3.5 rounded-2xl bg-white border border-slate-200 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <FileImage className="w-4 h-4 text-indigo-600 shrink-0" />
-              <span className="text-xs font-medium text-slate-700">Have an image with a QR code?</span>
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className="bg-white rounded-3xl p-6 border-2 border-dashed border-slate-300 hover:border-indigo-500 hover:bg-indigo-50/20 transition-all text-center cursor-pointer space-y-2.5 shadow-sm"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center">
+              <UploadCloud className="w-6 h-6" />
             </div>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploadingImage}
-              className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1 transition-colors"
-            >
-              {isUploadingImage ? <Loader2 className="w-3 h-3 animate-spin" /> : <UploadCloud className="w-3 h-3" />}
-              <span>Upload File</span>
-            </button>
+            <div>
+              <p className="text-xs font-bold text-slate-900">Upload QR Image</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Drop QR code screenshot or photo (JPEG, PNG)
+              </p>
+            </div>
+            {isUploadingImage && (
+              <div className="flex items-center justify-center gap-1.5 text-xs text-indigo-600 font-semibold pt-1">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Decoding QR image...</span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Right Result Panel */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/80 shadow-xs space-y-4">
-            <h2 className="text-sm font-extrabold text-slate-900 flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <QrCode className="w-4 h-4 text-indigo-600" />
-                <span>QR Payload</span>
-              </span>
-              {detectedCode && (
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(detectedCode.value)}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copied ? 'Copied' : 'Copy'}</span>
-                </button>
-              )}
-            </h2>
-
-            {detectedCode ? (
-              <div className="space-y-4">
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 break-all text-xs font-mono text-slate-800 select-all max-h-40 overflow-y-auto">
-                  {detectedCode.value}
+        {/* Right Column: Decoded QR Output */}
+        <div className="lg:col-span-7 space-y-4">
+          {!detectedCode ? (
+            <div className="bg-white rounded-3xl p-8 border border-slate-200 text-center text-slate-500 space-y-2 shadow-sm">
+              <QrCode className="w-10 h-10 text-slate-300 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-800">No QR Code Decoded Yet</h3>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Paste QR text or upload a QR image to view decoded payload, links, and matched inventory items.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl p-5 sm:p-6 border border-indigo-200 shadow-md space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="p-2 rounded-xl bg-indigo-100 text-indigo-700">
+                    <QrCode className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded-md">
+                      {detectedCode.format || 'QR Code'}
+                    </span>
+                    <h3 className="text-sm font-bold text-slate-900 mt-1">
+                      Decoded Content
+                    </h3>
+                  </div>
                 </div>
 
-                {detectedCode.isJson && detectedCode.parsedJson && (
-                  <div className="p-3 rounded-xl bg-slate-900 text-slate-100 text-[11px] font-mono overflow-x-auto space-y-1">
-                    <span className="text-indigo-400 font-bold block mb-1">Parsed JSON Structure:</span>
-                    <pre>{JSON.stringify(detectedCode.parsedJson, null, 2)}</pre>
-                  </div>
-                )}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(detectedCode.value)}
+                    className="p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    title="Copy to clipboard"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
 
-                {matchedProduct ? (
-                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-2">
-                    <span className="text-[10px] font-bold text-emerald-800 uppercase">
-                      Linked Inventory Item
-                    </span>
-                    <h3 className="font-extrabold text-slate-900 text-sm">
-                      {matchedProduct.productName}
-                    </h3>
-                    <p className="text-xs text-slate-600">
-                      Stock: <strong>{matchedProduct.stockQuantity}</strong> • Price: <strong>{matchedProduct.sellingPrice || matchedProduct.mrp}</strong>
-                    </p>
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    className="p-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Clear</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Raw Value Display */}
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs font-mono text-slate-800 break-all max-h-36 overflow-y-auto">
+                {detectedCode.value}
+              </div>
+
+              {/* Action for Web URL */}
+              {detectedCode.isUrl && (
+                <a
+                  href={detectedCode.value}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 px-4 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold text-xs flex items-center justify-center gap-1.5 border border-indigo-200 transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Open URL Link</span>
+                </a>
+              )}
+
+              {/* JSON Structure view */}
+              {detectedCode.isJson && detectedCode.parsedJson && (
+                <div className="bg-slate-900 text-emerald-400 p-3 rounded-xl text-[11px] font-mono overflow-x-auto max-h-40">
+                  <div className="flex items-center gap-1 text-slate-400 text-[10px] mb-1">
+                    <FileCode className="w-3 h-3" />
+                    <span>Structured JSON Payload</span>
                   </div>
-                ) : (
-                  onRegisterProduct && (
+                  <pre>{JSON.stringify(detectedCode.parsedJson, null, 2)}</pre>
+                </div>
+              )}
+
+              {/* Matched Product in Inventory */}
+              {matchedProduct ? (
+                <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-200 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                        Matched Inventory Product
+                      </span>
+                      <h4 className="text-sm font-extrabold text-slate-900">{matchedProduct.productName}</h4>
+                    </div>
+                    <span className="text-xs font-bold bg-white px-2.5 py-1 rounded-lg border border-emerald-300 text-emerald-800">
+                      Stock: {matchedProduct.stockQuantity}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => onRegisterProduct(detectedCode.value)}
-                      className="w-full py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all"
+                      onClick={() => {
+                        const updated = adjustProductStock(matchedProduct.id, 1);
+                        const fresh = updated.find((p) => p.id === matchedProduct.id);
+                        if (fresh) setMatchedProduct(fresh);
+                      }}
+                      className="py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
                     >
-                      <Plus className="w-4 h-4" />
-                      <span>Link to New Product</span>
+                      <Plus className="w-3 h-3" /> Add 1 Stock
                     </button>
-                  )
-                )}
-              </div>
-            ) : (
-              <div className="py-10 text-center text-slate-400 space-y-2">
-                <QrCode className="w-10 h-10 mx-auto text-slate-300" />
-                <p className="text-xs font-medium">Position a QR code within the frame or upload an image</p>
-              </div>
-            )}
-          </div>
+
+                    {onRecordSale && (
+                      <button
+                        type="button"
+                        onClick={() => onRecordSale(matchedProduct)}
+                        className="py-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Package className="w-3 h-3" /> Record Sale
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                onRegisterProduct && (
+                  <button
+                    type="button"
+                    onClick={() => onRegisterProduct(detectedCode.value)}
+                    className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Register as New Product</span>
+                  </button>
+                )
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

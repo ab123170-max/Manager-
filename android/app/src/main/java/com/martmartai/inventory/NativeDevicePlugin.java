@@ -25,7 +25,6 @@ import java.util.Locale;
 @CapacitorPlugin(
     name = "NativeDevice",
     permissions = {
-        @Permission(alias = "camera", strings = { Manifest.permission.CAMERA }),
         @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO }),
         @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS })
     }
@@ -36,18 +35,7 @@ public class NativeDevicePlugin extends Plugin {
 
     @PluginMethod
     public void requestPermissions(PluginCall call) {
-        requestPermissionForAlias("camera", call, "allPermissionsCameraResult");
-    }
-
-    @PluginMethod
-    public void requestCamera(PluginCall call) {
-        if (getPermissionState("camera") == PermissionState.GRANTED) {
-            JSObject result = new JSObject();
-            result.put("camera", "granted");
-            call.resolve(result);
-            return;
-        }
-        requestPermissionForAlias("camera", call, "cameraPermissionResult");
+        requestPermissionForAlias("microphone", call, "allPermissionsMicrophoneResult");
     }
 
     @PluginMethod
@@ -74,11 +62,6 @@ public class NativeDevicePlugin extends Plugin {
     }
 
     @PermissionCallback
-    private void allPermissionsCameraResult(PluginCall call) {
-        requestPermissionForAlias("microphone", call, "allPermissionsMicrophoneResult");
-    }
-
-    @PermissionCallback
     private void allPermissionsMicrophoneResult(PluginCall call) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestPermissionForAlias("notifications", call, "allPermissionsNotificationResult");
@@ -94,7 +77,6 @@ public class NativeDevicePlugin extends Plugin {
 
     private void resolveAllPermissions(PluginCall call) {
         JSObject result = new JSObject();
-        result.put("camera", getPermissionState("camera").toString());
         result.put("microphone", getPermissionState("microphone").toString());
         result.put(
             "notifications",
@@ -102,13 +84,6 @@ public class NativeDevicePlugin extends Plugin {
                 ? getPermissionState("notifications").toString()
                 : "granted"
         );
-        call.resolve(result);
-    }
-
-    @PermissionCallback
-    private void cameraPermissionResult(PluginCall call) {
-        JSObject result = new JSObject();
-        result.put("camera", getPermissionState("camera").toString());
         call.resolve(result);
     }
 

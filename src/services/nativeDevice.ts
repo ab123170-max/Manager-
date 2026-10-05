@@ -1,8 +1,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import { Camera } from '@capacitor/camera';
 
 type NativeDevicePlugin = {
-  requestPermissions?: () => Promise<{ camera?: string; notifications?: string; microphone?: string }>;
+  requestPermissions?: () => Promise<{ notifications?: string; microphone?: string }>;
   requestMicrophone?: () => Promise<{ microphone?: string }>;
   requestNotifications?: () => Promise<{ notifications?: string }>;
   speak?: (options: { text: string; language?: string; rate?: number }) => Promise<void>;
@@ -11,32 +10,6 @@ type NativeDevicePlugin = {
 };
 
 const NativeDevice = registerPlugin<NativeDevicePlugin>('NativeDevice');
-
-/**
- * Requests Android/iOS camera permission through the official Capacitor Camera plugin.
- * The previous implementation called NativeDevice.requestCamera(), but that method
- * was not implemented by the registered NativeDevice plugin, so it always returned
- * an undefined permission result and blocked getUserMedia().
- */
-export async function requestNativeCameraPermission(): Promise<boolean> {
-  if (!Capacitor.isNativePlatform()) return true;
-
-  try {
-    if (!Capacitor.isPluginAvailable('Camera')) {
-      console.warn('[Camera] Capacitor Camera plugin is not available.');
-      return false;
-    }
-
-    const permissions = await Camera.requestPermissions({
-      permissions: ['camera'],
-    });
-
-    return permissions.camera === 'granted';
-  } catch (error) {
-    console.warn('[Camera] native permission request failed:', error);
-    return false;
-  }
-}
 
 export async function initializeNativeDevice(): Promise<void> {
   // Native initialization must never trigger permission prompts on app startup.

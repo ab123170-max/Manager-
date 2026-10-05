@@ -90,8 +90,8 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
               : 'bg-slate-50 hover:bg-slate-100 text-slate-700'
           }`}
         >
-          <Camera className="w-3.5 h-3.5" />
-          <span>AI Camera</span>
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>AI Scanner</span>
         </button>
 
         <button
@@ -188,7 +188,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   onClick={onResetWorkflow}
                   className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors cursor-pointer"
                 >
-                  Retake Photo
+                  Change Photos
                 </button>
               </div>
             </div>

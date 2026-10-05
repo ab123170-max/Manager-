@@ -5,23 +5,18 @@
 
 import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
 import {
-  Camera,
   UploadCloud,
   RefreshCw,
-  VideoOff,
   AlertTriangle,
   FileText,
   Check,
-  SwitchCamera,
   Layers,
-  Sparkles,
 } from 'lucide-react';
-import { useCamera } from '../hooks/useCamera';
 import { fileToBase64 } from '../utils/imageEncoder';
 import { SampleDoc } from '../types';
 
 interface CameraViewportProps {
-  onImageSelected: (imageBase64: string, source: 'camera' | 'upload' | 'sample') => void;
+  onImageSelected: (imageBase64: string, source: 'upload' | 'sample') => void;
   disabled?: boolean;
 }
 
@@ -29,16 +24,13 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
   onImageSelected,
   disabled = false,
 }) => {
-  const { videoRef, previewRef, cameraState, startCamera, stopCamera, toggleFacingMode, captureFrame } = useCamera();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'samples'>('camera');
+  const [activeTab, setActiveTab] = useState<'upload' | 'samples'>('upload');
   const [dragActive, setDragActive] = useState(false);
   const [capturedPreview, setCapturedPreview] = useState<string | null>(null);
   const [selectedSample, setSelectedSample] = useState<SampleDoc | null>(null);
-  const [cameraInitiated, setCameraInitiated] = useState(false);
   const [sampleDocs, setSampleDocs] = useState<SampleDoc[]>([]);
 
-  // Dynamically load sample documents on-demand
   useEffect(() => {
     if (activeTab === 'samples' && sampleDocs.length === 0) {
       import('../data/sampleDocuments').then((mod) => {
@@ -47,44 +39,6 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
     }
   }, [activeTab, sampleDocs.length]);
 
-  // Manage camera hardware lifecycle
-  useEffect(() => {
-    if (activeTab === 'camera' && cameraInitiated && !capturedPreview && !disabled) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
-    return () => {
-      stopCamera();
-    };
-  }, [activeTab, cameraInitiated, capturedPreview, disabled, startCamera, stopCamera]);
-
-  /**
-   * ==========================================================================
-   * CAMERA FRAME CAPTURE HANDLER
-   * ==========================================================================
-   * Captures the live frame from videoRef, encodes it to Base64 via Canvas,
-   * stops the stream to free camera resources, and passes it forward.
-   */
-  const handleCapturePhoto = async () => {
-    if (!cameraState.isStreaming) return;
-    try {
-      const base64Data = await captureFrame();
-      setCapturedPreview(base64Data);
-      stopCamera();
-      onImageSelected(base64Data, 'camera');
-    } catch (err: unknown) {
-      const error = err as Error;
-      alert(`Could not capture camera frame: ${error.message}`);
-    }
-  };
-
-  /**
-   * ==========================================================================
-   * FILE UPLOAD HANDLER (FALLBACK)
-   * ==========================================================================
-   * Reads user's local image file and converts it to a standard Base64 string.
-   */
   const handleFileUpload = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('Please upload an image file (JPEG, PNG, WEBP).');
@@ -123,32 +77,18 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
   const handleRetake = () => {
     setCapturedPreview(null);
     setSelectedSample(null);
-    if (activeTab === 'camera' && cameraInitiated) {
-      startCamera();
-    }
   };
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Notice Banner */}
+      <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center gap-2.5 text-amber-900 text-xs">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+        <span>Camera scanner temporarily unavailable. You can upload an image or enter a barcode manually.</span>
+      </div>
+
       {/* Top Tab Bar */}
       <div className="flex border-b border-slate-200 bg-slate-50/70 p-1.5 gap-1.5">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('camera');
-            handleRetake();
-          }}
-          disabled={disabled}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${
-            activeTab === 'camera'
-              ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-          }`}
-        >
-          <Camera className="w-4 h-4" />
-          <span>Live Camera</span>
-        </button>
-
         <button
           type="button"
           onClick={() => {
@@ -186,7 +126,6 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
 
       {/* Main Viewport Content */}
       <div className="p-4 sm:p-6">
-        {/* If image is already captured / chosen, show preview with option to retake */}
         {capturedPreview ? (
           <div className="space-y-4">
             <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-950 flex items-center justify-center max-h-[380px]">
@@ -207,7 +146,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
                 type="button"
                 onClick={handleRetake}
                 disabled={disabled}
-                className="flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+                className="flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 Retake / Change Image
@@ -219,166 +158,6 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
           </div>
         ) : (
           <>
-            {/* TAB 1: LIVE CAMERA VIEWPORT */}
-            {activeTab === 'camera' && (
-              <div className="space-y-4">
-                <div className="relative aspect-[4/3] sm:aspect-[16/10] max-h-[420px] w-full bg-transparent rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
-                  {/* HTML5 Video Element rendering live stream */}
-                  <div ref={previewRef} className={`absolute inset-0 bg-transparent transition-opacity duration-300 ${cameraState.isStreaming ? 'opacity-100' : 'opacity-0'}`} />
-
-                  {/* Document Viewfinder Boundary Guides (Overlay) */}
-                  {cameraState.isStreaming && (
-                    <div className="absolute inset-8 sm:inset-12 border-2 border-dashed border-white/60 rounded-xl pointer-events-none flex flex-col justify-between p-3">
-                      <div className="flex justify-between">
-                        <div className="w-4 h-4 border-t-2 border-l-2 border-white" />
-                        <div className="w-4 h-4 border-t-2 border-r-2 border-white" />
-                      </div>
-                      <div className="text-center">
-                        <span className="bg-black/60 backdrop-blur text-white text-[11px] px-2.5 py-1 rounded-full font-medium tracking-wide">
-                          Align document within viewfinder
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <div className="w-4 h-4 border-b-2 border-l-2 border-white" />
-                        <div className="w-4 h-4 border-b-2 border-r-2 border-white" />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Camera Not Streaming Placeholder / Start Action / Error state */}
-                  {!cameraState.isStreaming && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-slate-300">
-                      {cameraState.error ? (
-                        <div className="max-w-md space-y-3">
-                          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 mx-auto flex items-center justify-center">
-                            <AlertTriangle className="w-6 h-6" />
-                          </div>
-                          <h3 className="text-sm font-semibold text-white">
-                            Camera Access Issue
-                          </h3>
-                          <p className="text-xs text-slate-400 leading-relaxed">
-                            {cameraState.error}
-                          </p>
-                          <div className="pt-2 flex flex-wrap gap-2 justify-center">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCameraInitiated(true);
-                                startCamera();
-                              }}
-                              className="px-4 py-2 bg-white text-slate-900 rounded-xl text-xs font-semibold hover:bg-slate-100 transition-colors"
-                            >
-                              Retry Camera
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setActiveTab('upload')}
-                              className="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-semibold hover:bg-slate-700 transition-colors"
-                            >
-                              Use File Upload Instead
-                            </button>
-                          </div>
-                        </div>
-                      ) : !cameraInitiated ? (
-                        <div className="space-y-3 max-w-xs">
-                          <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 text-indigo-400 mx-auto flex items-center justify-center shadow-lg">
-                            <Camera className="w-7 h-7" />
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-bold text-white">Live Camera Scanner</h3>
-                            <p className="text-xs text-slate-400 mt-0.5">
-                              Tap below to launch camera feed and capture packaging labels.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCameraInitiated(true);
-                              startCamera();
-                            }}
-                            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 mx-auto"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            <span>Launch Live Camera</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-400 mx-auto flex items-center justify-center">
-                            <VideoOff className="w-6 h-6" />
-                          </div>
-                          <p className="text-xs text-slate-400">
-                            Initializing device camera feed...
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => startCamera()}
-                            className="px-4 py-2 bg-white text-slate-900 rounded-xl text-xs font-semibold hover:bg-slate-100 transition-colors"
-                          >
-                            Grant Camera Access
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Camera Controls Bar */}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={toggleFacingMode}
-                      disabled={!cameraState.isStreaming || disabled}
-                      className="p-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-40"
-                      title="Flip camera (Front / Back)"
-                    >
-                      <SwitchCamera className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (cameraState.isStreaming) {
-                          stopCamera();
-                          setCameraInitiated(false);
-                        } else {
-                          setCameraInitiated(true);
-                          startCamera();
-                        }
-                      }}
-                      disabled={disabled}
-                      className="p-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
-                      title={cameraState.isStreaming ? 'Pause Camera' : 'Start Camera'}
-                    >
-                      {cameraState.isStreaming ? (
-                        <VideoOff className="w-4 h-4 text-rose-500" />
-                      ) : (
-                        <Camera className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Primary Trigger: Capture Button */}
-                  <button
-                    type="button"
-                    onClick={handleCapturePhoto}
-                    disabled={!cameraState.isStreaming || disabled}
-                    className="flex-1 max-w-xs flex items-center justify-center gap-2 py-3 px-6 rounded-xl font-bold text-sm bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm transition-all"
-                  >
-                    <div className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
-                    <span>Capture Snapshot</span>
-                  </button>
-
-                  <div className="w-16 text-right">
-                    <span className="text-[11px] text-slate-400 uppercase tracking-wider font-mono">
-                      {cameraState.facingMode === 'environment' ? 'Rear' : 'Front'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: FALLBACK DRAG & DROP FILE UPLOAD */}
             {activeTab === 'upload' && (
               <div className="space-y-4">
                 <input
@@ -419,7 +198,6 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
               </div>
             )}
 
-            {/* TAB 3: SAMPLE DEMO CARDS FOR TESTING */}
             {activeTab === 'samples' && (
               <div className="space-y-3">
                 <p className="text-xs text-slate-500">
@@ -432,7 +210,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
                       key={doc.id}
                       type="button"
                       onClick={() => handleSelectSample(doc)}
-                      className={`text-left p-3.5 rounded-xl border transition-all ${
+                      className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer ${
                         selectedSample?.id === doc.id
                           ? 'border-indigo-600 bg-indigo-50/40 ring-1 ring-indigo-600'
                           : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/70'

@@ -81,45 +81,7 @@ export class BarcodeScannerEngine {
   }
 
   /**
-   * Decodes barcode from an active HTMLVideoElement.
-   */
-  public async decodeVideoFrame(video: HTMLVideoElement): Promise<DetectedCode | null> {
-    if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-      return null;
-    }
-
-    const zxingSetup = await this.getReader();
-    if (!zxingSetup) return null;
-
-    const { reader, zxing } = zxingSetup;
-
-    if (!this.canvas) {
-      this.canvas = document.createElement('canvas');
-    }
-
-    const targetWidth = Math.min(video.videoWidth, 800);
-    const scale = targetWidth / video.videoWidth;
-    const targetHeight = Math.round(video.videoHeight * scale);
-
-    if (this.canvas.width !== targetWidth || this.canvas.height !== targetHeight) {
-      this.canvas.width = targetWidth;
-      this.canvas.height = targetHeight;
-      this.ctx = null;
-    }
-
-    if (!this.ctx) {
-      this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
-    }
-    if (!this.ctx) return null;
-
-    this.ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
-    const imageData = this.ctx.getImageData(0, 0, targetWidth, targetHeight);
-
-    return this.decodeImageData(imageData, reader, zxing);
-  }
-
-  /**
-   * Decodes barcode from an image Data URL (used in Native Android camera frame samples).
+   * Decodes barcode from an image Data URL.
    */
   public async decodeDataUrl(dataUrl: string): Promise<DetectedCode | null> {
     if (!dataUrl) return null;

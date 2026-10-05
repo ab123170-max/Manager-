@@ -171,12 +171,6 @@ export const ManualProductEntryView: React.FC<ManualProductEntryViewProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Quick Camera Scanner Modal
-  const [scannerField, setScannerField] = useState<'barcode' | 'qr' | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const scanIntervalRef = useRef<number | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-
   // Auto calculate Expiry from MFD + Shelf Life
   const calculateExpiryFromMfd = (
     mfdStr: string,
@@ -332,59 +326,6 @@ export const ManualProductEntryView: React.FC<ManualProductEntryViewProps> = ({
     };
     reader.readAsDataURL(file);
   };
-
-  // Camera Quick Scan for Barcode or QR
-  const startCameraScanner = async (field: 'barcode' | 'qr') => {
-    setScannerField(field);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 } },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-
-      // Loop detection
-      scanIntervalRef.current = window.setInterval(async () => {
-        if (!videoRef.current || videoRef.current.readyState < 2) return;
-        const detected = await codeDetector.detectFromVideo(videoRef.current);
-        if (detected) {
-          playScanBeep();
-          triggerHapticFeedback();
-          if (field === 'barcode') {
-            setBarcode(detected.value);
-          } else {
-            setQrCode(detected.value);
-          }
-          stopCameraScanner();
-        }
-      }, 250);
-    } catch (err) {
-      console.error('Failed to start camera for quick scan:', err);
-      alert('Unable to access camera. Please enter the code manually.');
-      stopCameraScanner();
-    }
-  };
-
-  const stopCameraScanner = () => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    setScannerField(null);
-  };
-
-  useEffect(() => {
-    return () => {
-      stopCameraScanner();
-    };
-  }, []);
 
   // Validation
   const validateForm = (): boolean => {
@@ -728,20 +669,10 @@ export const ManualProductEntryView: React.FC<ManualProductEntryViewProps> = ({
 
                 {/* Barcode (1D) */}
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
-                      <Barcode className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Barcode (1D)</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => startCameraScanner('barcode')}
-                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
-                    >
-                      <Camera className="w-3 h-3" />
-                      <span>Scan</span>
-                    </button>
-                  </div>
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1 mb-1.5">
+                    <Barcode className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Barcode (1D)</span>
+                  </label>
                   <input
                     type="text"
                     value={barcode}
@@ -753,20 +684,10 @@ export const ManualProductEntryView: React.FC<ManualProductEntryViewProps> = ({
 
                 {/* QR Code (2D) */}
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
-                      <QrCode className="w-3.5 h-3.5 text-slate-500" />
-                      <span>QR Code (2D)</span>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => startCameraScanner('qr')}
-                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
-                    >
-                      <Camera className="w-3 h-3" />
-                      <span>Scan</span>
-                    </button>
-                  </div>
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1 mb-1.5">
+                    <QrCode className="w-3.5 h-3.5 text-slate-500" />
+                    <span>QR Code (2D)</span>
+                  </label>
                   <input
                     type="text"
                     value={qrCode}
@@ -1321,7 +1242,7 @@ export const ManualProductEntryView: React.FC<ManualProductEntryViewProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 sm:flex-none px-7 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-md shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              className="flex-1 sm:flex-none px-7 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-md shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
             >
               <Check className="w-4 h-4" />
               <span>{existingProduct ? 'Update Product' : 'Save Product'}</span>
@@ -1329,58 +1250,6 @@ export const ManualProductEntryView: React.FC<ManualProductEntryViewProps> = ({
           </div>
         </div>
       </form>
-
-      {/* Quick Camera Scanner Modal */}
-      {scannerField && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-              <div className="flex items-center gap-2 text-indigo-600">
-                {scannerField === 'barcode' ? (
-                  <Barcode className="w-5 h-5" />
-                ) : (
-                  <QrCode className="w-5 h-5" />
-                )}
-                <h3 className="text-sm font-black text-slate-900 uppercase">
-                  Scan {scannerField === 'barcode' ? 'Barcode' : 'QR Code'}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={stopCameraScanner}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="aspect-video bg-black rounded-2xl overflow-hidden relative">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-3/4 h-1/2 border-2 border-dashed border-emerald-400 rounded-xl" />
-              </div>
-            </div>
-
-            <p className="text-xs text-center text-slate-500">
-              Point camera directly at the code on the package.
-            </p>
-
-            <button
-              type="button"
-              onClick={stopCameraScanner}
-              className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors"
-            >
-              Cancel &amp; Enter Manually
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

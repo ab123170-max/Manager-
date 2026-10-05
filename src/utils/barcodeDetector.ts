@@ -112,53 +112,6 @@ class CodeDetectionEngine {
   }
 
   /**
-   * Detects barcode or QR code from an active HTMLVideoElement frame using ZXing reader.
-   */
-  public async detectFromVideo(video: HTMLVideoElement): Promise<DetectedCode | null> {
-    if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-      return null;
-    }
-
-    const zxingInstance = await this.getZxingReader();
-    if (!zxingInstance) return null;
-
-    const { reader, zxing } = zxingInstance;
-
-    try {
-      const vWidth = video.videoWidth;
-      const vHeight = video.videoHeight;
-      const { canvas, ctx } = this.getCanvas(vWidth, vHeight);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const luminanceSource = new zxing.RGBLuminanceSource(
-        imageData.data,
-        canvas.width,
-        canvas.height
-      );
-      const binaryBitmap = new zxing.BinaryBitmap(new zxing.HybridBinarizer(luminanceSource));
-
-      const result = reader.decodeWithState(binaryBitmap);
-      if (result && result.getText()) {
-        const rawValue = result.getText().trim();
-        const formatLabel = this.mapZxingFormatLabel(result.getBarcodeFormat(), zxing);
-        return this.buildDetectedCode(formatLabel, rawValue);
-      }
-    } catch (e: any) {
-      if (e?.name === 'NotFoundException' || e instanceof zxing.NotFoundException) {
-        return null;
-      }
-      return null;
-    } finally {
-      if (reader) {
-        reader.reset();
-      }
-    }
-
-    return null;
-  }
-
-  /**
    * Detects barcode or QR code from an image element or data URL
    */
   public async detectFromImage(imageSource: HTMLImageElement | string): Promise<DetectedCode | null> {
@@ -284,20 +237,6 @@ class CodeDetectionEngine {
 }
 
 export const codeDetector = new CodeDetectionEngine();
-
-/**
- * High-performance frame detector helper
- */
-export async function detectCodesInFrame(
-  video: HTMLVideoElement,
-  mode: 'barcode' | 'qr' | 'all' = 'all'
-): Promise<DetectedCode[]> {
-  const res = await codeDetector.detectFromVideo(video);
-  if (!res) return [];
-  if (mode === 'barcode' && res.type !== 'barcode') return [];
-  if (mode === 'qr' && res.type !== 'qr') return [];
-  return [res];
-}
 
 /**
  * Image code detector helper

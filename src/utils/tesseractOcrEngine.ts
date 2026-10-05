@@ -127,38 +127,3 @@ export async function runProductOcr(
   }
 }
 
-/**
- * Captures a single still snapshot from a live HTMLVideoElement into base64 JPEG.
- */
-export function captureStillFrameFromVideo(video: HTMLVideoElement): {
-  dataUrl: string;
-  canvas: HTMLCanvasElement;
-} | null {
-  if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-    return null;
-  }
-
-  const canvas = document.createElement('canvas');
-  // Cap resolution to 1280px max dimension for optimal OCR speed & accuracy
-  const maxDim = 1280;
-  let w = video.videoWidth;
-  let h = video.videoHeight;
-  if (w > maxDim || h > maxDim) {
-    if (w > h) {
-      h = Math.round((h * maxDim) / w);
-      w = maxDim;
-    } else {
-      w = Math.round((w * maxDim) / h);
-      h = maxDim;
-    }
-  }
-
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  ctx.drawImage(video, 0, 0, w, h);
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-  return { dataUrl, canvas };
-}
