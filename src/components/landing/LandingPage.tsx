@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Camera, Boxes, BarChart3, LogIn, Download, Share2 } from 'lucide-react';
 import { updateDocumentSeo } from '../../utils/seoHelper';
@@ -20,6 +20,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
   useEffect(() => { updateDocumentSeo({ title: 'Free AI Inventory Management & Product Scanner | ScanMe AI', description: 'Free AI storekeeping and inventory management for grocery stores, pharmacies, medical stores, restaurants, hotels, and other businesses. Scan products, manage stock, and track expiry dates.', canonicalUrl: 'https://scanme-ai.vercel.app/', ogTitle: 'Free AI Inventory Management & Product Scanner | ScanMe AI', ogDescription: 'Free AI storekeeping and inventory management for grocery stores, pharmacies, medical stores, restaurants, hotels, and other businesses.' }); }, []);
 
   const APK_DOWNLOAD_URL = '/api/download-apk';
+  const [isDownloading, setIsDownloading] = useState(false);
   const nativeApp = isNativeApp();
   const storeTypes = [
     { icon: '🛒', label: 'Grocery', nepali: 'किराना पसल' },
@@ -47,7 +48,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
           <h1 className="text-[30px] leading-[1.08] font-black tracking-tight">{t('landing.heroTitle')}</h1>
           <p className="mt-3 text-sm leading-5 text-slate-500 max-w-xs mx-auto">{t('landing.heroText')}</p>
           <div className="mt-5 flex flex-col gap-2.5">
-            {!nativeApp && <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" id="btn-landing-get-started" aria-label="Download ScanMe AI APK" className="w-full h-12 rounded-2xl bg-[#1473EA] text-white font-bold text-sm shadow-lg shadow-[#1473EA]/20 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"><Download className="w-4 h-4" />{t('landing.downloadApk')}</a>}
+            {!nativeApp && <a href={APK_DOWNLOAD_URL} download="ScanMe-AI.apk" id="btn-landing-get-started" aria-label="Download ScanMe AI APK" onClick={() => { setIsDownloading(true); window.setTimeout(() => setIsDownloading(false), 2500); }} className="w-full h-12 rounded-2xl bg-[#1473EA] text-white font-bold text-sm shadow-lg shadow-[#1473EA]/20 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"><Download className="w-4 h-4" />{isDownloading ? "Downloading…" : t('landing.downloadApk')}</a>}
             <a href="/share-app" onClick={(e) => handleLinkClick(e, '/share-app')} className="w-full h-11 rounded-2xl bg-white border border-slate-200 text-[#1473EA] font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"><Share2 className="w-4 h-4" />{t('landing.shareApp')}</a><button type="button" onClick={onLogin} id="btn-landing-login" className="w-full h-11 rounded-2xl bg-white border border-slate-200 text-slate-800 font-bold text-sm active:scale-[0.98] transition-transform">{t('landing.account')}</button>
           </div>
         </motion.section>
