@@ -236,7 +236,7 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
       {/* Main Viewport & Analysis */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-7 space-y-4">
-          <div className="relative bg-slate-950 rounded-3xl overflow-hidden aspect-square sm:aspect-4/3 border border-slate-800 shadow-xl flex items-center justify-center">
+          <div className="relative bg-transparent rounded-3xl overflow-hidden aspect-square sm:aspect-4/3 border border-slate-800 shadow-xl flex items-center justify-center">
             {cameraActive ? (
               <>
                 <div ref={previewRef} className="absolute inset-0 bg-transparent" aria-label="Native camera preview" />
