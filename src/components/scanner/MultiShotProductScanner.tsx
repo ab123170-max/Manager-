@@ -126,8 +126,16 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
     startCamera();
   };
 
-  const handleCapturePhoto = () => {
-    if (!videoRef.current || capturedPhotos.length >= MAX_PHOTOS) return;
+  const handleCapturePhoto = async () => {
+    if (capturedPhotos.length >= MAX_PHOTOS) return;
+
+    // Native Android/iOS builds use the real device camera UI.
+    if (Capacitor.isNativePlatform()) {
+      await handleNativeTakePhoto();
+      return;
+    }
+
+    if (!videoRef.current) return;
     try {
       // Visual flash effect
       setIsFlashActive(true);
@@ -466,7 +474,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
         )}
 
         {/* Shutter / Capture Button for Live Camera */}
-        {activeTab === 'camera' && cameraState.isStreaming && (
+        {activeTab === 'camera' && (cameraState.isStreaming || Capacitor.isNativePlatform()) && (
           <div className="flex items-center justify-center pt-1 pb-2">
             <button
               type="button"
