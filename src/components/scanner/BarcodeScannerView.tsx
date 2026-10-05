@@ -81,6 +81,7 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
   // Unified live camera engine: one permission, one stream, one lifecycle.
   const {
     videoRef,
+    previewRef,
     streamRef,
     cameraState,
     startCamera,
@@ -89,6 +90,7 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
     isTorchOn: torchOn,
     isTorchAvailable,
     toggleTorch,
+    captureFrame,
   } = useLiveCamera();
   const animationFrameRef = useRef<number | null>(null);
   const lastScanTimeRef = useRef<number>(0);
@@ -97,6 +99,7 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrateEnabled, setVibrateEnabled] = useState(true);
   const [isScanning, setIsScanning] = useState(true);
+  const cameraActive = cameraState.isStreaming;
 
   useEffect(() => {
     void startCamera('environment');
@@ -226,7 +229,7 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
 
   // Fast continuous video frame loop for Barcode decoding ONLY (ZXing)
   const processVideoFrame = useCallback(async () => {
-    if (!videoRef.current || !isScanning || videoRef.current.readyState < 2 || isProcessingRef.current) {
+    if (!isScanning || isProcessingRef.current) {
       animationFrameRef.current = requestAnimationFrame(processVideoFrame);
       return;
     }
@@ -237,28 +240,22 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
       lastScanTimeRef.current = now;
 
       try {
-        const codes = await detectCodesInFrame(videoRef.current, 'barcode');
+        if (!videoRef.current) { const image = await captureFrame(); if (image) { const codes = await detectCodesInImage(image, 'barcode'); if (codes.length) { handleTwoEnginePipeline(codes[0], image); return; } } }
+        else if (videoRef.current.readyState >= 2) { const codes = await detectCodesInFrame(videoRef.current, 'barcode');
         if (codes.length > 0) {
           const code = codes[0];
           if (!detectedCode || normalizeBarcode(detectedCode.value) !== normalizeBarcode(code.value)) {
             handleTwoEnginePipeline(code);
             return;
           }
-        }
+        } }
       } catch {
         // Silent frame skip
       }
     }
 
     animationFrameRef.current = requestAnimationFrame(processVideoFrame);
-  }, [isScanning, detectedCode, handleTwoEnginePipeline]);
-
-  useEffect(() => {
-    startCamera();
-    return () => {
-      stopCamera();
-    };
-  }, [startCamera, stopCamera]);
+  }, [isScanning, detectedCode, handleTwoEnginePipeline, captureFrame]);
 
   useEffect(() => {
     if (cameraActive && isScanning) {
@@ -475,7 +472,7 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
           <button
             type="button"
             onClick={() =>
-              setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))
+              toggleFacingMode()
             }
             className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors"
             title="Switch Camera"
@@ -492,13 +489,7 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
           <div className="relative bg-slate-950 rounded-3xl overflow-hidden aspect-4/3 sm:aspect-16/10 border border-slate-800 shadow-xl flex items-center justify-center">
             {cameraActive ? (
               <>
-                <video
-                  ref={videoRef}
-                  playsInline
-                  autoPlay
-                  muted
-                  className="w-full h-full object-cover"
-                />
+                <div ref={previewRef} className="absolute inset-0 bg-transparent" aria-label="Native camera preview" />
 
                 {/* Red laser scanning line animation when active */}
                 {isScanning && (
