@@ -90,6 +90,19 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
     isTorchAvailable,
     toggleTorch,
   } = useLiveCamera();
+  const animationFrameRef = useRef<number | null>(null);
+  const lastScanTimeRef = useRef<number>(0);
+  const isProcessingRef = useRef<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [vibrateEnabled, setVibrateEnabled] = useState(true);
+  const [isScanning, setIsScanning] = useState(true);
+
+  useEffect(() => {
+    void startCamera('environment');
+    return () => stopCamera();
+  }, [startCamera, stopCamera]);
+
 
   // Two-Engine Pipeline States
   const [pipelineStage, setPipelineStage] = useState<
