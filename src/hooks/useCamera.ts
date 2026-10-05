@@ -106,25 +106,12 @@ export function useCamera() {
       try {
         setCameraState((prev) => ({ ...prev, error: null }));
 
-        // Android/iOS APKs use the Capacitor Camera plugin for capture.
-        // Do not call WebView getUserMedia() on native builds: Android WebView
-        // has a separate permission bridge and can reject an otherwise-granted
-        // native camera permission.
-        if (Capacitor.isNativePlatform()) {
-          const nativeCameraGranted = await requestNativeCameraPermission();
-          if (!nativeCameraGranted) {
-            throw new DOMException('Camera permission was denied.', 'NotAllowedError');
-          }
-          setCameraState((prev) => ({
-            ...prev,
-            isStreaming: false,
-            hasPermission: true,
-            facingMode: targetFacingMode,
-            error: null,
-          }));
-          return;
-        }
-
+        // On Android/iOS, request the native CAMERA permission first, then
+        // continue with WebView getUserMedia(). This is important because the
+        // scanner UI is an in-app <video> preview; using Camera.getPhoto() here
+        // would open a separate native camera screen instead of the live preview.
+        // Capacitor's WebChromeClient then grants VIDEO_CAPTURE to the WebView
+        // once the Android CAMERA permission is already granted.
         const nativeCameraGranted = await requestNativeCameraPermission();
         if (!nativeCameraGranted) {
           throw new DOMException('Camera permission was denied.', 'NotAllowedError');
