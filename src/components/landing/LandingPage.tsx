@@ -19,7 +19,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
   const [selectedBusiness, setSelectedBusiness] = React.useState<any>(null);
   useEffect(() => { updateDocumentSeo({ title: 'Free AI Inventory Management & Product Scanner | ScanMe AI', description: 'Free AI storekeeping and inventory management for grocery stores, pharmacies, medical stores, restaurants, hotels, and other businesses. Scan products, manage stock, and track expiry dates.', canonicalUrl: 'https://scanme-ai.vercel.app/', ogTitle: 'Free AI Inventory Management & Product Scanner | ScanMe AI', ogDescription: 'Free AI storekeeping and inventory management for grocery stores, pharmacies, medical stores, restaurants, hotels, and other businesses.' }); }, []);
 
-  const APK_DOWNLOAD_URL = 'https://github.com/ab123170-max/Manager-/releases/latest/download/app-debug.apk';
+  const APK_DOWNLOAD_URL = '/api/download-apk';
   const nativeApp = isNativeApp();
   const storeTypes = [
     { icon: '🛒', label: 'Grocery', nepali: 'किराना पसल' },
