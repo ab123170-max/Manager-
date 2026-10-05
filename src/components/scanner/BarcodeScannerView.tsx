@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, ChangeEvent } from 'react';
+import { useLiveCamera } from '../../hooks/useLiveCamera';
 import {
   Camera,
   Barcode as BarcodeIcon,
@@ -77,23 +78,18 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
   onViewProduct,
   onOpenManualEntry,
 }) => {
-  // Video & Stream references
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const lastScanTimeRef = useRef<number>(0);
-  const isProcessingRef = useRef<boolean>(false);
-
-  // Camera & Scanner State
-  const [cameraActive, setCameraActive] = useState<boolean>(false);
-  const [torchOn, setTorchOn] = useState<boolean>(false);
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [vibrateEnabled, setVibrateEnabled] = useState<boolean>(true);
-  const [isScanning, setIsScanning] = useState<boolean>(true);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
+  // Unified live camera engine: one permission, one stream, one lifecycle.
+  const {
+    videoRef,
+    streamRef,
+    cameraState,
+    startCamera,
+    stopCamera,
+    toggleFacingMode,
+    isTorchOn: torchOn,
+    isTorchAvailable,
+    toggleTorch,
+  } = useLiveCamera();
 
   // Two-Engine Pipeline States
   const [pipelineStage, setPipelineStage] = useState<
@@ -110,121 +106,6 @@ export const BarcodeScannerView: React.FC<BarcodeScannerViewProps> = ({
 
   // Fallback modal
   const [isPipelineModalOpen, setIsPipelineModalOpen] = useState<boolean>(false);
-
-  // Start Camera
-  const startCamera = useCallback(async () => {
-    try {
-      setCameraError(null);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => {
-          try {
-            t.stop();
-          } catch {
-            // ignore
-          }
-        });
-      }
-
-      if (
-        typeof navigator === 'undefined' ||
-        !navigator.mediaDevices ||
-        !navigator.mediaDevices.getUserMedia
-      ) {
-        setCameraError('Camera is not supported in this browser context. Please use photo upload or manual entry.');
-        setCameraActive(false);
-        return;
-      }
-
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: facingMode },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        });
-      } catch (firstErr: any) {
-        if (firstErr?.name === 'NotAllowedError' || firstErr?.name === 'PermissionDeniedError') {
-          throw firstErr;
-        }
-        // Retry with basic video constraints
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false,
-        });
-      }
-
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        try {
-          await videoRef.current.play();
-        } catch (playErr) {
-          console.warn('Video play was delayed:', playErr);
-        }
-      }
-      setCameraActive(true);
-      setIsScanning(true);
-      setPipelineStage('idle');
-      setStatusMessage('Align barcode in viewfinder...');
-    } catch (err: any) {
-      console.warn('Camera stream initialization notice:', err?.message || err);
-      const isPermissionDenied =
-        err?.name === 'NotAllowedError' ||
-        err?.name === 'PermissionDeniedError' ||
-        err?.message?.toLowerCase().includes('permission') ||
-        err?.message?.toLowerCase().includes('denied');
-
-      setCameraError(
-        isPermissionDenied
-          ? 'Camera permission is denied or blocked. You can upload an image with a barcode below, or enter it manually.'
-          : 'Unable to access device camera. You can upload an image of the barcode or enter it manually.'
-      );
-      setCameraActive(false);
-    }
-  }, [facingMode]);
-
-  // Stop Camera
-  const stopCamera = useCallback(() => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => {
-        try {
-          t.stop();
-        } catch {
-          // ignore
-        }
-      });
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-  }, []);
-
-  // Torch control
-  const toggleTorch = async () => {
-    if (!streamRef.current) return;
-    const track = streamRef.current.getVideoTracks()[0];
-    if (!track) return;
-
-    try {
-      const capabilities = track.getCapabilities?.() as any;
-      if (capabilities && capabilities.torch) {
-        await track.applyConstraints({
-          advanced: [{ torch: !torchOn } as any],
-        });
-        setTorchOn(!torchOn);
-      } else {
-        alert('Flashlight is not supported on this device camera.');
-      }
-    } catch {
-      alert('Could not toggle flashlight.');
-    }
-  };
 
   /**
    * TWO-ENGINE PIPELINE EXECUTION:
