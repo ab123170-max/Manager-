@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, ChangeEvent } from 'react';
+import { useLiveCamera } from '../../hooks/useLiveCamera';
 import {
   QrCode,
   Volume2,
@@ -44,131 +45,26 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
   onRegisterProduct,
   onRecordSale,
 }) => {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const lastScanTimeRef = useRef<number>(0);
-
+  const {
+    videoRef,
+    streamRef,
+    cameraState,
+    startCamera,
+    stopCamera,
+    toggleFacingMode,
+    isTorchOn: torchOn,
+    isTorchAvailable,
+    toggleTorch,
+  } = useLiveCamera();
   const [isScanning, setIsScanning] = useState<boolean>(true);
-  const [cameraActive, setCameraActive] = useState<boolean>(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
-  const [torchOn, setTorchOn] = useState<boolean>(false);
+  const cameraActive = cameraState.isStreaming;
+  const cameraError = cameraState.error;
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [copied, setCopied] = useState<boolean>(false);
   const [isUploadingImage, setIsUploadingImage] = useState<boolean>(false);
 
   const [detectedCode, setDetectedCode] = useState<DetectedCode | null>(null);
   const [matchedProduct, setMatchedProduct] = useState<SavedInventoryItem | null>(null);
-
-  const startCamera = useCallback(async (mode: 'environment' | 'user' = facingMode) => {
-    setCameraError(null);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => {
-        try {
-          t.stop();
-        } catch {
-          // ignore
-        }
-      });
-    }
-
-    if (
-      typeof navigator === 'undefined' ||
-      !navigator.mediaDevices ||
-      !navigator.mediaDevices.getUserMedia
-    ) {
-      setCameraError('Camera is not supported in this browser context. Please use photo upload.');
-      setCameraActive(false);
-      return;
-    }
-
-    try {
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: mode },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        });
-      } catch (firstErr: any) {
-        if (firstErr?.name === 'NotAllowedError' || firstErr?.name === 'PermissionDeniedError') {
-          throw firstErr;
-        }
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false,
-        });
-      }
-
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        try {
-          await videoRef.current.play();
-        } catch (playErr) {
-          console.warn('Video element play was deferred:', playErr);
-        }
-      }
-      setCameraActive(true);
-      setIsScanning(true);
-    } catch (err: any) {
-      console.warn('QR camera initialization notice:', err?.message || err);
-      const isPermissionDenied =
-        err?.name === 'NotAllowedError' ||
-        err?.name === 'PermissionDeniedError' ||
-        err?.message?.toLowerCase().includes('permission') ||
-        err?.message?.toLowerCase().includes('denied');
-
-      setCameraError(
-        isPermissionDenied
-          ? 'Camera permission is denied or blocked. You can upload a QR image below or retry.'
-          : 'Unable to access device camera. Please upload an image containing a QR code.'
-      );
-      setCameraActive(false);
-    }
-  }, [facingMode]);
-
-  const stopCamera = useCallback(() => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => {
-        try {
-          t.stop();
-        } catch {
-          // ignore
-        }
-      });
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-  }, []);
-
-  const toggleTorch = async () => {
-    if (!streamRef.current) return;
-    const track = streamRef.current.getVideoTracks()[0];
-    if (!track) return;
-
-    try {
-      const capabilities = track.getCapabilities?.() as any;
-      if (capabilities?.torch) {
-        await track.applyConstraints({ advanced: [{ torch: !torchOn } as any] });
-        setTorchOn(!torchOn);
-      } else {
-        alert('Flashlight is not supported on this camera.');
-      }
-    } catch {
-      alert('Could not toggle flashlight.');
-    }
-  };
 
   const handleDetectedCode = useCallback((code: DetectedCode) => {
     if (soundEnabled) playScanBeep();
@@ -321,7 +217,7 @@ export const QrScannerView: React.FC<QrScannerViewProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))}
+            onClick={toggleFacingMode}
             className="p-2.5 rounded-xl bg-white/10 text-white border border-white/10 hover:bg-white/20 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
