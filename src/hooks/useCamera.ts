@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { CameraState } from '../types';
 import { requestNativeCameraPermission } from '../services/nativeDevice';
+import { Capacitor } from '@capacitor/core';
 
 /**
  * ============================================================================
@@ -104,6 +105,25 @@ export function useCamera() {
 
       try {
         setCameraState((prev) => ({ ...prev, error: null }));
+
+        // Android/iOS APKs use the Capacitor Camera plugin for capture.
+        // Do not call WebView getUserMedia() on native builds: Android WebView
+        // has a separate permission bridge and can reject an otherwise-granted
+        // native camera permission.
+        if (Capacitor.isNativePlatform()) {
+          const nativeCameraGranted = await requestNativeCameraPermission();
+          if (!nativeCameraGranted) {
+            throw new DOMException('Camera permission was denied.', 'NotAllowedError');
+          }
+          setCameraState((prev) => ({
+            ...prev,
+            isStreaming: false,
+            hasPermission: true,
+            facingMode: targetFacingMode,
+            error: null,
+          }));
+          return;
+        }
 
         const nativeCameraGranted = await requestNativeCameraPermission();
         if (!nativeCameraGranted) {
