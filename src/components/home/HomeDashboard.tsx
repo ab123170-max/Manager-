@@ -7,7 +7,7 @@ interface HomeDashboardProps {
   onNavigate: (section: any, subView: string) => void;
 }
 
-const APK_DOWNLOAD_URL = 'https://github.com/ab123170-max/Manager-/releases/latest/download/app-debug.apk';
+const APK_DOWNLOAD_URL = '/api/download-apk';
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({productCount, lowStockCount, expiringCount, expiredCount, onNavigate}) => {
   const nativeApp = isNativeApp();
