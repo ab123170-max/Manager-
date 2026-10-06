@@ -24,6 +24,7 @@ import {
 } from '../types';
 import { supabaseDataService } from '../services/supabaseDataService';
 import { authService, subscribeAuth } from '../services/authService';
+import { trackProductSaved } from '../services/analyticsService';
 
 /**
  * Standard RFC-4122 v4 UUID generator for PostgreSQL compatibility
@@ -480,6 +481,9 @@ export function saveProduct(productData: Partial<SavedInventoryItem>): SavedInve
   }
 
   notifyListeners();
+
+  // Track product added event for live platform stats
+  trackProductSaved({ id: newItem.id, name: newItem.productName, category: newItem.category });
 
   // Async persist to Supabase PostgreSQL products table
   if (currentUserId) {

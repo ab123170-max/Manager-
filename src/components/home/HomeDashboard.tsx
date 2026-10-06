@@ -1,16 +1,17 @@
 import React from 'react';
 import { Camera, Package, AlertTriangle, Clock3, Plus, ArrowDownToLine, ArrowUpFromLine, BarChart3, Download } from 'lucide-react';
 import { isNativeApp } from '../../utils/platform';
+import { trackDownloadClick, getAnonymousId } from '../../services/analyticsService';
 
 interface HomeDashboardProps {
   productCount: number; lowStockCount: number; expiringCount: number; expiredCount: number;
   onNavigate: (section: any, subView: string) => void;
 }
 
-const APK_DOWNLOAD_URL = '/api/download-apk';
-
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({productCount, lowStockCount, expiringCount, expiredCount, onNavigate}) => {
   const nativeApp = isNativeApp();
+  const anonId = getAnonymousId();
+  const APK_DOWNLOAD_URL = `/api/download-apk?anon_id=${encodeURIComponent(anonId)}`;
   const stats = [
     {label:'Products',value:productCount,icon:Package,action:()=>onNavigate('inventory','inventory')},
     {label:'Low stock',value:lowStockCount,icon:AlertTriangle,action:()=>onNavigate('inventory','low_stock')},
@@ -24,7 +25,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({productCount, lowSt
       <button type="button" onClick={()=>onNavigate('inventory_in','scan_product')} className="mt-4 min-h-12 w-full rounded-2xl bg-white text-[#092B4C] font-extrabold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
         <Camera className="w-5 h-5"/>Scan Product
       </button>
-      {!nativeApp && <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="mt-3 min-h-12 w-full rounded-2xl border border-white/30 bg-white/10 text-white font-extrabold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform hover:bg-white/20" aria-label="Download ScanMe AI Android app">
+      {!nativeApp && <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" onClick={trackDownloadClick} className="mt-3 min-h-12 w-full rounded-2xl border border-white/30 bg-white/10 text-white font-extrabold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform hover:bg-white/20" aria-label="Download ScanMe AI Android app">
         <Download className="w-5 h-5"/>Download Android App
       </a>}
     </section>

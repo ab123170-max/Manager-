@@ -19,7 +19,6 @@ import {
   ZapOff,
   X,
   Loader2,
-  AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
 import {
@@ -29,8 +28,12 @@ import {
   captureScanMePhoto,
   switchScanMeCamera,
   setScanMeFlashMode,
-  requestCameraPermission,
+  getCameraPermissionStatus,
 } from '../../plugins/scanmeCamera';
+import {
+  NativeCameraPermissionModal,
+  PermissionModalState,
+} from '../camera/NativeCameraPermissionModal';
 import { fileToBase64 } from '../../utils/imageEncoder';
 import { SampleDoc } from '../../types';
 
@@ -63,11 +66,14 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
   // Native CameraX state
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
   const [flashMode, setFlashMode] = useState<'auto' | 'on' | 'off' | 'torch'>('auto');
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isCapturing, setIsCapturing] = useState(false);
   const [lastCapturedToast, setLastCapturedToast] = useState(false);
+
+  // Native Camera Permission Modal State
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
+  const [permissionModalInitialState, setPermissionModalInitialState] = useState<PermissionModalState>('explanation');
 
   const isNative = isScanMeCameraNative();
 
@@ -89,6 +95,23 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
     }
   }, [activeTab, sampleDocs.length]);
 
+  const launchCameraDirect = useCallback(async () => {
+    setIsPermissionModalOpen(false);
+    setCameraLoading(true);
+    try {
+      const result = await openScanMeCamera({ facingMode, toBack: true });
+      if (result.success) {
+        setIsCameraActive(true);
+      }
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('[MultiShotProductScanner] open camera error:', error);
+      alert(`Failed to open camera: ${error.message || 'Please try again.'}`);
+    } finally {
+      setCameraLoading(false);
+    }
+  }, [facingMode]);
+
   const handleStartNativeCamera = useCallback(async () => {
     if (!isNative) {
       setActiveTab('upload');
@@ -100,29 +123,35 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
       return;
     }
 
-    setCameraError(null);
     setCameraLoading(true);
 
     try {
-      const granted = await requestCameraPermission();
-      if (!granted) {
-        setCameraError('Camera permission is required to take a photo. Please allow camera access in Android settings.');
-        setCameraLoading(false);
-        return;
-      }
-
-      const result = await openScanMeCamera({ facingMode, toBack: true });
-      if (result.success) {
-        setIsCameraActive(true);
-      }
-    } catch (err: unknown) {
-      const error = err as Error;
-      console.error('[MultiShotProductScanner] open camera error:', error);
-      setCameraError(error.message || 'Failed to initialize CameraX.');
-    } finally {
+      // 1. Check real Android permission status
+      const status = await getCameraPermissionStatus();
       setCameraLoading(false);
+
+      if (status === 'granted') {
+        // Already granted: immediately launch camera
+        await launchCameraDirect();
+      } else if (status === 'prompt') {
+        // First time: show explanation popup
+        setPermissionModalInitialState('explanation');
+        setIsPermissionModalOpen(true);
+      } else if (status === 'prompt-with-rationale') {
+        // Denied previously with rationale: show Try Again & Settings
+        setPermissionModalInitialState('denied');
+        setIsPermissionModalOpen(true);
+      } else {
+        // Permanently denied: show Open Settings
+        setPermissionModalInitialState('permanently_denied');
+        setIsPermissionModalOpen(true);
+      }
+    } catch (err) {
+      setCameraLoading(false);
+      setPermissionModalInitialState('explanation');
+      setIsPermissionModalOpen(true);
     }
-  }, [isNative, capturedPhotos.length, facingMode]);
+  }, [isNative, capturedPhotos.length, launchCameraDirect]);
 
   const handleCloseNativeCamera = useCallback(async () => {
     try {
@@ -236,6 +265,14 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+      {/* Native Camera Permission Flow Modal */}
+      <NativeCameraPermissionModal
+        isOpen={isPermissionModalOpen}
+        initialState={permissionModalInitialState}
+        onPermissionGranted={launchCameraDirect}
+        onClose={() => setIsPermissionModalOpen(false)}
+      />
+
       {/* Top Header & Tab Controls */}
       <div className="p-3.5 sm:p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-50/50">
         <div>
@@ -423,32 +460,16 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
                   </p>
                 </div>
 
-                {cameraError && (
-                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2 text-left max-w-md mx-auto">
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-semibold">{cameraError}</p>
-                      <button
-                        type="button"
-                        onClick={handleStartNativeCamera}
-                        className="mt-1.5 text-xs font-bold text-rose-700 underline hover:text-rose-900 cursor-pointer"
-                      >
-                        Retry Camera Permission
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 <button
                   type="button"
                   onClick={handleStartNativeCamera}
                   disabled={cameraLoading || disabled}
-                  className="py-3 px-6 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold shadow-md hover:shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-60"
+                  className="py-3.5 px-6 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold shadow-md hover:shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-60"
                 >
                   {cameraLoading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Opening Camera...</span>
+                      <span>Checking Permissions...</span>
                     </>
                   ) : (
                     <>

@@ -1,7 +1,11 @@
 package com.martmartai.inventory;
 
 import android.Manifest;
+import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.net.Uri;
+import android.provider.Settings;
 import android.util.Base64;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -52,13 +56,22 @@ public class ScanMeCameraPlugin extends Plugin {
     @PluginMethod
     public void getPermissionStatus(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("camera", getPermissionState("camera").toString());
+        boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED;
+        if (isGranted) {
+            ret.put("camera", "granted");
+        } else {
+            boolean shouldShowRationale = getActivity().shouldShowRequestPermissionRationale(Manifest.permission.CAMERA);
+            ret.put("camera", shouldShowRationale ? "prompt-with-rationale" : "prompt");
+        }
         call.resolve(ret);
     }
 
     @PluginMethod
     public void requestCameraPermission(PluginCall call) {
-        if (getPermissionState("camera") == PermissionState.GRANTED) {
+        boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED;
+        if (isGranted) {
             JSObject ret = new JSObject();
             ret.put("camera", "granted");
             call.resolve(ret);
@@ -70,13 +83,33 @@ public class ScanMeCameraPlugin extends Plugin {
     @PermissionCallback
     private void permissionCallback(PluginCall call) {
         JSObject ret = new JSObject();
-        ret.put("camera", getPermissionState("camera").toString());
+        boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED;
+        ret.put("camera", isGranted ? "granted" : "denied");
         call.resolve(ret);
     }
 
     @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            Uri uri = Uri.fromParts("package", getContext().getPackageName(), null);
+            intent.setData(uri);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Could not open settings: " + e.getMessage(), e);
+        }
+    }
+
+    @PluginMethod
     public void openCamera(PluginCall call) {
-        if (getPermissionState("camera") != PermissionState.GRANTED) {
+        boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED;
+        if (!isGranted) {
             requestPermissionForAlias("camera", call, "openCameraPermissionCallback");
             return;
         }
@@ -85,7 +118,9 @@ public class ScanMeCameraPlugin extends Plugin {
 
     @PermissionCallback
     private void openCameraPermissionCallback(PluginCall call) {
-        if (getPermissionState("camera") == PermissionState.GRANTED) {
+        boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED;
+        if (isGranted) {
             startCameraInternal(call);
         } else {
             call.reject("Camera permission is required to take a photo. Please allow camera access in Android settings.");

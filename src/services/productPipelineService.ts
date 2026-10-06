@@ -5,6 +5,7 @@
 
 import { SavedInventoryItem, StockTransaction, ProductScanResult } from '../types';
 import { extractProduct5FieldsFromImages } from './geminiService';
+import { trackProductScanned } from './analyticsService';
 import {
   getProducts,
   saveProduct,
@@ -22,6 +23,12 @@ export async function extractProduct(images: string[]): Promise<ProductScanResul
     throw new Error('No images provided for product extraction.');
   }
   const result = await extractProduct5FieldsFromImages(images);
+  if (result && (result.productName || result.expiryDate)) {
+    trackProductScanned({
+      photosCount: images.length,
+      productName: result.productName || '',
+    });
+  }
   return result;
 }
 

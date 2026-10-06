@@ -26,6 +26,12 @@ import {
   handleUploadAvatar,
   handleGetAvatar,
 } from "./api/authHandlers";
+import {
+  handleGetStats,
+  handleRegisterInstallation,
+  handleTrackEvent,
+} from "./api/analyticsHandlers";
+import downloadApkHandler from "./api/download-apk";
 
 dotenv.config();
 
@@ -53,6 +59,12 @@ async function startServer() {
   app.post("/api/auth/profile", handleSaveProfile);
   app.post("/api/auth/upload-avatar", handleUploadAvatar);
   app.get("/api/auth/avatar/:id", handleGetAvatar);
+
+  // Analytics & Statistics API Routes
+  app.get("/api/stats", handleGetStats);
+  app.post("/api/analytics/install", handleRegisterInstallation);
+  app.post("/api/analytics/track", handleTrackEvent);
+  app.get("/api/download-apk", downloadApkHandler);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

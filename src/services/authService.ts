@@ -6,6 +6,7 @@
 import { supabase, isSupabaseConfigured, getSupabaseMissingVars } from '../lib/supabaseClient';
 import { AuthSession, AuthUser, UserProfile, AuthProviderType, PendingOnboardingProfile } from '../types';
 import { encryptUserData, decryptUserData } from './encryptionService';
+import { registerInstallation, trackUserActivity } from './analyticsService';
 
 const STORAGE_KEYS = {
   ONBOARDING_COMPLETED: 'ais_onboarding_completed_v1',
@@ -448,6 +449,11 @@ class AuthService {
 
       this.activeSession = session;
       notifyAuthListeners(session);
+
+      // Link native installation & record active user activity
+      void registerInstallation(sbUser.id);
+      void trackUserActivity('login', { user_id: sbUser.id, provider });
+
       return session;
     } catch (e) {
       console.error('[authService] Error handling Supabase session:', e);

@@ -1,0 +1,6 @@
+# ScanMe AI robots policy
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://scanme-ai.vercel.app/sitemap.xml

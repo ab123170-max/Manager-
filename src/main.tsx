@@ -6,6 +6,7 @@ import { StartupSplash } from './components/common/StartupSplash';
 import { startWebUpdateChecker } from './utils/webUpdateChecker';
 import { startSeoManager } from './services/seoManager';
 import { initializeNativeDevice } from './services/nativeDevice';
+import { registerInstallation } from './services/analyticsService';
 
 type LoadedApp = {
   App: React.ComponentType;
@@ -158,5 +159,6 @@ function Bootstrap() {
 
 startWebUpdateChecker();
 initializeNativeDevice();
+registerInstallation();
 
 createRoot(document.getElementById('root')!).render(<Bootstrap />);

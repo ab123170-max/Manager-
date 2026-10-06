@@ -24,6 +24,7 @@ export interface CapturePhotoResult {
 export interface ScanMeCameraPlugin {
   getPermissionStatus(): Promise<CameraPermissionStatus>;
   requestCameraPermission(): Promise<CameraPermissionStatus>;
+  openAppSettings(): Promise<{ success: boolean }>;
   openCamera(options?: OpenCameraOptions): Promise<{ success: boolean; facingMode: string }>;
   closeCamera(): Promise<{ success: boolean }>;
   capturePhoto(): Promise<CapturePhotoResult>;
@@ -39,24 +40,40 @@ export function isScanMeCameraNative(): boolean {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 }
 
-export async function checkCameraPermission(): Promise<boolean> {
-  if (!isScanMeCameraNative()) return false;
+export async function getCameraPermissionStatus(): Promise<'granted' | 'denied' | 'prompt' | 'prompt-with-rationale'> {
+  if (!isScanMeCameraNative()) return 'denied';
   try {
     const status = await ScanMeCamera.getPermissionStatus();
-    return status.camera === 'granted';
+    return status.camera;
   } catch (error) {
-    console.warn('[ScanMeCamera] getPermissionStatus failed:', error);
-    return false;
+    console.warn('[ScanMeCamera] getPermissionStatus error:', error);
+    return 'denied';
   }
 }
 
-export async function requestCameraPermission(): Promise<boolean> {
-  if (!isScanMeCameraNative()) return false;
+export async function checkCameraPermission(): Promise<boolean> {
+  const status = await getCameraPermissionStatus();
+  return status === 'granted';
+}
+
+export async function requestCameraPermission(): Promise<'granted' | 'denied' | 'prompt' | 'prompt-with-rationale'> {
+  if (!isScanMeCameraNative()) return 'denied';
   try {
     const status = await ScanMeCamera.requestCameraPermission();
-    return status.camera === 'granted';
+    return status.camera;
   } catch (error) {
-    console.warn('[ScanMeCamera] requestCameraPermission failed:', error);
+    console.warn('[ScanMeCamera] requestCameraPermission error:', error);
+    return 'denied';
+  }
+}
+
+export async function openCameraAppSettings(): Promise<boolean> {
+  if (!isScanMeCameraNative()) return false;
+  try {
+    const res = await ScanMeCamera.openAppSettings();
+    return Boolean(res?.success);
+  } catch (error) {
+    console.warn('[ScanMeCamera] openAppSettings error:', error);
     return false;
   }
 }
