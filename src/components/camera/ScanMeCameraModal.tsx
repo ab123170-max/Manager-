@@ -16,10 +16,10 @@ import {
   Loader2,
   Check,
   Sparkles,
-  Barcode,
-  Calendar,
-  Tag,
   Crosshair,
+  Timer,
+  Play,
+  Pause,
 } from 'lucide-react';
 import {
   isScanMeCameraNative,
@@ -34,10 +34,15 @@ import {
   openCameraAppSettings,
 } from '../../plugins/scanmeCamera';
 import { ScanSession, ScanShot } from '../../types';
-import { playScanSuccessBeep } from '../../utils/audioFeedback';
+import {
+  playProductDetectedTone,
+  playCameraShutterBeep,
+  triggerScanVibrate,
+} from '../../utils/audioFeedback';
 import {
   analyzeLiveFrame,
   RealtimeDetectionResult,
+  NormalizedRect,
 } from '../../utils/realtimeProductDetector';
 import {
   TrackedProduct,
@@ -55,6 +60,60 @@ export type CameraModalMode =
   | 'permission_permanently_denied'
   | 'live_camera';
 
+export interface ActiveTargetField {
+  name: string;
+  types: string[];
+  description: string;
+}
+
+/**
+ * Computes currently active target field based on sequential/priority-based list.
+ * Skipped fields that are already successfully complete.
+ */
+export const getActiveTargetField = (tracked: TrackedProduct): ActiveTargetField => {
+  const f = tracked.fields;
+  if (f.productName.status !== 'complete') {
+    return {
+      name: 'Label',
+      types: ['product_name', 'brand'],
+      description: 'Reading Label',
+    };
+  }
+  if (f.manufactureDate.status !== 'complete') {
+    return {
+      name: 'MFD',
+      types: ['mfd_date'],
+      description: 'Reading MFD',
+    };
+  }
+  if (f.expiryDate.status !== 'complete') {
+    return {
+      name: 'EXP',
+      types: ['expiry_date'],
+      description: 'Reading EXP',
+    };
+  }
+  if (f.price.status !== 'complete') {
+    return {
+      name: 'Price',
+      types: ['price_mrp'],
+      description: 'Reading Price',
+    };
+  }
+  if (f.barcode.status !== 'complete') {
+    return {
+      name: 'Barcode',
+      types: ['barcode_qr'],
+      description: 'Reading Barcode',
+    };
+  }
+  return {
+    name: 'Complete',
+    types: [],
+    description: 'Complete ✓',
+  };
+};
+
 interface ScanMeCameraModalProps {
   isOpen: boolean;
   onFinishAndExtract: (shots: string[], session?: ScanSession) => void;
@@ -69,8 +128,8 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   isOpen,
   onFinishAndExtract,
   onClose,
-  title = 'Multi-Shot Camera',
-  subtitle = 'Fast real-time detection & smart multi-angle extraction',
+  title = 'Live Product Scanner',
+  subtitle = 'Detects, tracks, and extracts product data in real-time',
   initialShots = [],
   maxShots = 5,
 }) => {
@@ -79,6 +138,10 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   const [isCapturing, setIsCapturing] = useState(false);
   const [justCapturedToast, setJustCapturedToast] = useState<string | null>(null);
   const [isFlashEffect, setIsFlashEffect] = useState(false);
+
+  // Auto-capture settings
+  const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(true);
+  const [stableCountdownProgress, setStableCountdownProgress] = useState(0); // 0 to 100%
 
   // Multi-Shot Session State
   const [scanSession, setScanSession] = useState<ScanSession>(() => ({
@@ -104,7 +167,8 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
     stabilityScore: 0,
     productBox: null,
     regions: [],
-    guidanceText: 'Aim camera at product',
+    guidanceText: 'Searching for product...',
+    trackingState: 'searching',
     dominantColor: '#10b981',
   });
 
@@ -119,6 +183,11 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   const isAnalyzingRef = useRef<boolean>(false);
   const prevDetectionRef = useRef<RealtimeDetectionResult | null>(null);
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-capture countdown refs
+  const stableSinceRef = useRef<number | null>(null);
+  const cooldownUntilRef = useRef<number>(0);
+  const hasPlayedInitialDetectionSoundRef = useRef<boolean>(false);
 
   const isNative = isScanMeCameraNative();
 
@@ -152,7 +221,89 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   }, [isNative]);
 
   /**
-   * Starts real-time lightweight frame analysis loop (~5 fps, < 8ms per frame)
+   * CONTINUOUS MULTI-SHOT CAPTURE FLOW WITH SMART AUTO-CROP
+   */
+  const handleCaptureShot = useCallback(async (currentProductBox?: NormalizedRect | null) => {
+    if (isCapturing) return;
+    if (scanSession.shots.length >= maxShots) {
+      return;
+    }
+
+    setIsCapturing(true);
+    cooldownUntilRef.current = Date.now() + 2400; // 2.4s cooldown to allow re-framing for next angle
+    setStableCountdownProgress(0);
+    stableSinceRef.current = null;
+
+    try {
+      let photoDataUrl = '';
+
+      if (isNative) {
+        const result = await captureScanMePhoto();
+        if (result && result.dataUrl) {
+          photoDataUrl = result.dataUrl;
+        } else {
+          throw new Error('No photo data returned from native camera');
+        }
+      } else {
+        // Web canvas capture
+        if (videoRef.current && canvasRef.current) {
+          const video = videoRef.current;
+          const canvas = canvasRef.current;
+          canvas.width = video.videoWidth || 1280;
+          canvas.height = video.videoHeight || 720;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            photoDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+          }
+        }
+      }
+
+      if (photoDataUrl) {
+        const nextShotNum = scanSession.shots.length + 1;
+        const newShot: ScanShot = {
+          id: `shot-${nextShotNum}`,
+          image: photoDataUrl,
+          timestamp: Date.now(),
+          label: `Shot ${nextShotNum}`,
+        };
+
+        // Add to temporary scan session
+        setScanSession((prev) => ({
+          ...prev,
+          shots: [...prev.shots, newShot],
+        }));
+
+        // Associate shot & extract targeted regions into tracked product
+        const updatedTracked = await addShotToTrackedProduct(
+          trackedProduct,
+          photoDataUrl,
+          detection.regions,
+          currentProductBox || detection.productBox
+        );
+        setTrackedProduct(updatedTracked);
+
+        // Sound & visual shutter feedback
+        playCameraShutterBeep();
+        setIsFlashEffect(true);
+        setTimeout(() => setIsFlashEffect(false), 140);
+
+        // Dynamic guidance feedback based on remaining missing fields
+        const missingHint = getMissingFieldGuidance(updatedTracked);
+        setJustCapturedToast(`Shot ${nextShotNum} captured ✓ ${missingHint}`);
+        setTimeout(() => setJustCapturedToast(null), 2500);
+      }
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('[ScanMeCameraModal] Capture error:', error);
+      alert(`Photo capture failed: ${error.message || 'Please try again.'}`);
+    } finally {
+      setIsCapturing(false);
+    }
+  }, [detection.productBox, detection.regions, isCapturing, isNative, maxShots, scanSession.shots.length, trackedProduct]);
+
+  /**
+   * Starts real-time lightweight frame analysis loop (~6-8 fps, < 6ms per frame)
    */
   const startRealtimeAnalysisLoop = useCallback(() => {
     if (analysisIntervalRef.current) {
@@ -167,7 +318,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
         let frameSource: HTMLVideoElement | HTMLImageElement | null = null;
 
         if (isNative) {
-          // In native Android APK, fetch lightweight 320px preview bitmap snapshot
+          // In native Android APK, fetch lightweight preview bitmap snapshot
           const frameRes = await getScanMePreviewFrame();
           if (frameRes && frameRes.dataUrl) {
             const img = new Image();
@@ -195,11 +346,44 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
             updateProductTracking(prev, res.productBox, res.isStable, res.dominantColor, res.detectedBarcode)
           );
 
-          // If barcode newly detected, play gentle confirmation beep
-          if (res.detectedBarcode && !trackedProduct.fields.barcode.value) {
-            playScanSuccessBeep();
-            setJustCapturedToast(`Barcode detected: ${res.detectedBarcode} ✓`);
-            setTimeout(() => setJustCapturedToast(null), 1800);
+          // Audio feedback: play gentle chime once when product is first detected
+          if (res.hasProduct && !hasPlayedInitialDetectionSoundRef.current) {
+            hasPlayedInitialDetectionSoundRef.current = true;
+            playProductDetectedTone();
+          } else if (!res.hasProduct) {
+            hasPlayedInitialDetectionSoundRef.current = false;
+          }
+
+          // Auto-capture countdown logic
+          const now = Date.now();
+          if (
+            autoCaptureEnabled &&
+            res.hasProduct &&
+            res.isStable &&
+            res.productBox &&
+            now >= cooldownUntilRef.current &&
+            !isCapturing &&
+            scanSession.shots.length < maxShots
+          ) {
+            if (!stableSinceRef.current) {
+              stableSinceRef.current = now;
+              setStableCountdownProgress(10);
+            } else {
+              const elapsed = now - stableSinceRef.current;
+              const requiredDuration = 1000; // 1.0 second of holding steady
+              const progress = Math.min(100, Math.round((elapsed / requiredDuration) * 100));
+              setStableCountdownProgress(progress);
+
+              if (elapsed >= requiredDuration) {
+                // Trigger auto capture!
+                stableSinceRef.current = null;
+                setStableCountdownProgress(100);
+                await handleCaptureShot(res.productBox);
+              }
+            }
+          } else {
+            stableSinceRef.current = null;
+            setStableCountdownProgress(0);
           }
         }
       } catch (err) {
@@ -207,8 +391,8 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
       } finally {
         isAnalyzingRef.current = false;
       }
-    }, 200); // 5 times/second is silky smooth on mobile and consumes < 2% CPU
-  }, [isNative, mode, trackedProduct.fields.barcode.value]);
+    }, 140);
+  }, [autoCaptureEnabled, handleCaptureShot, isCapturing, isNative, maxShots, mode, scanSession.shots.length]);
 
   /**
    * Starts the live camera view inside the app
@@ -257,6 +441,11 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
    * Initializes and checks camera permissions whenever modal opens
    */
   const checkAndInitCamera = useCallback(async () => {
+    hasPlayedInitialDetectionSoundRef.current = false;
+    stableSinceRef.current = null;
+    cooldownUntilRef.current = 0;
+    setStableCountdownProgress(0);
+
     setScanSession({
       id: `scan-${Date.now()}`,
       shots: initialShots.map((img, i) => ({
@@ -362,88 +551,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   };
 
   /**
-   * CONTINUOUS MULTI-SHOT CAPTURE FLOW WITH SMART AUTO-CROP
-   * User taps [Capture] -> Shot saved -> Targeted crops created -> Camera stays running!
-   */
-  const handleCaptureShot = async () => {
-    if (isCapturing) return;
-    if (scanSession.shots.length >= maxShots) {
-      alert(`Maximum ${maxShots} shots reached. Tap "Finish & Extract" to process.`);
-      return;
-    }
-
-    setIsCapturing(true);
-
-    try {
-      let photoDataUrl = '';
-
-      if (isNative) {
-        const result = await captureScanMePhoto();
-        if (result && result.dataUrl) {
-          photoDataUrl = result.dataUrl;
-        } else {
-          throw new Error('No photo data returned from native camera');
-        }
-      } else {
-        // Web canvas capture
-        if (videoRef.current && canvasRef.current) {
-          const video = videoRef.current;
-          const canvas = canvasRef.current;
-          canvas.width = video.videoWidth || 1280;
-          canvas.height = video.videoHeight || 720;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            photoDataUrl = canvas.toDataURL('image/jpeg', 0.92);
-          }
-        }
-      }
-
-      if (photoDataUrl) {
-        const nextShotNum = scanSession.shots.length + 1;
-        const newShot: ScanShot = {
-          id: `shot-${nextShotNum}`,
-          image: photoDataUrl,
-          timestamp: Date.now(),
-          label: `Shot ${nextShotNum}`,
-        };
-
-        // Add to temporary scan session
-        setScanSession((prev) => ({
-          ...prev,
-          shots: [...prev.shots, newShot],
-        }));
-
-        // Associate shot & extract targeted regions into tracked product
-        const updatedTracked = await addShotToTrackedProduct(
-          trackedProduct,
-          photoDataUrl,
-          detection.regions
-        );
-        setTrackedProduct(updatedTracked);
-
-        // Audio & visual shutter feedback
-        playScanSuccessBeep();
-        setIsFlashEffect(true);
-        setTimeout(() => setIsFlashEffect(false), 120);
-
-        // Dynamic guidance feedback based on remaining missing fields
-        const missingHint = getMissingFieldGuidance(updatedTracked);
-        setJustCapturedToast(`Shot ${nextShotNum} saved! ${missingHint}`);
-        setTimeout(() => setJustCapturedToast(null), 2400);
-      }
-    } catch (err: unknown) {
-      const error = err as Error;
-      console.error('[ScanMeCameraModal] Capture error:', error);
-      alert(`Photo capture failed: ${error.message || 'Please try again.'}`);
-    } finally {
-      setIsCapturing(false);
-    }
-  };
-
-  /**
    * RETAKE LAST
-   * Removes the most recent shot and keeps camera running for replacement
    */
   const handleRetakeLast = () => {
     if (scanSession.shots.length === 0) return;
@@ -460,7 +568,6 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
 
   /**
    * FINISH & EXTRACT
-   * Dispatches all captured shots and targeted crops together for AI processing
    */
   const handleFinishAndExtract = async () => {
     if (scanSession.shots.length === 0) return;
@@ -471,16 +578,26 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
       status: 'processing',
     };
 
-    onFinishAndExtract(
-      scanSession.shots.map((s) => s.image),
-      finalSession
-    );
+    // Extract the cropped product or region-specific crop images instead of raw full camera photos
+    const imagesToExtract = scanSession.shots.map((s) => {
+      const matched = trackedProduct.shots.find((ts) => ts.id === s.id);
+      if (matched) {
+        if (matched.cropRegions && matched.cropRegions.length > 0) {
+          // If we cropped a specific targeted region (Label, MFD, EXP, Price), prefer that crop
+          return matched.cropRegions[0].cropDataUrl || matched.croppedProductImage || s.image;
+        }
+        // Fallback to cropped product bounding box
+        return matched.croppedProductImage || s.image;
+      }
+      return s.image;
+    });
+
+    onFinishAndExtract(imagesToExtract, finalSession);
     onClose();
   };
 
   /**
    * CANCEL
-   * Discards temporary scan session without deleting existing saved products
    */
   const handleCancel = async () => {
     await stopLiveCamera();
@@ -536,6 +653,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   if (!isOpen) return null;
 
   const f = trackedProduct.fields;
+  const activeTarget = getActiveTargetField(trackedProduct);
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden select-none">
@@ -544,7 +662,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
 
       {/* Shutter flash animation overlay */}
       {isFlashEffect && (
-        <div className="absolute inset-0 z-40 bg-white opacity-80 pointer-events-none transition-opacity duration-150" />
+        <div className="absolute inset-0 z-40 bg-white opacity-85 pointer-events-none transition-opacity duration-150" />
       )}
 
       {/* ========================================================================= */}
@@ -756,27 +874,53 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
               </button>
 
               {/* Dynamic Tracking Status Badge */}
-              <div className="bg-black/60 text-white px-3.5 py-1.5 rounded-full text-xs font-black backdrop-blur-md border border-white/15 flex items-center gap-2">
+              <div
+                className={`px-3.5 py-1.5 rounded-full text-xs font-black backdrop-blur-md border flex items-center gap-2 transition-colors duration-200 ${
+                  detection.trackingState === 'stable'
+                    ? 'bg-emerald-500/90 text-white border-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                    : detection.trackingState === 'tracking'
+                    ? 'bg-cyan-500/80 text-white border-cyan-300'
+                    : detection.trackingState === 'detected'
+                    ? 'bg-blue-500/80 text-white border-blue-300'
+                    : 'bg-black/60 text-white/90 border-white/15'
+                }`}
+              >
                 <span
                   className={`w-2.5 h-2.5 rounded-full ${
-                    detection.isStable
-                      ? 'bg-emerald-400 animate-pulse'
-                      : detection.hasProduct
-                      ? 'bg-cyan-400'
+                    detection.trackingState === 'stable'
+                      ? 'bg-white animate-pulse'
+                      : detection.trackingState === 'tracking'
+                      ? 'bg-emerald-300'
+                      : detection.trackingState === 'detected'
+                      ? 'bg-cyan-300'
                       : 'bg-amber-400'
                   }`}
                 />
                 <span>
-                  {detection.isStable
-                    ? 'Tracking ✓'
-                    : detection.hasProduct
-                    ? 'Product detected ✓'
-                    : 'Searching for product...'}
+                  {detection.trackingState === 'searching'
+                    ? 'Detecting Product'
+                    : detection.trackingState === 'stable' && autoCaptureEnabled && stableCountdownProgress > 0
+                    ? `${activeTarget.description} (${stableCountdownProgress}%)`
+                    : activeTarget.description}
                 </span>
               </div>
 
-              {/* Lens Switch & Flash Controls */}
+              {/* Lens Switch, Flash, Auto-Capture Controls */}
               <div className="flex items-center gap-2">
+                {/* Auto-Capture Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setAutoCaptureEnabled((v) => !v)}
+                  className={`p-2.5 rounded-full backdrop-blur-md border transition-all active:scale-95 cursor-pointer ${
+                    autoCaptureEnabled
+                      ? 'bg-emerald-500/80 border-emerald-300 text-white'
+                      : 'bg-black/55 border-white/15 text-white/60'
+                  }`}
+                  title={autoCaptureEnabled ? 'Auto-Capture: ON' : 'Auto-Capture: OFF (Manual)'}
+                >
+                  <Timer className="w-5 h-5" />
+                </button>
+
                 <button
                   type="button"
                   onClick={handleToggleFlash}
@@ -801,12 +945,12 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
               </div>
             </div>
 
-            {/* Field Status Pill Strip (Avoids repeated processing) */}
+            {/* Field Status Pill Strip (Tracks coverage across multi-shots) */}
             <div className="flex items-center justify-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
               <span
-                className={`px-2 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 ${
+                className={`px-2.5 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 transition-all ${
                   f.productName.status === 'complete'
-                    ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300'
+                    ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
                     : 'bg-black/40 border-white/10 text-white/70'
                 }`}
               >
@@ -815,9 +959,9 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
               </span>
 
               <span
-                className={`px-2 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 ${
+                className={`px-2.5 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 transition-all ${
                   f.price.status === 'complete'
-                    ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300'
+                    ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
                     : 'bg-black/40 border-white/10 text-white/70'
                 }`}
               >
@@ -826,9 +970,9 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
               </span>
 
               <span
-                className={`px-2 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 ${
+                className={`px-2.5 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 transition-all ${
                   f.manufactureDate.status === 'complete'
-                    ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300'
+                    ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
                     : 'bg-black/40 border-white/10 text-white/70'
                 }`}
               >
@@ -837,9 +981,9 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
               </span>
 
               <span
-                className={`px-2 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 ${
+                className={`px-2.5 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 transition-all ${
                   f.expiryDate.status === 'complete'
-                    ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300'
+                    ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
                     : 'bg-black/40 border-white/10 text-white/70'
                 }`}
               >
@@ -848,9 +992,9 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
               </span>
 
               <span
-                className={`px-2 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 ${
+                className={`px-2.5 py-0.5 rounded-md text-[10px] font-black backdrop-blur-md border flex items-center gap-1 transition-all ${
                   f.barcode.status === 'complete'
-                    ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300'
+                    ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200'
                     : 'bg-black/40 border-white/10 text-white/70'
                 }`}
               >
@@ -868,7 +1012,9 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
             </div>
           )}
 
-          {/* REAL-TIME DYNAMIC BOUNDING BOX OVERLAY (Hardware-accelerated) */}
+          {/* ========================================================================= */}
+          {/* REAL-TIME DYNAMIC BOUNDING BOX OVERLAY (Follows moving product smoothly)  */}
+          {/* ========================================================================= */}
           <div className="absolute inset-0 pointer-events-none z-10 flex items-center justify-center p-4">
             {detection.hasProduct && detection.productBox ? (
               <div
@@ -878,64 +1024,132 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
                   top: `${Math.round(detection.productBox.y * 100)}%`,
                   width: `${Math.round(detection.productBox.width * 100)}%`,
                   height: `${Math.round(detection.productBox.height * 100)}%`,
-                  transition: 'all 0.12s ease-out',
+                  transition: 'left 0.10s ease-out, top 0.10s ease-out, width 0.10s ease-out, height 0.10s ease-out',
                 }}
-                className={`border-2 rounded-3xl ${
-                  detection.isStable
-                    ? 'border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.35)]'
-                    : 'border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.25)]'
+                className={`border-2 rounded-3xl relative ${
+                  detection.trackingState === 'stable'
+                    ? 'border-emerald-400 shadow-[0_0_25px_rgba(52,211,153,0.5)]'
+                    : detection.trackingState === 'tracking'
+                    ? 'border-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.35)]'
+                    : 'border-blue-400 shadow-[0_0_12px_rgba(96,165,250,0.25)]'
                 }`}
               >
-                {/* Corner bracket accents */}
-                <div className="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
-                <div className="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
-                <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
-                <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
+                {/* 4 Corner Bracket Accents */}
+                <div className="absolute -top-1.5 -left-1.5 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
+                <div className="absolute -top-1.5 -right-1.5 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
+                <div className="absolute -bottom-1.5 -left-1.5 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
+                <div className="absolute -bottom-1.5 -right-1.5 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
 
-                {/* Tracking Badge */}
-                <div className="absolute -top-3.5 left-3 bg-black/80 backdrop-blur-md px-2.5 py-0.5 rounded-full border border-white/20 text-[10px] font-black text-white flex items-center gap-1.5">
-                  <Crosshair className="w-3 h-3 text-emerald-400" />
-                  <span>{detection.isStable ? 'Tracking ✓' : 'Product detected ✓'}</span>
+                {/* Tracking Badge with Live Guidance */}
+                <div className="absolute -top-4 left-3 bg-black/85 backdrop-blur-md px-3 py-0.5 rounded-full border border-white/20 text-[11px] font-black text-white flex items-center gap-1.5 shadow-md">
+                  <Crosshair
+                    className={`w-3.5 h-3.5 ${
+                      detection.trackingState === 'stable'
+                        ? 'text-emerald-400 animate-spin'
+                        : 'text-cyan-400'
+                    }`}
+                  />
+                  <span>
+                    {detection.trackingState === 'stable'
+                      ? autoCaptureEnabled
+                        ? `Stable — Capturing (${stableCountdownProgress}%)`
+                        : 'Product Stable ✓ Ready'
+                      : detection.trackingState === 'tracking'
+                      ? 'Tracking ✓ Hold Steady'
+                      : 'Product Detected ✓'}
+                  </span>
                 </div>
 
-                {/* Sub-region markers */}
-                {detection.regions.map((reg) => (
-                  <div
-                    key={reg.id}
-                    style={{
-                      position: 'absolute',
-                      left: `${Math.round(((reg.box.x - detection.productBox!.x) / detection.productBox!.width) * 100)}%`,
-                      top: `${Math.round(((reg.box.y - detection.productBox!.y) / detection.productBox!.height) * 100)}%`,
-                      width: `${Math.round((reg.box.width / detection.productBox!.width) * 100)}%`,
-                      height: `${Math.round((reg.box.height / detection.productBox!.height) * 100)}%`,
-                    }}
-                    className={`border border-dashed rounded-lg flex items-start p-1 pointer-events-none transition-all duration-150 ${
-                      reg.type === 'expiry_date'
-                        ? 'border-amber-400/80 bg-amber-400/10'
-                        : reg.type === 'barcode_qr'
-                        ? 'border-cyan-400/80 bg-cyan-400/10'
-                        : 'border-white/40 bg-white/5'
-                    }`}
-                  >
-                    <span className="text-[9px] font-black bg-black/75 px-1 py-0.2 rounded text-white truncate max-w-full">
-                      {reg.type === 'expiry_date' ? 'EXP/MFD' : reg.type === 'barcode_qr' ? 'Barcode' : reg.type === 'price_mrp' ? 'MRP' : 'Label'}
-                    </span>
-                  </div>
-                ))}
+                {/* 1. Only show the currently active target region as a box on screen */}
+                {(() => {
+                  const activeRegion = detection.regions.find((reg) => activeTarget.types.includes(reg.type));
+                  if (!activeRegion) return null;
+
+                  return (
+                    <div
+                      key={activeRegion.id}
+                      style={{
+                        position: 'absolute',
+                        left: `${Math.max(0, Math.min(90, Math.round(((activeRegion.box.x - detection.productBox!.x) / detection.productBox!.width) * 100)))}%`,
+                        top: `${Math.max(0, Math.min(90, Math.round(((activeRegion.box.y - detection.productBox!.y) / detection.productBox!.height) * 100)))}%`,
+                        width: `${Math.max(8, Math.min(100, Math.round((activeRegion.box.width / detection.productBox!.width) * 100)))}%`,
+                        height: `${Math.max(6, Math.min(100, Math.round((activeRegion.box.height / detection.productBox!.height) * 100)))}%`,
+                      }}
+                      className={`border-2 border-dashed rounded-lg flex items-start p-1 pointer-events-none transition-all duration-120 ${
+                        activeRegion.type === 'expiry_date'
+                          ? 'border-amber-400 bg-amber-400/10 shadow-[0_0_8px_rgba(251,191,36,0.3)]'
+                          : activeRegion.type === 'mfd_date'
+                          ? 'border-orange-400 bg-orange-400/10 shadow-[0_0_8px_rgba(251,146,60,0.3)]'
+                          : activeRegion.type === 'barcode_qr'
+                          ? 'border-cyan-400 bg-cyan-400/10 shadow-[0_0_8px_rgba(34,211,238,0.3)]'
+                          : activeRegion.type === 'price_mrp'
+                          ? 'border-emerald-400 bg-emerald-400/10 shadow-[0_0_8px_rgba(52,211,153,0.3)]'
+                          : 'border-white bg-white/10 shadow-[0_0_8px_rgba(255,255,255,0.2)]'
+                      }`}
+                    >
+                      <span className="text-[10px] font-black bg-black/85 px-1.5 py-0.5 rounded text-white truncate max-w-full flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                        <span>{activeTarget.name}</span>
+                      </span>
+                    </div>
+                  );
+                })()}
+
+                {/* 2. Show previously detected/completed regions as small subtle secondary indicator checkdots */}
+                {(() => {
+                  const completedTypes = Object.entries(trackedProduct.fields)
+                    .filter(([_, val]) => val.status === 'complete')
+                    .map(([key, _]) => {
+                      if (key === 'productName') return 'product_name';
+                      if (key === 'manufactureDate') return 'mfd_date';
+                      if (key === 'expiryDate') return 'expiry_date';
+                      if (key === 'price') return 'price_mrp';
+                      if (key === 'barcode') return 'barcode_qr';
+                      return '';
+                    })
+                    .filter(Boolean);
+
+                  const completedRegions = detection.regions.filter((reg) => completedTypes.includes(reg.type as any));
+
+                  return completedRegions.map((reg) => {
+                    const relX = ((reg.box.x - detection.productBox!.x) / detection.productBox!.width) * 100;
+                    const relY = ((reg.box.y - detection.productBox!.y) / detection.productBox!.height) * 100;
+                    const relW = (reg.box.width / detection.productBox!.width) * 100;
+                    const relH = (reg.box.height / detection.productBox!.height) * 100;
+                    const centerX = relX + relW / 2;
+                    const centerY = relY + relH / 2;
+
+                    return (
+                      <div
+                        key={reg.id}
+                        style={{
+                          position: 'absolute',
+                          left: `${centerX}%`,
+                          top: `${centerY}%`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                        className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center border border-white shadow-md animate-in zoom-in duration-150"
+                        title={`${reg.label} Captured ✓`}
+                      >
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             ) : (
-              /* Default Framing Box when no product is centered yet */
-              <div className="relative w-full max-w-sm aspect-[3/4] sm:aspect-square border-2 border-dashed border-emerald-400/60 rounded-3xl flex flex-col items-center justify-between p-4 shadow-2xl">
-                <div className="absolute top-2 left-2 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
-                <div className="absolute top-2 right-2 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
-                <div className="absolute bottom-2 left-2 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
-                <div className="absolute bottom-2 right-2 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
+              /* Default Soft Framing Box when searching for product */
+              <div className="relative w-full max-w-sm aspect-[3/4] sm:aspect-square border-2 border-dashed border-amber-400/50 rounded-3xl flex flex-col items-center justify-between p-4 shadow-2xl animate-pulse">
+                <div className="absolute top-2 left-2 w-6 h-6 border-t-4 border-l-4 border-amber-400 rounded-tl-xl" />
+                <div className="absolute top-2 right-2 w-6 h-6 border-t-4 border-r-4 border-amber-400 rounded-tr-xl" />
+                <div className="absolute bottom-2 left-2 w-6 h-6 border-b-4 border-l-4 border-amber-400 rounded-bl-xl" />
+                <div className="absolute bottom-2 right-2 w-6 h-6 border-b-4 border-r-4 border-amber-400 rounded-br-xl" />
 
-                <span className="text-[11px] font-bold text-white bg-black/60 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/10">
+                <span className="text-[11px] font-bold text-white bg-black/70 backdrop-blur-md px-3.5 py-1 rounded-full border border-white/15">
                   {title}
                 </span>
 
-                <span className="text-[11px] font-medium text-white/95 bg-black/65 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10 text-center max-w-[280px]">
+                <span className="text-[11px] font-medium text-white/95 bg-black/70 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/15 text-center max-w-[280px]">
                   {detection.guidanceText || subtitle}
                 </span>
               </div>
@@ -984,12 +1198,12 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
 
             {/* Smart Real-time Guidance Banner */}
             <div className="text-center">
-              <span className="inline-block px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-white/90 text-xs font-bold border border-white/10">
+              <span className="inline-block px-3.5 py-1.5 rounded-full bg-black/70 backdrop-blur-md text-white font-bold text-xs border border-white/15 shadow-sm">
                 {detection.guidanceText}
               </span>
             </div>
 
-            {/* Action Bar: [Cancel] | [Capture] | [Finish & Extract] */}
+            {/* Action Bar: [Cancel] | [Capture with countdown] | [Finish & Extract] */}
             <div className="flex items-center justify-between gap-3 pt-1">
               <button
                 type="button"
@@ -999,23 +1213,42 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
                 Cancel
               </button>
 
-              {/* [Capture] Button */}
-              <button
-                type="button"
-                onClick={handleCaptureShot}
-                disabled={isCapturing || scanSession.shots.length >= maxShots}
-                className="w-20 h-20 rounded-full bg-white hover:bg-slate-100 border-4 border-emerald-500 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer disabled:opacity-50"
-                title="Capture Next Shot"
-                id="btn-camera-capture-shot"
-              >
-                {isCapturing ? (
-                  <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-                ) : (
-                  <div className="w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-inner">
-                    <Camera className="w-7 h-7" />
-                  </div>
+              {/* [Capture] Button with Live Countdown Ring */}
+              <div className="relative flex items-center justify-center">
+                {/* Countdown progress circle ring */}
+                {autoCaptureEnabled && stableCountdownProgress > 0 && (
+                  <svg className="absolute w-24 h-24 -rotate-90 pointer-events-none">
+                    <circle
+                      cx="48"
+                      cy="48"
+                      r="42"
+                      className="stroke-emerald-400"
+                      strokeWidth="4"
+                      fill="transparent"
+                      strokeDasharray={264}
+                      strokeDashoffset={264 - (264 * stableCountdownProgress) / 100}
+                      strokeLinecap="round"
+                    />
+                  </svg>
                 )}
-              </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCaptureShot(detection.productBox)}
+                  disabled={isCapturing || scanSession.shots.length >= maxShots}
+                  className="w-20 h-20 rounded-full bg-white hover:bg-slate-100 border-4 border-emerald-500 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer disabled:opacity-50"
+                  title="Capture Shot"
+                  id="btn-camera-capture-shot"
+                >
+                  {isCapturing ? (
+                    <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-inner">
+                      <Camera className="w-7 h-7" />
+                    </div>
+                  )}
+                </button>
+              </div>
 
               {/* [Finish & Extract] Button */}
               {scanSession.shots.length > 0 ? (
@@ -1030,7 +1263,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
                 </button>
               ) : (
                 <div className="min-w-[80px] text-right text-[11px] font-medium text-white/60 pr-1">
-                  Take Shot 1
+                  Aim & Hold
                 </div>
               )}
             </div>

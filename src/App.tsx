@@ -514,6 +514,8 @@ export default function App() {
       };
 
       setExtractedData(data);
+      // Play extraction completion confirmation sound
+      import('./utils/audioFeedback').then((m) => m.playExtractionSuccessChime());
     } catch (err: unknown) {
       setIsFormExtracting(false);
       const friendlyMsg = formatUserFriendlyError(err);

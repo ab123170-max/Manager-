@@ -4,7 +4,7 @@
  */
 
 import { DetectedRegion, NormalizedRect, cropNormalizedRegion } from './realtimeProductDetector';
-import { ProductScanResult, SavedInventoryItem } from '../types';
+import { ProductScanResult } from '../types';
 
 export type FieldStatus = 'missing' | 'detected' | 'complete';
 
@@ -29,7 +29,8 @@ export interface TrackedProductFields {
 
 export interface TrackedShotRecord {
   id: string;
-  image: string;
+  image: string; // Full capture image
+  croppedProductImage?: string; // Auto-cropped product bounding area
   timestamp: number;
   label: string;
   cropRegions?: {
@@ -60,7 +61,7 @@ export function createNewTrackedProduct(): TrackedProduct {
     lastUpdated: Date.now(),
     trackingState: 'searching',
     productBox: null,
-    dominantColor: '#ffffff',
+    dominantColor: '#10b981',
     shots: [],
     historyLabels: [],
     fields: {
@@ -114,17 +115,48 @@ export function updateProductTracking(
 }
 
 /**
- * Adds a new shot to the tracked product and extracts targeted crops for missing priority fields
+ * Helper to assign descriptive shot labels based on shot index
+ */
+function getSuggestedShotLabel(shotIndex: number): string {
+  switch (shotIndex) {
+    case 1:
+      return 'Shot 1: Front / Label';
+    case 2:
+      return 'Shot 2: EXP / MFD Area';
+    case 3:
+      return 'Shot 3: Price / Barcode';
+    default:
+      return `Shot ${shotIndex}: Detail Area`;
+  }
+}
+
+/**
+ * Adds a new shot to the tracked product and extracts targeted auto-crops
+ * for the main product hull and specific detected information regions.
  */
 export async function addShotToTrackedProduct(
   tracked: TrackedProduct,
   photoDataUrl: string,
-  regions: DetectedRegion[] = []
+  regions: DetectedRegion[] = [],
+  productBoxOverride?: NormalizedRect | null
 ): Promise<TrackedProduct> {
   const shotNum = tracked.shots.length + 1;
   const shotId = `shot-${shotNum}`;
 
-  // Automatically generate targeted crops for detected regions
+  const activeBox = productBoxOverride || tracked.productBox;
+  let croppedProductImage: string | undefined = undefined;
+
+  // 1. Auto-crop main product if bounded
+  if (activeBox && activeBox.width > 0.15 && activeBox.height > 0.15) {
+    try {
+      croppedProductImage = await cropNormalizedRegion(photoDataUrl, activeBox, 0.04);
+    } catch {
+      // Fallback to full photo
+      croppedProductImage = photoDataUrl;
+    }
+  }
+
+  // 2. Automatically generate targeted crops for detected regions
   const cropRegions: { type: string; cropDataUrl: string }[] = [];
 
   for (const reg of regions) {
@@ -140,7 +172,7 @@ export async function addShotToTrackedProduct(
     }
 
     try {
-      const cropped = await cropNormalizedRegion(photoDataUrl, reg.box, 0.12);
+      const cropped = await cropNormalizedRegion(photoDataUrl, reg.box, 0.10);
       cropRegions.push({
         type: reg.type,
         cropDataUrl: cropped,
@@ -153,8 +185,9 @@ export async function addShotToTrackedProduct(
   const newShot: TrackedShotRecord = {
     id: shotId,
     image: photoDataUrl,
+    croppedProductImage,
     timestamp: Date.now(),
-    label: `Shot ${shotNum}`,
+    label: getSuggestedShotLabel(shotNum),
     cropRegions,
   };
 
@@ -178,7 +211,8 @@ export function removeLastShotFromTrackedProduct(tracked: TrackedProduct): Track
 }
 
 /**
- * Merges extracted fields into the single tracked product record
+ * Merges extracted fields from all shots into the single tracked product record
+ * using confidence and quality scoring to keep the highest quality result.
  */
 export function mergeExtractedFields(
   tracked: TrackedProduct,
@@ -186,68 +220,91 @@ export function mergeExtractedFields(
 ): TrackedProduct {
   const fields = { ...tracked.fields };
 
-  if (result.productName && !fields.productName.value) {
-    fields.productName = {
-      value: result.productName,
-      status: 'complete',
-      confidence: result.confidence?.productName || 0.92,
-    };
+  // Helper to safely update field if new confidence is better or if field was empty
+  const updateFieldWithConfidence = <T>(
+    currentField: FieldEntry<T>,
+    newValue: T | undefined | null,
+    newConfidence: number
+  ): FieldEntry<T> => {
+    if (newValue === undefined || newValue === null || newValue === '') {
+      return currentField;
+    }
+    const isEmpty = currentField.value === undefined || currentField.value === null || currentField.value === '';
+    const isHigherConfidence = newConfidence > currentField.confidence;
+    const isCompleted = currentField.status === 'complete';
+
+    if (isEmpty || !isCompleted || isHigherConfidence) {
+      return {
+        value: newValue,
+        status: 'complete',
+        confidence: newConfidence,
+      };
+    }
+    return currentField;
+  };
+
+  if (result.productName) {
+    fields.productName = updateFieldWithConfidence(
+      fields.productName,
+      result.productName,
+      result.confidence?.productName || 0.92
+    );
   }
 
-  if (result.brand && !fields.brand.value) {
-    fields.brand = {
-      value: result.brand,
-      status: 'complete',
-      confidence: 0.90,
-    };
+  if (result.brand) {
+    fields.brand = updateFieldWithConfidence(
+      fields.brand,
+      result.brand,
+      (result.confidence as any)?.brand || 0.90
+    );
   }
 
-  if (result.price !== null && result.price !== undefined && fields.price.value === null) {
-    fields.price = {
-      value: result.price,
-      status: 'complete',
-      confidence: result.confidence?.price || 0.90,
-    };
+  if (result.price !== null && result.price !== undefined) {
+    fields.price = updateFieldWithConfidence(
+      fields.price,
+      result.price,
+      result.confidence?.price || 0.90
+    );
   }
 
   if (result.currency) {
-    fields.currency = {
-      value: result.currency,
-      status: 'complete',
-      confidence: result.confidence?.currency || 0.90,
-    };
+    fields.currency = updateFieldWithConfidence(
+      fields.currency,
+      result.currency,
+      result.confidence?.currency || 0.90
+    );
   }
 
-  if (result.manufactureDate && !fields.manufactureDate.value) {
-    fields.manufactureDate = {
-      value: result.manufactureDate,
-      status: 'complete',
-      confidence: result.confidence?.manufactureDate || 0.90,
-    };
+  if (result.manufactureDate) {
+    fields.manufactureDate = updateFieldWithConfidence(
+      fields.manufactureDate,
+      result.manufactureDate,
+      result.confidence?.manufactureDate || 0.90
+    );
   }
 
-  if (result.expiryDate && !fields.expiryDate.value) {
-    fields.expiryDate = {
-      value: result.expiryDate,
-      status: 'complete',
-      confidence: result.confidence?.expiryDate || 0.94,
-    };
+  if (result.expiryDate) {
+    fields.expiryDate = updateFieldWithConfidence(
+      fields.expiryDate,
+      result.expiryDate,
+      result.confidence?.expiryDate || 0.94
+    );
   }
 
-  if (result.bestBeforeMonths !== null && result.bestBeforeMonths !== undefined && fields.bestBeforeMonths.value === null) {
-    fields.bestBeforeMonths = {
-      value: result.bestBeforeMonths,
-      status: 'complete',
-      confidence: result.confidence?.bestBeforeMonths || 0.88,
-    };
+  if (result.bestBeforeMonths !== null && result.bestBeforeMonths !== undefined) {
+    fields.bestBeforeMonths = updateFieldWithConfidence(
+      fields.bestBeforeMonths,
+      result.bestBeforeMonths,
+      result.confidence?.bestBeforeMonths || 0.88
+    );
   }
 
-  if (result.barcode && !fields.barcode.value) {
-    fields.barcode = {
-      value: result.barcode,
-      status: 'complete',
-      confidence: 0.98,
-    };
+  if (result.barcode) {
+    fields.barcode = updateFieldWithConfidence(
+      fields.barcode,
+      result.barcode,
+      (result.confidence as any)?.barcode || 0.98
+    );
   }
 
   return {

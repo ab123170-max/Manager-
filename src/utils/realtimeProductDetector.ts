@@ -41,6 +41,7 @@ export interface RealtimeDetectionResult {
   productBox: NormalizedRect | null;
   regions: DetectedRegion[];
   guidanceText: string;
+  trackingState: 'searching' | 'detected' | 'tracking' | 'stable';
   dominantColor: string;
   detectedBarcode?: string;
 }
@@ -66,10 +67,28 @@ function getAnalysisContext(w: number, h: number): { canvas: HTMLCanvasElement; 
 }
 
 /**
+ * Smooths bounding box coordinates across frames using exponential moving average (LERP)
+ * to prevent flickering and camera jitter while maintaining high responsiveness.
+ */
+export function smoothNormalizedRect(
+  current: NormalizedRect,
+  previous?: NormalizedRect | null,
+  alpha: number = 0.45
+): NormalizedRect {
+  if (!previous) return current;
+  return {
+    x: previous.x + (current.x - previous.x) * alpha,
+    y: previous.y + (current.y - previous.y) * alpha,
+    width: previous.width + (current.width - previous.width) * alpha,
+    height: previous.height + (current.height - previous.height) * alpha,
+  };
+}
+
+/**
  * Lightweight, non-blocking real-time product & region detection.
  * Analyzes a downscaled frame (< 6ms on mobile CPU) and extracts:
- * 1. Product bounding box
- * 2. High-value information sub-regions (Expiry, MFD, Price, Barcode, Product Name)
+ * 1. Product bounding box with smooth tracking coordinates
+ * 2. High-value information sub-regions (Product Name, Brand, Price, EXP/MFD, Best Before, Batch, Barcode)
  * 3. Local barcode/QR decode if present
  */
 export async function analyzeLiveFrame(
@@ -87,7 +106,8 @@ export async function analyzeLiveFrame(
       stabilityScore: 0,
       productBox: null,
       regions: [],
-      guidanceText: 'Aim camera at product',
+      guidanceText: 'Searching for product...',
+      trackingState: 'searching',
       dominantColor: '#ffffff',
     };
   }
@@ -104,7 +124,8 @@ export async function analyzeLiveFrame(
       stabilityScore: 0,
       productBox: null,
       regions: [],
-      guidanceText: 'Aim camera at product',
+      guidanceText: 'Searching for product...',
+      trackingState: 'searching',
       dominantColor: '#ffffff',
     };
   }
@@ -171,7 +192,7 @@ export async function analyzeLiveFrame(
   }
 
   const avgEnergy = totalEnergy / (cols * rows);
-  const activeThreshold = Math.max(avgEnergy * 0.9, 3.5);
+  const activeThreshold = Math.max(avgEnergy * 0.85, 3.2);
 
   // 2. Identify Product Bounding Hull
   let minC = cols, maxC = -1, minR = rows, maxR = -1;
@@ -190,86 +211,130 @@ export async function analyzeLiveFrame(
     }
   }
 
-  const hasProduct = activeCount >= 8 && minC <= maxC && minR <= maxR;
+  const hasProduct = activeCount >= 7 && minC <= maxC && minR <= maxR;
 
   let productBox: NormalizedRect | null = null;
   if (hasProduct) {
-    // Add safe padding
     const rawX = (minC * blockSize) / sampleW;
     const rawY = (minR * blockSize) / sampleH;
     const rawW = ((maxC - minC + 1) * blockSize) / sampleW;
     const rawH = ((maxR - minR + 1) * blockSize) / sampleH;
 
-    const pad = 0.05;
-    productBox = {
-      x: Math.max(0.04, rawX - pad),
-      y: Math.max(0.04, rawY - pad),
-      width: Math.min(0.92, rawW + pad * 2),
-      height: Math.min(0.92, rawH + pad * 2),
+    const pad = 0.04;
+    const computedBox: NormalizedRect = {
+      x: Math.max(0.03, rawX - pad),
+      y: Math.max(0.03, rawY - pad),
+      width: Math.min(0.94, rawW + pad * 2),
+      height: Math.min(0.94, rawH + pad * 2),
     };
+
+    // Smooth bounding box coordinates using previous frame's bounding box
+    productBox = smoothNormalizedRect(computedBox, previousResult?.productBox);
   }
 
   // 3. Information Region Identification
   const regions: DetectedRegion[] = [];
 
   if (hasProduct && productBox) {
-    // Priority 1 & 2: EXP / MFD Date Cluster
-    // Stamped or printed dates typically reside in bottom 35% or top 25% of packages
-    const dateZoneY = productBox.y + productBox.height * 0.65;
-    const dateZoneH = Math.min(0.26, productBox.height * 0.35);
-
+    // Priority 1: Product Name & Brand Headline (Top 35% of product box)
     regions.push({
-      id: 'region-exp-mfd',
-      type: 'expiry_date',
-      label: 'EXP / MFD Date Panel',
+      id: 'region-name',
+      type: 'product_name',
+      label: 'Product Name',
       priority: 1,
-      confidence: 0.88,
+      confidence: 0.92,
       box: {
-        x: productBox.x + productBox.width * 0.08,
-        y: Math.min(0.72, dateZoneY),
-        width: productBox.width * 0.84,
-        height: dateZoneH,
+        x: productBox.x + productBox.width * 0.05,
+        y: productBox.y + productBox.height * 0.06,
+        width: productBox.width * 0.90,
+        height: Math.min(0.28, productBox.height * 0.32),
       },
     });
 
-    // Priority 4: Price / MRP Region
-    // Typically in bottom right or middle right
+    // Priority 2: Brand Tag
+    regions.push({
+      id: 'region-brand',
+      type: 'brand',
+      label: 'Brand',
+      priority: 2,
+      confidence: 0.88,
+      box: {
+        x: productBox.x + productBox.width * 0.08,
+        y: productBox.y + productBox.height * 0.02,
+        width: productBox.width * 0.50,
+        height: Math.min(0.14, productBox.height * 0.16),
+      },
+    });
+
+    // Priority 3: Price / MRP Region (Middle/Bottom Right)
     regions.push({
       id: 'region-price',
       type: 'price_mrp',
-      label: 'Price / MRP Tag',
-      priority: 4,
-      confidence: 0.82,
+      label: 'Price / MRP',
+      priority: 3,
+      confidence: 0.85,
       box: {
         x: productBox.x + productBox.width * 0.45,
-        y: productBox.y + productBox.height * 0.48,
-        width: productBox.width * 0.48,
+        y: productBox.y + productBox.height * 0.42,
+        width: productBox.width * 0.50,
         height: Math.min(0.18, productBox.height * 0.22),
       },
     });
 
-    // Priority 5: Product Name & Brand Headline
-    // Top 40% of packaging
+    // Priority 4: EXP / EXD Date Panel (Lower portion)
+    const dateZoneY = productBox.y + productBox.height * 0.62;
+    const dateZoneH = Math.min(0.24, productBox.height * 0.30);
+
     regions.push({
-      id: 'region-name',
-      type: 'product_name',
-      label: 'Product Name & Brand',
-      priority: 5,
-      confidence: 0.91,
+      id: 'region-exp',
+      type: 'expiry_date',
+      label: 'EXP Date',
+      priority: 4,
+      confidence: 0.90,
       box: {
-        x: productBox.x + productBox.width * 0.05,
-        y: productBox.y + productBox.height * 0.08,
-        width: productBox.width * 0.90,
-        height: Math.min(0.32, productBox.height * 0.38),
+        x: productBox.x + productBox.width * 0.06,
+        y: Math.min(0.74, dateZoneY),
+        width: productBox.width * 0.45,
+        height: dateZoneH,
       },
     });
 
-    // Priority 6: Barcode / QR Region
+    // Priority 5: MFD Date Panel
+    regions.push({
+      id: 'region-mfd',
+      type: 'mfd_date',
+      label: 'MFD Date',
+      priority: 5,
+      confidence: 0.87,
+      box: {
+        x: productBox.x + productBox.width * 0.52,
+        y: Math.min(0.74, dateZoneY),
+        width: productBox.width * 0.42,
+        height: dateZoneH,
+      },
+    });
+
+    // Priority 6: Best Before / Batch Area
+    regions.push({
+      id: 'region-batch',
+      type: 'batch_lot',
+      label: 'Batch / Lot',
+      priority: 6,
+      confidence: 0.82,
+      box: {
+        x: productBox.x + productBox.width * 0.08,
+        y: productBox.y + productBox.height * 0.38,
+        width: productBox.width * 0.40,
+        height: Math.min(0.14, productBox.height * 0.16),
+      },
+    });
+
+    // Priority 7: Barcode / QR Region
     // Detect vertical stripe energy spikes
     let maxBarcodeTransitions = 0;
     let barcodeC = -1, barcodeR = -1;
 
-    for (let r = Math.floor(rows * 0.4); r < rows; r++) {
+    for (let r = Math.floor(rows * 0.35); r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const trans = blockVerticalVariance[r * cols + c];
         if (trans > maxBarcodeTransitions) {
@@ -280,20 +345,20 @@ export async function analyzeLiveFrame(
       }
     }
 
-    if (maxBarcodeTransitions > 16 && barcodeC >= 0) {
+    if (maxBarcodeTransitions > 14 && barcodeC >= 0) {
       const bX = Math.max(productBox.x, (barcodeC * blockSize) / sampleW - 0.1);
       const bY = Math.max(productBox.y, (barcodeR * blockSize) / sampleH - 0.08);
       regions.push({
         id: 'region-barcode',
         type: 'barcode_qr',
         label: 'Barcode / QR',
-        priority: 6,
-        confidence: 0.94,
+        priority: 7,
+        confidence: 0.95,
         box: {
-          x: Math.max(0.05, bX),
-          y: Math.min(0.75, bY),
-          width: Math.min(0.45, productBox.width * 0.5),
-          height: Math.min(0.22, productBox.height * 0.25),
+          x: Math.max(0.04, bX),
+          y: Math.min(0.76, bY),
+          width: Math.min(0.48, productBox.width * 0.52),
+          height: Math.min(0.24, productBox.height * 0.28),
         },
       });
     }
@@ -325,34 +390,42 @@ export async function analyzeLiveFrame(
     const drift = dx + dy + dw + dh;
 
     // Small drift indicates user is holding camera steady on the product
-    if (drift < 0.12) {
+    if (drift < 0.10) {
       stabilityScore = Math.min(1.0, (previousResult.stabilityScore || 0) + 0.35);
-      isStable = stabilityScore >= 0.70;
+      isStable = stabilityScore >= 0.65;
     } else {
-      stabilityScore = 0.2;
+      stabilityScore = 0.25;
     }
   } else if (hasProduct) {
-    stabilityScore = 0.3;
+    stabilityScore = 0.30;
   }
 
-  // Smart Guidance Text
-  let guidanceText = 'Aim camera at product';
+  // Determine clear visual state: Searching -> Detecting -> Tracking -> Stable
+  let trackingState: 'searching' | 'detected' | 'tracking' | 'stable' = 'searching';
+  let guidanceText = 'Searching for product...';
+
   if (!hasProduct) {
-    guidanceText = 'Aim camera at product';
-  } else if (productBox && productBox.width < 0.25) {
-    guidanceText = 'Move closer to product';
-  } else if (detectedBarcode) {
-    guidanceText = `Barcode detected: ${detectedBarcode} ✓`;
+    trackingState = 'searching';
+    guidanceText = 'Searching for product...';
   } else if (isStable) {
-    guidanceText = 'Tracking ✓ Ready to capture';
-  } else if (hasProduct) {
-    guidanceText = 'Product detected ✓ Hold steady';
+    trackingState = 'stable';
+    guidanceText = 'Product stable — capturing...';
+  } else if (stabilityScore > 0.4) {
+    trackingState = 'tracking';
+    guidanceText = 'Hold steady';
+  } else {
+    trackingState = 'detected';
+    guidanceText = 'Product detected';
+  }
+
+  if (detectedBarcode) {
+    guidanceText = `Barcode detected: ${detectedBarcode} ✓`;
   }
 
   // Compute dominant hex color for visual tracking anchor
-  const avgR = colorPixelCount > 0 ? Math.round(rSum / colorPixelCount) : 128;
-  const avgG = colorPixelCount > 0 ? Math.round(gSum / colorPixelCount) : 128;
-  const avgB = colorPixelCount > 0 ? Math.round(bSum / colorPixelCount) : 128;
+  const avgR = colorPixelCount > 0 ? Math.round(rSum / colorPixelCount) : 16;
+  const avgG = colorPixelCount > 0 ? Math.round(gSum / colorPixelCount) : 185;
+  const avgB = colorPixelCount > 0 ? Math.round(bSum / colorPixelCount) : 129;
   const dominantColor = `#${((1 << 24) + (avgR << 16) + (avgG << 8) + avgB).toString(16).slice(1)}`;
 
   return {
@@ -362,6 +435,7 @@ export async function analyzeLiveFrame(
     productBox,
     regions,
     guidanceText,
+    trackingState,
     dominantColor,
     detectedBarcode,
   };
@@ -369,12 +443,12 @@ export async function analyzeLiveFrame(
 
 /**
  * Crops a targeted normalized region from a full Base64 image
- * with automatic contrast enhancement and safety padding.
+ * with automatic contrast enhancement, sharpening, and safe padding.
  */
 export async function cropNormalizedRegion(
   fullImageDataUrl: string,
   rect: NormalizedRect,
-  paddingPercent: number = 0.10
+  paddingPercent: number = 0.08
 ): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -392,7 +466,7 @@ export async function cropNormalizedRegion(
       const cropH = Math.min(origH - cropY, Math.ceil(rect.height * origH + padY * 2));
 
       const canvas = document.createElement('canvas');
-      canvas.width = Math.min(1080, cropW);
+      canvas.width = Math.min(1280, Math.max(200, cropW));
       canvas.height = Math.round((cropH * canvas.width) / cropW);
 
       const ctx = canvas.getContext('2d');
@@ -420,7 +494,7 @@ export async function cropNormalizedRegion(
         // Fallback to unadjusted draw
       }
 
-      resolve(canvas.toDataURL('image/jpeg', 0.88));
+      resolve(canvas.toDataURL('image/jpeg', 0.90));
     };
 
     img.onerror = () => resolve(fullImageDataUrl);
