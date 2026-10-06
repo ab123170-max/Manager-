@@ -64,6 +64,7 @@ jobs:
           set -e
           mkdir -p android/app/src/main/java/com/martmartai/inventory
           cp native/android/ScanMeCameraPlugin.java android/app/src/main/java/com/martmartai/inventory/ScanMeCameraPlugin.java
+          cp native/android/NativeDevicePlugin.java android/app/src/main/java/com/martmartai/inventory/NativeDevicePlugin.java
           cp native/android/MainActivity.java android/app/src/main/java/com/martmartai/inventory/MainActivity.java
 
           python3 - <<'PY'
@@ -111,11 +112,14 @@ jobs:
         run: |
           set -e
           test -f android/app/src/main/java/com/martmartai/inventory/ScanMeCameraPlugin.java
+          test -f android/app/src/main/java/com/martmartai/inventory/NativeDevicePlugin.java
           test -f android/app/src/main/java/com/martmartai/inventory/MainActivity.java
           grep -q 'registerPlugin(ScanMeCameraPlugin.class)' android/app/src/main/java/com/martmartai/inventory/MainActivity.java
+          grep -q 'registerPlugin(NativeDevicePlugin.class)' android/app/src/main/java/com/martmartai/inventory/MainActivity.java
           grep -q 'androidx.camera:camera-core:1.4.1' android/app/build.gradle
           grep -q 'android.permission.CAMERA' android/app/src/main/AndroidManifest.xml
           grep -q '@CapacitorPlugin(name="ScanMeCamera"' android/app/src/main/java/com/martmartai/inventory/ScanMeCameraPlugin.java
+          grep -q '@CapacitorPlugin(' android/app/src/main/java/com/martmartai/inventory/NativeDevicePlugin.java
 
       - name: Verify live web sync configuration
         run: |
