@@ -167,6 +167,10 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
       try {
         localStorage.setItem(STORAGE_KEYS.LANGUAGE, newLang);
         localStorage.setItem(STORAGE_KEYS.MANUAL_FLAG, 'true');
+        // A language has now been explicitly selected. Mark the first-run
+        // selection as complete so the startup modal does not reopen.
+        setIsLanguageSelectionRequired(false);
+        setIsLanguageSelectorOpen(false);
       } catch (err) {
         console.warn('[LanguageProvider] Failed to persist language to localStorage', err);
       }
