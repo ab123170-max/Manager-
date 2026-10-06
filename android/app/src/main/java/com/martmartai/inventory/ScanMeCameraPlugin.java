@@ -1,11 +1,8 @@
 package com.martmartai.inventory;
 
 import android.Manifest;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.net.Uri;
-import android.provider.Settings;
 import android.util.Base64;
 import android.util.Log;
 import android.view.ViewGroup;
@@ -111,24 +108,6 @@ public class ScanMeCameraPlugin extends Plugin {
             Log.d(TAG, "[permissionCallback] CAMERA permission denied by user, rationale: " + shouldShowRationale);
         }
         call.resolve(ret);
-    }
-
-    @PluginMethod
-    public void openAppSettings(PluginCall call) {
-        try {
-            Log.d(TAG, "[openAppSettings] Opening application details settings");
-            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-            Uri uri = Uri.fromParts("package", getContext().getPackageName(), null);
-            intent.setData(uri);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(intent);
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            Log.e(TAG, "[openAppSettings] Error opening settings: " + e.getMessage(), e);
-            call.reject("Could not open settings: " + e.getMessage(), e);
-        }
     }
 
     @PluginMethod
