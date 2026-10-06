@@ -4,11 +4,10 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Camera, ShieldAlert, Settings, RotateCcw, X, Loader2 } from 'lucide-react';
+import { Camera, ShieldAlert, RotateCcw, X, Loader2 } from 'lucide-react';
 import {
   getCameraPermissionStatus,
   requestCameraPermission,
-  openCameraAppSettings,
 } from '../../plugins/scanmeCamera';
 
 export type PermissionModalState = 'denied' | 'permanently_denied';
@@ -83,9 +82,6 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
     }
   };
 
-  const handleOpenSettings = async () => {
-    await openCameraAppSettings();
-  };
 
   if (!isOpen) return null;
 
@@ -117,32 +113,6 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
               </p>
             </div>
             <div className="w-full pt-2 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={handleRequestPermission}
-                disabled={isRequesting}
-                className="w-full py-3.5 px-4 rounded-xl bg-[#1473EA] hover:bg-blue-600 text-white text-sm font-bold shadow-md shadow-blue-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-              >
-                {isRequesting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Requesting...</span>
-                  </>
-                ) : (
-                  <>
-                    <RotateCcw className="w-4 h-4" />
-                    <span>Allow Camera Access</span>
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={handleOpenSettings}
-                className="w-full py-2.5 px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Settings className="w-3.5 h-3.5 text-slate-500" />
-                <span>Open Settings</span>
-              </button>
             </div>
           </>
         )}
@@ -158,18 +128,10 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
                 Camera Access Disabled
               </h3>
               <p className="text-xs leading-relaxed text-slate-600">
-                Camera permission is disabled. Please enable Camera permission in Android Settings to use ScanMe AI.
+                Camera permission is currently disabled. Tap Retry to request camera access again.
               </p>
             </div>
             <div className="w-full pt-2 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={handleOpenSettings}
-                className="w-full py-3.5 px-4 rounded-xl bg-[#1473EA] hover:bg-blue-600 text-white text-sm font-bold shadow-md shadow-blue-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Settings className="w-4 h-4" />
-                <span>Open Android Settings</span>
-              </button>
               <button
                 type="button"
                 onClick={onClose}
