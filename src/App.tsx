@@ -235,7 +235,8 @@ export default function App() {
     }
   };
 
-  // Anonymous mode: no authentication or profile startup.\n  // Navigation State
+  // Anonymous mode: no authentication or profile startup.
+  // Navigation State
   const [navState, setNavState] = useState<AppNavigationState>({
     activeSection: 'scanner',
     activeSubView: 'scan_product',
@@ -568,7 +569,15 @@ export default function App() {
     handleNavigate('inventory_out', 'stock_out');
   };
 
-  // Authentication/profile handlers are disabled in anonymous mode.\n  const handleLandingGetStarted = () => {};\n  const handleLandingLogin = () => {};\n  const handleOnboardingFinish = () => setIsOnboardingOpen(false);\n  const handleAuthSuccess = () => {};\n  const handleProfileSaved = () => setIsEditingProfileModal(false);\n  const handleLogout = async () => {};\n\n  // ---------------------------------------------------------------------------
+  // Authentication/profile handlers are disabled in anonymous mode.
+  const handleLandingGetStarted = () => {};
+  const handleLandingLogin = () => {};
+  const handleOnboardingFinish = () => setIsOnboardingOpen(false);
+  const handleAuthSuccess = () => {};
+  const handleProfileSaved = () => setIsEditingProfileModal(false);
+  const handleLogout = async () => {};
+
+  // ---------------------------------------------------------------------------
   // 0. Auth Initializing Splash State (Prevents Startup Authentication Flickering)
   // ---------------------------------------------------------------------------
   if (isAuthInitializing) {
@@ -588,7 +597,9 @@ export default function App() {
     );
   }
 
-  // Anonymous app: skip landing/auth/profile gates and render dashboard directly.\n\n  // ---------------------------------------------------------------------------
+  // Anonymous app: skip landing/auth/profile gates and render dashboard directly.
+
+  // ---------------------------------------------------------------------------
   // 4. Main App Dashboard (Existing complete workflow)
   // ---------------------------------------------------------------------------
   return (
