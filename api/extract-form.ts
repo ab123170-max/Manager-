@@ -186,6 +186,18 @@ const productExtractionSchema = {
       type: Type.STRING,
       description: "Complete product name exactly as printed on packaging without translation.",
     },
+    brand: {
+      type: Type.STRING,
+      description: "Brand name or manufacturer if visible on any shot. Empty string if not found.",
+    },
+    barcode: {
+      type: Type.STRING,
+      description: "Barcode numbers or code digits if visible on any shot. Empty string if not found.",
+    },
+    batchNumber: {
+      type: Type.STRING,
+      description: "Batch number or LOT number if visible. Empty string if not found.",
+    },
     price: {
       type: Type.NUMBER,
       description: "Numeric MRP or selling price value. Null if not visible.",

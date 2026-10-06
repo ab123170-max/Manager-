@@ -112,29 +112,45 @@ class CodeDetectionEngine {
   }
 
   /**
-   * Detects barcode or QR code from an image element or data URL
+   * Detects barcode or QR code from an image element, canvas, or data URL
    */
-  public async detectFromImage(imageSource: HTMLImageElement | string): Promise<DetectedCode | null> {
-    let imgElement: HTMLImageElement;
-    if (typeof imageSource === 'string') {
-      imgElement = new Image();
-      imgElement.src = imageSource;
-      await new Promise<void>((resolve, reject) => {
-        imgElement.onload = () => resolve();
-        imgElement.onerror = () => reject(new Error('Failed to load image'));
-      });
-    } else {
-      imgElement = imageSource;
-    }
-
+  public async detectFromImage(
+    imageSource: HTMLImageElement | HTMLCanvasElement | string
+  ): Promise<DetectedCode | null> {
     const zxingInstance = await this.getZxingReader();
     if (!zxingInstance) return null;
 
     const { reader, zxing } = zxingInstance;
 
     try {
-      const { canvas, ctx } = this.getCanvas(imgElement.naturalWidth || imgElement.width, imgElement.naturalHeight || imgElement.height);
-      ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
+      let width = 0;
+      let height = 0;
+      let sourceToDraw: CanvasImageSource;
+
+      if (typeof imageSource === 'string') {
+        const img = new Image();
+        img.src = imageSource;
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error('Failed to load image'));
+        });
+        width = img.naturalWidth || img.width;
+        height = img.naturalHeight || img.height;
+        sourceToDraw = img;
+      } else if (imageSource instanceof HTMLCanvasElement) {
+        width = imageSource.width;
+        height = imageSource.height;
+        sourceToDraw = imageSource;
+      } else {
+        width = imageSource.naturalWidth || imageSource.width;
+        height = imageSource.naturalHeight || imageSource.height;
+        sourceToDraw = imageSource;
+      }
+
+      if (!width || !height) return null;
+
+      const { canvas, ctx } = this.getCanvas(width, height);
+      ctx.drawImage(sourceToDraw, 0, 0, canvas.width, canvas.height);
 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const luminanceSource = new zxing.RGBLuminanceSource(
@@ -242,7 +258,7 @@ export const codeDetector = new CodeDetectionEngine();
  * Image code detector helper
  */
 export async function detectCodesInImage(
-  imageSource: HTMLImageElement | string,
+  imageSource: HTMLImageElement | HTMLCanvasElement | string,
   mode: 'barcode' | 'qr' | 'all' = 'all'
 ): Promise<DetectedCode[]> {
   const res = await codeDetector.detectFromImage(imageSource);

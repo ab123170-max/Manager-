@@ -28,6 +28,7 @@ export interface ScanMeCameraPlugin {
   openCamera(options?: OpenCameraOptions): Promise<{ success: boolean; facingMode: string }>;
   closeCamera(): Promise<{ success: boolean }>;
   capturePhoto(): Promise<CapturePhotoResult>;
+  getPreviewFrame(): Promise<{ success: boolean; dataUrl: string; width: number; height: number }>;
   switchCamera(): Promise<{ success: boolean; facingMode: string }>;
   setFlashMode(options: { flashMode: 'auto' | 'on' | 'off' | 'torch' }): Promise<{ success: boolean; flashMode: string }>;
 }
@@ -116,6 +117,21 @@ export async function captureScanMePhoto(): Promise<CapturePhotoResult> {
   const result = await ScanMeCamera.capturePhoto();
   console.log('[ScanMeCamera] Photo captured successfully. DataUrl length:', result.dataUrl?.length);
   return result;
+}
+
+export async function getScanMePreviewFrame(): Promise<{ dataUrl: string; width: number; height: number } | null> {
+  if (!isScanMeCameraNative()) {
+    return null;
+  }
+  try {
+    const res = await ScanMeCamera.getPreviewFrame();
+    if (res && res.success && res.dataUrl) {
+      return { dataUrl: res.dataUrl, width: res.width, height: res.height };
+    }
+  } catch {
+    // Graceful frame sampling skip
+  }
+  return null;
 }
 
 export async function switchScanMeCamera(): Promise<{ success: boolean; facingMode: string }> {

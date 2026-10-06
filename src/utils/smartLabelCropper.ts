@@ -355,6 +355,70 @@ export async function autoCropAndOptimizeImage(
 }
 
 /**
+ * Detects whether an image has high-frequency dot-matrix or horizontal stamp text
+ * characteristic of manufacturing/expiry date markings (MFD/EXP) or barcode stripes.
+ */
+export function detectExpiryOrBarcodeRegion(
+  img: HTMLImageElement
+): CropBox | null {
+  const origW = img.naturalWidth || img.width;
+  const origH = img.naturalHeight || img.height;
+  if (origW < 100 || origH < 100) return null;
+
+  const canvas = document.createElement('canvas');
+  const sampleW = 240;
+  const sampleH = Math.round((origH * sampleW) / origW);
+  canvas.width = sampleW;
+  canvas.height = sampleH;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.drawImage(img, 0, 0, sampleW, sampleH);
+  const imgData = ctx.getImageData(0, 0, sampleW, sampleH);
+  const data = imgData.data;
+
+  // Scan horizontal bands
+  const bands = 12;
+  const bandHeight = Math.floor(sampleH / bands);
+  let bestBand = -1;
+  let bestScore = 0;
+
+  for (let b = 0; b < bands; b++) {
+    const startY = b * bandHeight;
+    let transitionCount = 0;
+    for (let y = startY; y < startY + bandHeight; y += 2) {
+      for (let x = 1; x < sampleW; x += 2) {
+        const p1 = (y * sampleW + x) * 4;
+        const p0 = (y * sampleW + (x - 1)) * 4;
+        const lum1 = 0.299 * data[p1] + 0.587 * data[p1 + 1] + 0.114 * data[p1 + 2];
+        const lum0 = 0.299 * data[p0] + 0.587 * data[p0 + 1] + 0.114 * data[p0 + 2];
+        if (Math.abs(lum1 - lum0) > 35) {
+          transitionCount++;
+        }
+      }
+    }
+    if (transitionCount > bestScore) {
+      bestScore = transitionCount;
+      bestBand = b;
+    }
+  }
+
+  // If a dense transition band is detected (stamped expiry or barcode)
+  if (bestBand >= 0 && bestScore > 120) {
+    const scale = origW / sampleW;
+    const bandY = Math.max(0, (bestBand - 1) * bandHeight * scale);
+    const bandH = Math.min(origH - bandY, bandHeight * 3 * scale);
+    return {
+      x: 0,
+      y: Math.round(bandY),
+      width: origW,
+      height: Math.round(bandH),
+    };
+  }
+  return null;
+}
+
+/**
  * Optimizes a list of images (1 to 5 photos) by auto-cropping the label
  * in each photo and downscaling/compressing to minimum viable size.
  */

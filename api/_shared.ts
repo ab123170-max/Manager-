@@ -717,6 +717,18 @@ ${localCuesContext}`;
               type: Type.STRING,
               description: "Complete product name in original printed language without translation. Empty string if not found.",
             },
+            brand: {
+              type: Type.STRING,
+              description: "Brand name or manufacturer if visible on any shot. Empty string if not found.",
+            },
+            barcode: {
+              type: Type.STRING,
+              description: "Barcode numbers or code digits if visible on any shot. Empty string if not found.",
+            },
+            batchNumber: {
+              type: Type.STRING,
+              description: "Batch number or LOT number if visible. Empty string if not found.",
+            },
             price: {
               type: Type.NUMBER,
               description: "Numeric MRP or selling price value (e.g. 80, 19.99 or 250). Null if not found.",

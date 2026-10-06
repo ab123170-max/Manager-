@@ -24,6 +24,7 @@ interface MultiShotProductScannerProps {
   onAnalyze: (images: string[]) => void;
   disabled?: boolean;
   initialAutoOpen?: boolean;
+  onCameraOpened?: () => void;
 }
 
 const MAX_PHOTOS = 5;
@@ -40,6 +41,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
   onAnalyze,
   disabled = false,
   initialAutoOpen = false,
+  onCameraOpened,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -55,8 +57,9 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
   useEffect(() => {
     if (initialAutoOpen) {
       setIsCameraModalOpen(true);
+      onCameraOpened?.();
     }
-  }, [initialAutoOpen]);
+  }, [initialAutoOpen, onCameraOpened]);
 
   // Dynamically load sample packaged products on-demand
   useEffect(() => {
@@ -75,12 +78,16 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
     setIsCameraModalOpen(true);
   }, [capturedPhotos.length]);
 
-  const handlePhotoCaptured = useCallback((photoDataUrl: string) => {
-    setCapturedPhotos((prev) => {
-      if (prev.length >= MAX_PHOTOS) return prev;
-      return [...prev, photoDataUrl];
-    });
-  }, []);
+  const handleFinishAndExtractFromCamera = useCallback(
+    (shots: string[]) => {
+      setCapturedPhotos(shots);
+      setIsCameraModalOpen(false);
+      if (shots.length > 0) {
+        onAnalyze(shots);
+      }
+    },
+    [onAnalyze]
+  );
 
   const handleRemovePhoto = (index: number) => {
     setCapturedPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -129,12 +136,14 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
 
   return (
     <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden flex flex-col">
-      {/* Unified Full-Screen In-App Camera Modal */}
+      {/* Unified Full-Screen In-App Continuous Multi-Shot Camera Modal */}
       <ScanMeCameraModal
         isOpen={isCameraModalOpen}
-        onPhotoCaptured={handlePhotoCaptured}
+        onFinishAndExtract={handleFinishAndExtractFromCamera}
         onClose={() => setIsCameraModalOpen(false)}
-        title={`Shot #${capturedPhotos.length + 1}: ${currentHint.title}`}
+        initialShots={capturedPhotos}
+        maxShots={MAX_PHOTOS}
+        title="Multi-Shot Camera"
         subtitle={currentHint.desc}
       />
 

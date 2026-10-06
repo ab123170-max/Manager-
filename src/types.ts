@@ -27,6 +27,9 @@ export interface DateMappingResult {
  */
 export interface Product5Fields {
   productName: string;
+  brand?: string;
+  barcode?: string;
+  batchNumber?: string;
   price: number | null;
   currency: string;
   manufactureDate: string;
@@ -721,4 +724,22 @@ export interface AuthSession {
 }
 
 export type AppRootMode = 'landing' | 'onboarding' | 'auth' | 'profile_setup' | 'dashboard' | 'app';
+
+/**
+ * Temporary multi-shot scan session interfaces
+ */
+export interface ScanShot {
+  id: string;
+  image: string;
+  timestamp: number;
+  label?: string;
+}
+
+export interface ScanSession {
+  id: string;
+  shots: ScanShot[];
+  detectedProduct: SavedInventoryItem | ProductScanResult | null;
+  extractedData: Partial<ExtractedFormData>;
+  status: 'capturing' | 'processing' | 'completed' | 'cancelled';
+}
 

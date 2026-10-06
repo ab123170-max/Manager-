@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
 import android.provider.Settings;
@@ -468,6 +469,44 @@ public class ScanMeCameraPlugin extends Plugin {
             Log.e(TAG, "[setFlashMode] Failed to set flash mode: " + e.getMessage(), e);
             call.reject("Failed to set flash mode: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Fast, lightweight frame snapshot (320px) for live real-time detection & tracking
+     */
+    @PluginMethod
+    public void getPreviewFrame(PluginCall call) {
+        if (previewView == null || !isCameraOpen) {
+            call.reject("Camera is not open.");
+            return;
+        }
+
+        getActivity().runOnUiThread(() -> {
+            try {
+                Bitmap bitmap = previewView.getBitmap();
+                if (bitmap == null) {
+                    call.reject("Bitmap preview unavailable");
+                    return;
+                }
+                int targetW = 320;
+                int targetH = Math.max(1, (bitmap.getHeight() * targetW) / bitmap.getWidth());
+                Bitmap scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true);
+
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                scaled.compress(Bitmap.CompressFormat.JPEG, 65, out);
+                byte[] bytes = out.toByteArray();
+                String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                ret.put("dataUrl", "data:image/jpeg;base64," + base64);
+                ret.put("width", targetW);
+                ret.put("height", targetH);
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("Failed to capture frame: " + e.getMessage(), e);
+            }
+        });
     }
 
     @Override

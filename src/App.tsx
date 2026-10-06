@@ -253,6 +253,7 @@ export default function App() {
   }, [rootMode, navState.activeSection]);
 
   // Scanner & AutoFill State
+  const [autoOpenScannerCamera, setAutoOpenScannerCamera] = useState(false);
   const [prefilledBarcode, setPrefilledBarcode] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<SavedInventoryItem | null>(null);
   const [currentStage, setCurrentStage] = useState<ExtractionStage>('idle');
@@ -346,6 +347,9 @@ export default function App() {
       setCapturedImage(null);
       setCapturedImages([]);
       setExtractionError(null);
+    }
+    if (subView === 'scan_product') {
+      setAutoOpenScannerCamera(true);
     }
     setNavState({ activeSection: targetSection, activeSubView: subView });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -480,11 +484,11 @@ export default function App() {
         isProductOrPackage: true,
         documentType: 'Product Package / Label',
         productName: result.productName,
-        brand: '',
+        brand: result.brand || '',
         category: '',
         sku: '',
-        barcode: prefilledBarcode || '',
-        batchNumber: '',
+        barcode: result.barcode || prefilledBarcode || '',
+        batchNumber: result.batchNumber || '',
         manufacturingDate: result.manufactureDate || '',
         expiryDate: result.expiryDate || '',
         bestBefore: result.bestBeforeMonths ? `${result.bestBeforeMonths} months` : '',
@@ -750,7 +754,12 @@ export default function App() {
                             }}
                           />
                         </Suspense>
-                        <MultiShotProductScanner onAnalyze={handleMultiShotAnalyze} disabled={false} />
+                        <MultiShotProductScanner
+                          onAnalyze={handleMultiShotAnalyze}
+                          disabled={false}
+                          initialAutoOpen={autoOpenScannerCamera}
+                          onCameraOpened={() => setAutoOpenScannerCamera(false)}
+                        />
                       </div>
                     )}
 
@@ -830,7 +839,12 @@ export default function App() {
                 {/* 1.4 Multiple Image Scan */}
                 {(navState.activeSubView === 'multiple_image_scan' || navState.activeSubView === 'multi_scan') && (
                   <div className="space-y-6">
-                    <MultiShotProductScanner onAnalyze={handleMultiShotAnalyze} disabled={false} />
+                    <MultiShotProductScanner
+                      onAnalyze={handleMultiShotAnalyze}
+                      disabled={false}
+                      initialAutoOpen={autoOpenScannerCamera}
+                      onCameraOpened={() => setAutoOpenScannerCamera(false)}
+                    />
                   </div>
                 )}
 
