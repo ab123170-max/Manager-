@@ -89,15 +89,26 @@ jobs:
           from pathlib import Path
           p = Path("android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
+          manifest_start = s.find("<manifest")
+          if manifest_start < 0:
+              raise SystemExit("manifest root not found")
+          root_end = s.find(">", manifest_start)
+          if root_end < 0:
+              raise SystemExit("manifest root closing tag not found")
+
           permission = '<uses-permission android:name="android.permission.CAMERA" />'
-          if permission not in s:
-              s = s.replace("<manifest", "<manifest", 1)
-              insert_at = s.find(">")
-              s = s[:insert_at+1] + "\n    " + permission + s[insert_at+1:]
           feature = '<uses-feature android:name="android.hardware.camera.any" android:required="false" />'
+
+          additions = []
+          if permission not in s:
+              additions.append(permission)
           if feature not in s:
-              insert_at = s.find(">")
-              s = s[:insert_at+1] + "\n    " + feature + s[insert_at+1:]
+              additions.append(feature)
+
+          if additions:
+              insertion = "\n    " + "\n    ".join(additions)
+              s = s[:root_end+1] + insertion + s[root_end+1:]
+
           p.write_text(s)
           PY
 
