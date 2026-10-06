@@ -24,7 +24,6 @@ export interface CapturePhotoResult {
 export interface ScanMeCameraPlugin {
   getPermissionStatus(): Promise<CameraPermissionStatus>;
   requestCameraPermission(): Promise<CameraPermissionStatus>;
-  openAppSettings(): Promise<{ success: boolean }>;
   openCamera(options?: OpenCameraOptions): Promise<{ success: boolean; facingMode: string }>;
   closeCamera(): Promise<{ success: boolean }>;
   capturePhoto(): Promise<CapturePhotoResult>;
@@ -71,18 +70,6 @@ export async function requestCameraPermission(): Promise<'granted' | 'denied' | 
   } catch (error) {
     console.warn('[ScanMeCamera] requestCameraPermission error:', error);
     return 'denied';
-  }
-}
-
-export async function openCameraAppSettings(): Promise<boolean> {
-  if (!isScanMeCameraNative()) return false;
-  try {
-    console.log('[ScanMeCamera] Requesting Android application details settings screen...');
-    const res = await ScanMeCamera.openAppSettings();
-    return Boolean(res?.success);
-  } catch (error) {
-    console.warn('[ScanMeCamera] openAppSettings error:', error);
-    return false;
   }
 }
 
