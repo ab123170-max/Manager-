@@ -14,9 +14,12 @@ import {
   Image as ImageIcon,
   ArrowRight,
   Info,
+  Camera,
+  RefreshCw,
 } from 'lucide-react';
 import { fileToBase64 } from '../../utils/imageEncoder';
 import { SampleDoc } from '../../types';
+import { ScanMeCamera } from '../../plugins/scanmeCamera';
 
 interface MultiShotProductScannerProps {
   onAnalyze: (images: string[]) => void;
@@ -43,6 +46,9 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
   const [activeTab, setActiveTab] = useState<'upload' | 'samples'>('upload');
   const [sampleDocs, setSampleDocs] = useState<SampleDoc[]>([]);
   const [showTips, setShowTips] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   // Dynamically load sample packaged products on-demand
   useEffect(() => {
@@ -52,6 +58,42 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
       });
     }
   }, [activeTab, sampleDocs.length]);
+
+  const openNativeCamera = async () => {
+    if (capturedPhotos.length >= MAX_PHOTOS || cameraBusy) return;
+    setCameraBusy(true); setCameraError(null);
+    try {
+      await ScanMeCamera.requestCameraPermission();
+      await ScanMeCamera.openCamera({ facingMode: 'environment' });
+      setCameraOpen(true);
+    } catch (err) {
+      setCameraError(err instanceof Error ? err.message : 'Unable to open the in-app camera.');
+    } finally { setCameraBusy(false); }
+  };
+
+  const captureNativePhoto = async () => {
+    if (cameraBusy) return;
+    setCameraBusy(true); setCameraError(null);
+    try {
+      const result = await ScanMeCamera.capturePhoto();
+      if (result?.dataUrl) setCapturedPhotos((prev) => [...prev, result.dataUrl].slice(0, MAX_PHOTOS));
+      if (capturedPhotos.length + 1 >= MAX_PHOTOS) {
+        await ScanMeCamera.closeCamera(); setCameraOpen(false);
+      }
+    } catch (err) {
+      setCameraError(err instanceof Error ? err.message : 'Photo capture failed.');
+    } finally { setCameraBusy(false); }
+  };
+
+  const closeNativeCamera = async () => {
+    try { await ScanMeCamera.closeCamera(); } catch {}
+    setCameraOpen(false);
+  };
+
+  const switchNativeCamera = async () => {
+    try { await ScanMeCamera.switchCamera(); }
+    catch (err) { setCameraError(err instanceof Error ? err.message : 'Could not switch camera.'); }
+  };
 
   const handleRemovePhoto = (index: number) => {
     setCapturedPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -100,11 +142,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-      {/* Notice Banner */}
-      <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center gap-2.5 text-amber-900 text-xs">
-        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-        <span>Camera scanner temporarily unavailable. You can upload an image or enter a barcode manually.</span>
-      </div>
+
 
       {/* Top Header & Tab Controls */}
       <div className="p-3.5 sm:p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-50/50">
@@ -178,6 +216,32 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
             </span>
           </div>
         )}
+
+        {cameraOpen && (
+          <div className="fixed inset-0 z-[9999] bg-black flex flex-col">
+            <div className="flex-1 relative min-h-0">
+              <div className="absolute top-0 left-0 right-0 z-10 p-4 flex justify-between items-center bg-gradient-to-b from-black/70 to-transparent">
+                <button type="button" onClick={closeNativeCamera} className="px-3 py-2 rounded-full bg-black/50 text-white text-xs font-semibold">Close</button>
+                <span className="text-white text-xs font-bold">ScanMe AI Camera</span>
+                <button type="button" onClick={switchNativeCamera} className="p-2 rounded-full bg-black/50 text-white"><RefreshCw className="w-5 h-5" /></button>
+              </div>
+              <div className="absolute bottom-7 left-0 right-0 z-10 flex justify-center">
+                <button type="button" onClick={captureNativePhoto} disabled={cameraBusy} className="w-20 h-20 rounded-full border-4 border-white bg-white/20 shadow-2xl flex items-center justify-center active:scale-95 disabled:opacity-50">
+                  <span className="w-14 h-14 rounded-full bg-white" />
+                </button>
+              </div>
+              {cameraError && <div className="absolute bottom-28 left-4 right-4 z-20 p-3 rounded-xl bg-red-600/90 text-white text-xs text-center">{cameraError}</div>}
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <button type="button" onClick={openNativeCamera} disabled={disabled || cameraBusy || capturedPhotos.length >= MAX_PHOTOS} className="w-full py-4 rounded-xl bg-[#1473EA] text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+            <Camera className="w-5 h-5" /> {cameraBusy ? 'Opening camera…' : 'Open Camera & Take Photo'}
+          </button>
+          {cameraError && !cameraOpen && <p className="mt-2 text-xs text-red-600 text-center">{cameraError}</p>}
+          <p className="mt-2 text-[11px] text-slate-600 text-center">Android APK: camera opens inside ScanMe AI. No browser camera or file picker is used.</p>
+        </div>
 
         {/* 1. File Upload Mode */}
         {activeTab === 'upload' && (
