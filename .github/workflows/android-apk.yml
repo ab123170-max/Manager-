@@ -70,6 +70,13 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Verify native camera bridge
+        run: |
+          test -f android/app/src/main/java/com/martmartai/inventory/ScanMeCameraPlugin.java
+          grep -q 'registerPlugin(ScanMeCameraPlugin.class)' android/app/src/main/java/com/martmartai/inventory/MainActivity.java
+          grep -q 'androidx.camera:camera-core' android/app/build.gradle
+          grep -q 'android.permission.CAMERA' android/app/src/main/AndroidManifest.xml
+
       - name: Verify live web sync configuration
         run: |
           grep -n "scanme-ai.vercel.app" capacitor.config.ts
