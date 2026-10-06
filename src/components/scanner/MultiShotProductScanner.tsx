@@ -14,33 +14,16 @@ import {
   Image as ImageIcon,
   ArrowRight,
   Info,
-  RotateCcw,
-  Zap,
-  ZapOff,
-  X,
-  Loader2,
   CheckCircle2,
 } from 'lucide-react';
-import {
-  isScanMeCameraNative,
-  openScanMeCamera,
-  closeScanMeCamera,
-  captureScanMePhoto,
-  switchScanMeCamera,
-  setScanMeFlashMode,
-  getCameraPermissionStatus,
-  requestCameraPermission,
-} from '../../plugins/scanmeCamera';
-import {
-  NativeCameraPermissionModal,
-  PermissionModalState,
-} from '../camera/NativeCameraPermissionModal';
+import { ScanMeCameraModal } from '../camera/ScanMeCameraModal';
 import { fileToBase64 } from '../../utils/imageEncoder';
 import { SampleDoc } from '../../types';
 
 interface MultiShotProductScannerProps {
   onAnalyze: (images: string[]) => void;
   disabled?: boolean;
+  initialAutoOpen?: boolean;
 }
 
 const MAX_PHOTOS = 5;
@@ -56,6 +39,7 @@ const RECOMMENDED_SHOT_HINTS = [
 export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = ({
   onAnalyze,
   disabled = false,
+  initialAutoOpen = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -64,28 +48,15 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
   const [sampleDocs, setSampleDocs] = useState<SampleDoc[]>([]);
   const [showTips, setShowTips] = useState(false);
 
-  // Native CameraX state
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [cameraLoading, setCameraLoading] = useState(false);
-  const [flashMode, setFlashMode] = useState<'auto' | 'on' | 'off' | 'torch'>('auto');
-  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [lastCapturedToast, setLastCapturedToast] = useState(false);
+  // Full-Screen In-App Native Camera Modal State
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
 
-  // Native Camera Permission Modal State
-  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
-  const [permissionModalInitialState, setPermissionModalInitialState] = useState<PermissionModalState>('denied');
-
-  const isNative = isScanMeCameraNative();
-
-  // Clean shutdown of native camera when unmounting
+  // Auto-open camera if requested by initial navigation
   useEffect(() => {
-    return () => {
-      if (isScanMeCameraNative()) {
-        closeScanMeCamera().catch(() => {});
-      }
-    };
-  }, []);
+    if (initialAutoOpen) {
+      setIsCameraModalOpen(true);
+    }
+  }, [initialAutoOpen]);
 
   // Dynamically load sample packaged products on-demand
   useEffect(() => {
@@ -96,135 +67,20 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
     }
   }, [activeTab, sampleDocs.length]);
 
-  const launchCameraDirect = useCallback(async () => {
-    setIsPermissionModalOpen(false);
-    setCameraLoading(true);
-    try {
-      const result = await openScanMeCamera({ facingMode, toBack: true });
-      if (result.success) {
-        setIsCameraActive(true);
-      }
-    } catch (err: unknown) {
-      const error = err as Error;
-      console.error('[MultiShotProductScanner] open camera error:', error);
-      alert(`Failed to open camera: ${error.message || 'Please try again.'}`);
-    } finally {
-      setCameraLoading(false);
-    }
-  }, [facingMode]);
-
-  const handleStartNativeCamera = useCallback(async () => {
-    if (!isNative) {
-      setActiveTab('upload');
-      return;
-    }
-
+  const handleOpenCamera = useCallback(() => {
     if (capturedPhotos.length >= MAX_PHOTOS) {
       alert(`Maximum ${MAX_PHOTOS} photos reached. You can now analyze the product.`);
       return;
     }
+    setIsCameraModalOpen(true);
+  }, [capturedPhotos.length]);
 
-    setCameraLoading(true);
-
-    try {
-      // 1. Check real Android CAMERA permission state
-      const status = await getCameraPermissionStatus();
-      console.log('[MultiShotProductScanner] initial permission status:', status);
-
-      if (status === 'granted') {
-        // Already granted: immediately launch in-app camera
-        await launchCameraDirect();
-      } else if (status === 'prompt' || status === 'prompt-with-rationale') {
-        // First time or temporarily denied: trigger native Android system dialog directly
-        const requestedStatus = await requestCameraPermission();
-        console.log('[MultiShotProductScanner] requested permission result:', requestedStatus);
-        if (requestedStatus === 'granted') {
-          // Granted by user in system dialog: automatically open camera immediately!
-          await launchCameraDirect();
-        } else if (requestedStatus === 'prompt-with-rationale') {
-          // Denied by user: show in-app modal with Try Again / Settings
-          setPermissionModalInitialState('denied');
-          setIsPermissionModalOpen(true);
-        } else {
-          // Permanently denied (Don't ask again): show in-app modal with Open Settings
-          setPermissionModalInitialState('permanently_denied');
-          setIsPermissionModalOpen(true);
-        }
-      } else {
-        // Permanently denied
-        setPermissionModalInitialState('permanently_denied');
-        setIsPermissionModalOpen(true);
-      }
-    } catch (err) {
-      console.error('[MultiShotProductScanner] permission error:', err);
-      setPermissionModalInitialState('denied');
-      setIsPermissionModalOpen(true);
-    } finally {
-      setCameraLoading(false);
-    }
-  }, [isNative, capturedPhotos.length, launchCameraDirect]);
-
-  const handleCloseNativeCamera = useCallback(async () => {
-    try {
-      await closeScanMeCamera();
-    } catch (err) {
-      console.warn('[MultiShotProductScanner] close camera error:', err);
-    } finally {
-      setIsCameraActive(false);
-    }
+  const handlePhotoCaptured = useCallback((photoDataUrl: string) => {
+    setCapturedPhotos((prev) => {
+      if (prev.length >= MAX_PHOTOS) return prev;
+      return [...prev, photoDataUrl];
+    });
   }, []);
-
-  const handleCapturePhoto = async () => {
-    if (isCapturing || !isCameraActive) return;
-    setIsCapturing(true);
-    try {
-      const result = await captureScanMePhoto();
-      if (result && result.dataUrl) {
-        setCapturedPhotos((prev) => {
-          const next = [...prev, result.dataUrl];
-          if (next.length >= MAX_PHOTOS) {
-            handleCloseNativeCamera();
-          }
-          return next;
-        });
-
-        // Show brief success toast
-        setLastCapturedToast(true);
-        setTimeout(() => setLastCapturedToast(false), 1500);
-      }
-    } catch (err: unknown) {
-      const error = err as Error;
-      alert(`Capture failed: ${error.message || 'Please try again'}`);
-    } finally {
-      setIsCapturing(false);
-    }
-  };
-
-  const handleSwitchCamera = async () => {
-    try {
-      const result = await switchScanMeCamera();
-      if (result.success) {
-        setFacingMode(result.facingMode === 'user' ? 'user' : 'environment');
-      }
-    } catch (err: unknown) {
-      const error = err as Error;
-      console.warn('[MultiShotProductScanner] switch camera error:', error);
-    }
-  };
-
-  const handleToggleFlash = async () => {
-    const modes: ('auto' | 'on' | 'off' | 'torch')[] = ['auto', 'on', 'torch', 'off'];
-    const nextMode = modes[(modes.indexOf(flashMode) + 1) % modes.length];
-    try {
-      const result = await setScanMeFlashMode(nextMode);
-      if (result.success) {
-        setFlashMode(nextMode);
-      }
-    } catch (err: unknown) {
-      const error = err as Error;
-      console.warn('[MultiShotProductScanner] toggle flash error:', error);
-    }
-  };
 
   const handleRemovePhoto = (index: number) => {
     setCapturedPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -266,38 +122,36 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
 
   const handleStartAnalysis = () => {
     if (capturedPhotos.length === 0) return;
-    if (isCameraActive) {
-      handleCloseNativeCamera();
-    }
     onAnalyze(capturedPhotos);
   };
 
   const currentHint = RECOMMENDED_SHOT_HINTS[Math.min(capturedPhotos.length, MAX_PHOTOS - 1)];
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-      {/* Native Camera Permission Flow Modal */}
-      <NativeCameraPermissionModal
-        isOpen={isPermissionModalOpen}
-        initialState={permissionModalInitialState}
-        onPermissionGranted={launchCameraDirect}
-        onClose={() => setIsPermissionModalOpen(false)}
+    <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden flex flex-col">
+      {/* Unified Full-Screen In-App Camera Modal */}
+      <ScanMeCameraModal
+        isOpen={isCameraModalOpen}
+        onPhotoCaptured={handlePhotoCaptured}
+        onClose={() => setIsCameraModalOpen(false)}
+        title={`Shot #${capturedPhotos.length + 1}: ${currentHint.title}`}
+        subtitle={currentHint.desc}
       />
 
-      {/* Top Header & Tab Controls */}
-      <div className="p-3.5 sm:p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-50/50">
+      {/* Top Header & Mode Navigation */}
+      <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70">
         <div>
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 uppercase tracking-wider">
-              <Sparkles className="w-3 h-3" /> Multi-Shot Mode
+            <span className="inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 uppercase tracking-wider">
+              <Sparkles className="w-3 h-3 text-emerald-600" /> Multi-Shot Scanner
             </span>
-            <span className="text-xs font-semibold text-slate-500">
-              Photos: <span className="font-bold text-slate-900">{capturedPhotos.length}</span> / {MAX_PHOTOS}
+            <span className="text-xs font-bold text-slate-600">
+              Photos: <strong className="text-slate-900">{capturedPhotos.length}</strong> / {MAX_PHOTOS}
             </span>
             <button
               type="button"
               onClick={() => setShowTips((prev) => !prev)}
-              className="text-[11px] font-semibold text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-1 ml-1 cursor-pointer"
+              className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-1 ml-1 cursor-pointer"
               title="Show guide & tips"
             >
               <Info className="w-3.5 h-3.5" />
@@ -305,200 +159,104 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
             </button>
           </div>
           {showTips && (
-            <p className="text-xs text-slate-600 mt-1.5 animate-in fade-in duration-150">
-              Take or upload 1 to {MAX_PHOTOS} photos of product packaging (Front label, dates, best before) for AI extraction.
+            <p className="text-xs text-slate-600 mt-2 leading-relaxed animate-in fade-in duration-150">
+              Take 1 to {MAX_PHOTOS} photos of product packaging (Front label, MFD/EXP dates, MRP price). Multimodal AI synthesizes all shots for 100% extraction accuracy.
             </p>
           )}
         </div>
 
         {/* Source Mode Selector */}
-        <div className="flex bg-slate-200/60 p-1 rounded-xl gap-1 self-start sm:self-auto">
-          {isNative && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('camera')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'camera'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Camera className="w-3.5 h-3.5" /> Camera
-            </button>
-          )}
+        <div className="flex bg-slate-200/60 p-1 rounded-2xl gap-1 self-start sm:self-auto">
           <button
             type="button"
-            onClick={() => {
-              if (isCameraActive) handleCloseNativeCamera();
-              setActiveTab('upload');
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'upload'
-                ? 'bg-white text-slate-900 shadow-sm'
+            onClick={() => setActiveTab('camera')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'camera'
+                ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <UploadCloud className="w-3.5 h-3.5" /> Upload
+            <Camera className="w-3.5 h-3.5 text-emerald-600" /> Camera
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (isCameraActive) handleCloseNativeCamera();
-              setActiveTab('samples');
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeTab === 'samples'
-                ? 'bg-white text-slate-900 shadow-sm'
+            onClick={() => setActiveTab('upload')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'upload'
+                ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <ImageIcon className="w-3.5 h-3.5" /> Samples
+            <UploadCloud className="w-3.5 h-3.5 text-indigo-600" /> Upload
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('samples')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'samples'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ImageIcon className="w-3.5 h-3.5 text-amber-600" /> Samples
           </button>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="p-4 sm:p-6 space-y-4">
+      <div className="p-4 sm:p-6 space-y-5">
         {/* Recommended Shot Suggestion Pill */}
-        {showTips && capturedPhotos.length < MAX_PHOTOS && (
-          <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-indigo-50/80 border border-indigo-100 text-indigo-900 text-xs animate-in fade-in duration-150">
-            <div className="flex items-center gap-2">
-              <span className="font-bold bg-indigo-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">
+        {capturedPhotos.length < MAX_PHOTOS && (
+          <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-indigo-50/90 border border-indigo-100 text-indigo-950 text-xs">
+            <div className="flex items-center gap-2.5">
+              <span className="font-black bg-indigo-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[11px] shrink-0">
                 {capturedPhotos.length + 1}
               </span>
               <span>
-                <strong className="font-semibold">Recommended Shot:</strong> {currentHint.title} ({currentHint.desc})
+                <strong>Next Recommended Shot:</strong> {currentHint.title} — {currentHint.desc}
               </span>
             </div>
-            <span className="text-[11px] text-indigo-600 font-medium hidden sm:inline">
+            <span className="text-[11px] text-indigo-700 font-bold hidden sm:inline">
               Up to {MAX_PHOTOS} photos
             </span>
           </div>
         )}
 
-        {/* 1. Android Native Camera Mode */}
+        {/* 1. Camera Trigger Hero View */}
         {activeTab === 'camera' && (
-          <div className="space-y-3">
-            {isCameraActive ? (
-              <div className="relative aspect-[4/3] sm:aspect-[16/10] max-h-[440px] w-full bg-transparent rounded-2xl overflow-hidden border-2 border-emerald-500 flex flex-col justify-between p-4 shadow-xl">
-                {/* Top Controls Overlay */}
-                <div className="flex items-center justify-between z-10">
-                  <div className="bg-slate-950/70 text-white px-3 py-1.5 rounded-full text-xs font-bold backdrop-blur-md border border-white/10 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    Shot #{capturedPhotos.length + 1} of {MAX_PHOTOS}
-                  </div>
+          <div className="p-6 sm:p-8 rounded-3xl border border-slate-200/90 bg-gradient-to-b from-slate-50 to-white text-center space-y-4 shadow-2xs">
+            <div className="w-16 h-16 mx-auto rounded-3xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-xs">
+              <Camera className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base sm:text-lg font-black text-slate-900">
+                {capturedPhotos.length === 0
+                  ? 'In-App Camera Scanner'
+                  : `Add Shot #${capturedPhotos.length + 1} with Camera`}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Scan product labels, barcodes, manufacturing dates, and pricing directly inside the app.
+              </p>
+            </div>
 
-                  <div className="flex items-center gap-2">
-                    {/* Toggle Flash */}
-                    <button
-                      type="button"
-                      onClick={handleToggleFlash}
-                      className="p-2 rounded-full bg-slate-950/70 hover:bg-slate-950 text-white backdrop-blur-md border border-white/10 transition-transform active:scale-95 cursor-pointer"
-                      title={`Flash: ${flashMode.toUpperCase()}`}
-                    >
-                      {flashMode === 'off' ? (
-                        <ZapOff className="w-4 h-4 text-slate-400" />
-                      ) : (
-                        <Zap className={`w-4 h-4 ${flashMode === 'torch' ? 'text-amber-400' : 'text-emerald-400'}`} />
-                      )}
-                    </button>
-
-                    {/* Switch Camera */}
-                    <button
-                      type="button"
-                      onClick={handleSwitchCamera}
-                      className="p-2 rounded-full bg-slate-950/70 hover:bg-slate-950 text-white backdrop-blur-md border border-white/10 transition-transform active:scale-95 cursor-pointer"
-                      title="Switch Camera (Front / Rear)"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                    </button>
-
-                    {/* Close Camera */}
-                    <button
-                      type="button"
-                      onClick={handleCloseNativeCamera}
-                      className="p-2 rounded-full bg-rose-600/80 hover:bg-rose-600 text-white backdrop-blur-md border border-white/10 transition-transform active:scale-95 cursor-pointer"
-                      title="Close Camera"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Viewfinder Boundary Guides */}
-                <div className="absolute inset-x-8 inset-y-16 border-2 border-dashed border-emerald-400/60 rounded-2xl pointer-events-none flex items-center justify-center">
-                  <div className="text-center px-4 py-1.5 rounded-lg bg-slate-950/60 text-white text-[11px] font-medium backdrop-blur-sm">
-                    Center product packaging label & dates
-                  </div>
-                </div>
-
-                {/* Shutter Capture Button Overlay */}
-                <div className="flex items-center justify-center z-10 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleCapturePhoto}
-                    disabled={isCapturing}
-                    className="w-16 h-16 rounded-full bg-white hover:bg-slate-100 border-4 border-emerald-500 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer disabled:opacity-50"
-                    title="Capture Photo"
-                  >
-                    {isCapturing ? (
-                      <Loader2 className="w-6 h-6 text-emerald-600 animate-spin" />
-                    ) : (
-                      <div className="w-11 h-11 rounded-full bg-emerald-500 flex items-center justify-center text-white">
-                        <Camera className="w-5 h-5" />
-                      </div>
-                    )}
-                  </button>
-                </div>
-
-                {/* Toast feedback when photo taken */}
-                {lastCapturedToast && (
-                  <div className="absolute top-16 inset-x-0 mx-auto w-max bg-emerald-600 text-white px-3.5 py-1 rounded-full text-xs font-bold shadow-lg flex items-center gap-1.5 animate-in fade-in zoom-in-95">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Photo captured!</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="p-8 rounded-2xl border border-slate-200 bg-slate-50 text-center space-y-4">
-                <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-sm">
-                  <Camera className="w-7 h-7" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Native In-App CameraX</h3>
-                  <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
-                    Take high-resolution photos of product packaging directly inside the app for AI product recognition and date extraction.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleStartNativeCamera}
-                  disabled={cameraLoading || disabled}
-                  className="py-3.5 px-6 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold shadow-md hover:shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-60"
-                >
-                  {cameraLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Checking Permissions...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="w-4 h-4 text-emerald-400" />
-                      <span>Open Camera & Take Photo</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={handleOpenCamera}
+              disabled={disabled || capturedPhotos.length >= MAX_PHOTOS}
+              className="min-h-[52px] py-3.5 px-8 rounded-2xl bg-[#092B4C] hover:bg-slate-900 text-white text-sm font-extrabold shadow-md hover:shadow-lg transition-all inline-flex items-center gap-2.5 cursor-pointer active:scale-95 disabled:opacity-60"
+              id="btn-scan-with-camera"
+            >
+              <Camera className="w-5 h-5 text-emerald-400" />
+              <span>Scan with Camera</span>
+            </button>
           </div>
         )}
 
-        {/* 2. File Upload Mode */}
+        {/* 2. File Upload View */}
         {activeTab === 'upload' && (
           <div
             onClick={() => fileInputRef.current?.click()}
-            className="rounded-2xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/20 transition-all p-8 text-center cursor-pointer space-y-3"
+            className="rounded-3xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/20 transition-all p-8 text-center cursor-pointer space-y-3"
           >
             <input
               ref={fileInputRef}
@@ -508,20 +266,20 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
               onChange={handleInputChange}
               className="hidden"
             />
-            <div className="w-12 h-12 mx-auto rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <UploadCloud className="w-6 h-6" />
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-xs">
+              <UploadCloud className="w-7 h-7" />
             </div>
             <div>
-              <p className="text-sm font-bold text-slate-800">
+              <p className="text-sm font-black text-slate-900">
                 Click or drag & drop product packaging photos
               </p>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 mt-1">
                 Select 1 to {MAX_PHOTOS} photos (JPEG, PNG, WEBP)
               </p>
             </div>
             <button
               type="button"
-              className="py-2 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
+              className="py-2.5 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer"
             >
               Browse Gallery / Files
             </button>
@@ -531,29 +289,29 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
         {/* 3. Sample Packaged Products */}
         {activeTab === 'samples' && (
           <div className="space-y-3">
-            <p className="text-xs text-slate-500">
-              Select one or multiple sample product packaging photos to test multi-shot extraction:
+            <p className="text-xs text-slate-500 font-medium">
+              Select one or multiple sample packaged items to test multi-shot extraction pipeline:
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {sampleDocs.map((sample) => (
                 <button
                   key={sample.id}
                   type="button"
                   onClick={() => handleSelectSample(sample.dataUrl)}
                   disabled={capturedPhotos.length >= MAX_PHOTOS}
-                  className="group relative rounded-xl overflow-hidden border border-slate-200 hover:border-emerald-500 transition-all text-left bg-slate-50 cursor-pointer"
+                  className="group relative rounded-2xl overflow-hidden border border-slate-200 hover:border-emerald-500 transition-all text-left bg-slate-50 cursor-pointer shadow-2xs"
                 >
                   <img
                     src={sample.dataUrl}
                     alt={sample.name}
                     className="w-full aspect-[4/3] object-cover group-hover:scale-105 transition-transform duration-200"
                   />
-                  <div className="p-2 bg-white border-t border-slate-100">
-                    <p className="text-[11px] font-bold text-slate-800 truncate">{sample.name}</p>
-                    <p className="text-[10px] text-slate-500 truncate">{sample.description}</p>
+                  <div className="p-2.5 bg-white border-t border-slate-100">
+                    <p className="text-xs font-bold text-slate-900 truncate">{sample.name}</p>
+                    <p className="text-[11px] text-slate-500 truncate">{sample.description}</p>
                   </div>
-                  <div className="absolute top-1.5 right-1.5 bg-slate-900/80 text-white rounded-md p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Plus className="w-3 h-3" />
+                  <div className="absolute top-2 right-2 bg-slate-900/80 text-white rounded-lg p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Plus className="w-3.5 h-3.5" />
                   </div>
                 </button>
               ))}
@@ -561,14 +319,14 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
           </div>
         )}
 
-        {/* Synchronized Multi-Shot Thumbnail Tray */}
+        {/* Selected Photos Tray */}
         <div className="pt-2 border-t border-slate-100 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-slate-500" /> Selected Product Photos
+              <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-slate-500" /> Captured Product Photos
               </span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold">
                 {capturedPhotos.length} / {MAX_PHOTOS}
               </span>
             </div>
@@ -577,24 +335,24 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
               <button
                 type="button"
                 onClick={handleClearAllPhotos}
-                className="text-xs text-rose-600 hover:text-rose-700 font-medium flex items-center gap-1 cursor-pointer"
+                className="text-xs text-rose-600 hover:text-rose-700 font-bold flex items-center gap-1 cursor-pointer"
               >
-                <Trash2 className="w-3 h-3" /> Clear All
+                <Trash2 className="w-3.5 h-3.5" /> Clear All
               </button>
             )}
           </div>
 
           {/* Thumbnails Grid */}
           {capturedPhotos.length === 0 ? (
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 text-center text-xs text-slate-500">
-              No photos captured yet. Take or upload 1 to {MAX_PHOTOS} shots of the product packaging.
+            <div className="p-5 rounded-2xl bg-slate-50/80 border border-slate-200/80 text-center text-xs text-slate-500 font-medium">
+              No photos captured yet. Tap &ldquo;Scan with Camera&rdquo; above to start capturing product shots.
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               {capturedPhotos.map((photoUrl, idx) => (
                 <div
                   key={idx}
-                  className="relative rounded-xl overflow-hidden border-2 border-emerald-500 shadow-sm group aspect-square bg-slate-900"
+                  className="relative rounded-2xl overflow-hidden border-2 border-emerald-500 shadow-sm group aspect-square bg-slate-950"
                 >
                   <img
                     src={photoUrl}
@@ -602,7 +360,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
                     className="w-full h-full object-cover"
                   />
                   {/* Shot Index Pill */}
-                  <div className="absolute top-1.5 left-1.5 bg-slate-900/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded backdrop-blur-sm">
+                  <div className="absolute top-2 left-2 bg-slate-900/85 text-white text-[10px] font-black px-2 py-0.5 rounded-md backdrop-blur-sm border border-white/10">
                     Shot #{idx + 1}
                   </div>
                   {/* Delete Button */}
@@ -610,9 +368,9 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
                     type="button"
                     onClick={() => handleRemovePhoto(idx)}
                     title="Remove photo"
-                    className="absolute top-1.5 right-1.5 bg-rose-600 hover:bg-rose-500 text-white p-1 rounded-md shadow-md transition-all cursor-pointer"
+                    className="absolute top-2 right-2 bg-rose-600 hover:bg-rose-500 text-white p-1.5 rounded-lg shadow-md transition-all cursor-pointer"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ))}
@@ -620,18 +378,11 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
               {/* Add More Slot Placeholder */}
               {capturedPhotos.length < MAX_PHOTOS && (
                 <div
-                  onClick={() => {
-                    if (isNative) {
-                      setActiveTab('camera');
-                      handleStartNativeCamera();
-                    } else {
-                      fileInputRef.current?.click();
-                    }
-                  }}
-                  className="rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/30 transition-all flex flex-col items-center justify-center p-2 text-center cursor-pointer aspect-square text-slate-500 hover:text-emerald-700"
+                  onClick={handleOpenCamera}
+                  className="rounded-2xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/30 transition-all flex flex-col items-center justify-center p-3 text-center cursor-pointer aspect-square text-slate-500 hover:text-emerald-700"
                 >
-                  <Plus className="w-5 h-5 mb-1 text-slate-400" />
-                  <span className="text-[11px] font-semibold">
+                  <Plus className="w-6 h-6 mb-1 text-slate-400" />
+                  <span className="text-xs font-bold">
                     Add Shot #{capturedPhotos.length + 1}
                   </span>
                 </div>
@@ -646,13 +397,13 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
             type="button"
             onClick={handleStartAnalysis}
             disabled={capturedPhotos.length === 0 || disabled}
-            className={`w-full py-3.5 px-6 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer ${
+            className={`w-full min-h-[52px] py-3.5 px-6 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2.5 shadow-lg cursor-pointer ${
               capturedPhotos.length > 0 && !disabled
-                ? 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20 active:scale-[0.99]'
+                ? 'bg-[#1473EA] hover:bg-blue-600 text-white shadow-blue-500/20 active:scale-[0.99]'
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
             }`}
           >
-            <Sparkles className="w-4 h-4 text-emerald-400" />
+            <Sparkles className="w-4 h-4 text-white" />
             <span>
               Analyze Product ({capturedPhotos.length} {capturedPhotos.length === 1 ? 'Photo' : 'Photos'})
             </span>
@@ -663,3 +414,5 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
     </div>
   );
 };
+
+export default MultiShotProductScanner;

@@ -24,6 +24,7 @@ export interface CapturePhotoResult {
 export interface ScanMeCameraPlugin {
   getPermissionStatus(): Promise<CameraPermissionStatus>;
   requestCameraPermission(): Promise<CameraPermissionStatus>;
+  openAppSettings(): Promise<{ success: boolean }>;
   openCamera(options?: OpenCameraOptions): Promise<{ success: boolean; facingMode: string }>;
   closeCamera(): Promise<{ success: boolean }>;
   capturePhoto(): Promise<CapturePhotoResult>;
@@ -36,20 +37,24 @@ const ScanMeCameraNative = registerPlugin<ScanMeCameraPlugin>('ScanMeCamera');
 export const ScanMeCamera = ScanMeCameraNative;
 
 export function isScanMeCameraNative(): boolean {
-  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+  return (
+    Capacitor.isNativePlatform() &&
+    Capacitor.getPlatform() === 'android' &&
+    Capacitor.isPluginAvailable('ScanMeCamera')
+  );
 }
 
 export async function getCameraPermissionStatus(): Promise<'granted' | 'denied' | 'prompt' | 'prompt-with-rationale'> {
   if (!isScanMeCameraNative()) {
-    return 'denied';
+    return 'granted';
   }
   try {
     const status = await ScanMeCamera.getPermissionStatus();
-    console.log('[ScanMeCamera] Real Android CAMERA permission status:', status.camera);
+    console.log('[ScanMeCamera] Android runtime permission state:', status.camera);
     return status.camera;
   } catch (error) {
     console.warn('[ScanMeCamera] getPermissionStatus error:', error);
-    return 'denied';
+    return 'prompt';
   }
 }
 
@@ -60,12 +65,12 @@ export async function checkCameraPermission(): Promise<boolean> {
 
 export async function requestCameraPermission(): Promise<'granted' | 'denied' | 'prompt' | 'prompt-with-rationale'> {
   if (!isScanMeCameraNative()) {
-    return 'denied';
+    return 'granted';
   }
   try {
-    console.log('[ScanMeCamera] Triggering native Android permission prompt...');
+    console.log('[ScanMeCamera] Invoking native Android camera permission dialog...');
     const status = await ScanMeCamera.requestCameraPermission();
-    console.log('[ScanMeCamera] Native Android permission result:', status.camera);
+    console.log('[ScanMeCamera] User permission response:', status.camera);
     return status.camera;
   } catch (error) {
     console.warn('[ScanMeCamera] requestCameraPermission error:', error);
@@ -73,13 +78,25 @@ export async function requestCameraPermission(): Promise<'granted' | 'denied' | 
   }
 }
 
+export async function openCameraAppSettings(): Promise<boolean> {
+  if (!isScanMeCameraNative()) return false;
+  try {
+    console.log('[ScanMeCamera] Launching Android App Info settings screen...');
+    const res = await ScanMeCamera.openAppSettings();
+    return Boolean(res?.success);
+  } catch (error) {
+    console.warn('[ScanMeCamera] openAppSettings error:', error);
+    return false;
+  }
+}
+
 export async function openScanMeCamera(
   options: OpenCameraOptions = { facingMode: 'environment', toBack: true }
 ): Promise<{ success: boolean; facingMode: string }> {
   if (!isScanMeCameraNative()) {
-    throw new Error('ScanMeCamera is only available on Android native APK.');
+    return { success: true, facingMode: options.facingMode || 'environment' };
   }
-  console.log('[ScanMeCamera] Opening native CameraX preview view...', options);
+  console.log('[ScanMeCamera] Opening native CameraX preview...', options);
   return await ScanMeCamera.openCamera(options);
 }
 
@@ -87,15 +104,15 @@ export async function closeScanMeCamera(): Promise<{ success: boolean }> {
   if (!isScanMeCameraNative()) {
     return { success: true };
   }
-  console.log('[ScanMeCamera] Closing native CameraX preview view...');
+  console.log('[ScanMeCamera] Closing native CameraX preview...');
   return await ScanMeCamera.closeCamera();
 }
 
 export async function captureScanMePhoto(): Promise<CapturePhotoResult> {
   if (!isScanMeCameraNative()) {
-    throw new Error('ScanMeCamera is only available on Android native APK.');
+    throw new Error('ScanMeCamera native bridge is only available in Android APK.');
   }
-  console.log('[ScanMeCamera] Capturing photo via CameraX ImageCapture...');
+  console.log('[ScanMeCamera] Snapping photo via CameraX ImageCapture...');
   const result = await ScanMeCamera.capturePhoto();
   console.log('[ScanMeCamera] Photo captured successfully. DataUrl length:', result.dataUrl?.length);
   return result;
@@ -103,7 +120,7 @@ export async function captureScanMePhoto(): Promise<CapturePhotoResult> {
 
 export async function switchScanMeCamera(): Promise<{ success: boolean; facingMode: string }> {
   if (!isScanMeCameraNative()) {
-    throw new Error('ScanMeCamera is only available on Android native APK.');
+    return { success: true, facingMode: 'user' };
   }
   console.log('[ScanMeCamera] Switching camera lens facing...');
   return await ScanMeCamera.switchCamera();
@@ -113,7 +130,7 @@ export async function setScanMeFlashMode(
   flashMode: 'auto' | 'on' | 'off' | 'torch'
 ): Promise<{ success: boolean; flashMode: string }> {
   if (!isScanMeCameraNative()) {
-    throw new Error('ScanMeCamera is only available on Android native APK.');
+    return { success: true, flashMode };
   }
   console.log('[ScanMeCamera] Setting flash mode to:', flashMode);
   return await ScanMeCamera.setFlashMode({ flashMode });

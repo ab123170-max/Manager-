@@ -62,9 +62,6 @@ const HomeScreenActiveExpiryAlerts = lazy(() =>
     default: m.HomeScreenActiveExpiryAlerts,
   }))
 );
-const CameraViewport = lazy(() =>
-  import('./components/CameraViewport').then((m) => ({ default: m.CameraViewport }))
-);
 const MultiShotProductScanner = lazy(() =>
   import('./components/scanner/MultiShotProductScanner').then((m) => ({
     default: m.MultiShotProductScanner,

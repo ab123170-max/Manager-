@@ -89,7 +89,10 @@ img {
 /* Native Android Camera Preview Layering */
 body.camera-preview-active,
 html.camera-preview-active,
-#root.camera-preview-active {
+#root.camera-preview-active,
+body.camera-preview-active #root,
+body.camera-preview-active #root > div,
+body.camera-preview-active main {
   background: transparent !important;
   background-color: transparent !important;
 }

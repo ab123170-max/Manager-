@@ -1,7 +1,9 @@
 package com.martmartai.inventory;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -34,10 +36,14 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import com.google.common.util.concurrent.ListenableFuture;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.ByteArrayOutputStream;
 
+/**
+ * ScanMe AI Unified Native Android CameraX & Runtime Permission Plugin.
+ * Supports Android 10 (API 29) through Android 15 (API 35+).
+ */
 @CapacitorPlugin(
     name = "ScanMeCamera",
     permissions = {
@@ -47,6 +53,8 @@ import java.io.ByteArrayOutputStream;
 public class ScanMeCameraPlugin extends Plugin {
 
     private static final String TAG = "ScanMeCameraPlugin";
+    private static final String PREF_NAME = "scanme_camera_prefs";
+    private static final String KEY_REQUESTED = "has_requested_camera_permission";
 
     private ProcessCameraProvider cameraProvider;
     private PreviewView previewView;
@@ -56,44 +64,77 @@ public class ScanMeCameraPlugin extends Plugin {
     private int currentFlashMode = ImageCapture.FLASH_MODE_AUTO;
     private boolean isCameraOpen = false;
 
+    private boolean hasRequestedPermissionBefore() {
+        Context context = getContext();
+        if (context == null) return false;
+        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        return prefs.getBoolean(KEY_REQUESTED, false);
+    }
+
+    private void markPermissionRequested() {
+        Context context = getContext();
+        if (context == null) return;
+        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putBoolean(KEY_REQUESTED, true).apply();
+    }
+
+    /**
+     * Checks the true Android runtime CAMERA permission state.
+     * Returns:
+     * - "granted": Permission is active.
+     * - "prompt": First-time use (never requested before).
+     * - "prompt-with-rationale": Denied once, can be asked again with system prompt.
+     * - "denied": Permanently denied ("Don't ask again").
+     */
     @PluginMethod
     public void getPermissionStatus(PluginCall call) {
         JSObject ret = new JSObject();
         boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
+
         if (isGranted) {
             ret.put("camera", "granted");
             Log.d(TAG, "[getPermissionStatus] CAMERA is granted");
         } else {
-            boolean shouldShowRationale = getActivity().shouldShowRequestPermissionRationale(Manifest.permission.CAMERA);
-            if (shouldShowRationale) {
-                ret.put("camera", "prompt-with-rationale");
-                Log.d(TAG, "[getPermissionStatus] CAMERA prompt-with-rationale");
+            boolean requestedBefore = hasRequestedPermissionBefore();
+            if (!requestedBefore) {
+                // First-time camera use
+                ret.put("camera", "prompt");
+                Log.d(TAG, "[getPermissionStatus] CAMERA prompt (first-time use)");
             } else {
-                PermissionState state = getPermissionState("camera");
-                if (state == PermissionState.DENIED) {
-                    ret.put("camera", "denied");
-                    Log.d(TAG, "[getPermissionStatus] CAMERA permanently denied");
+                boolean shouldShowRationale = getActivity().shouldShowRequestPermissionRationale(Manifest.permission.CAMERA);
+                if (shouldShowRationale) {
+                    // User denied once or temporarily
+                    ret.put("camera", "prompt-with-rationale");
+                    Log.d(TAG, "[getPermissionStatus] CAMERA prompt-with-rationale (denied once)");
                 } else {
-                    ret.put("camera", "prompt");
-                    Log.d(TAG, "[getPermissionStatus] CAMERA prompt");
+                    // Previously requested, not granted, shouldShowRationale is false => Permanently denied
+                    ret.put("camera", "denied");
+                    Log.d(TAG, "[getPermissionStatus] CAMERA permanently denied (settings required)");
                 }
             }
         }
         call.resolve(ret);
     }
 
+    /**
+     * Requests native Android CAMERA permission.
+     */
     @PluginMethod
     public void requestCameraPermission(PluginCall call) {
         boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
+
         if (isGranted) {
             JSObject ret = new JSObject();
             ret.put("camera", "granted");
+            Log.d(TAG, "[requestCameraPermission] CAMERA already granted");
             call.resolve(ret);
             return;
         }
-        Log.d(TAG, "[requestCameraPermission] Requesting native CAMERA permission");
+
+        markPermissionRequested();
+        Log.d(TAG, "[requestCameraPermission] Launching native Android permission dialog");
         requestPermissionForAlias("camera", call, "permissionCallback");
     }
 
@@ -102,44 +143,70 @@ public class ScanMeCameraPlugin extends Plugin {
         JSObject ret = new JSObject();
         boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
+
         if (isGranted) {
             ret.put("camera", "granted");
             Log.d(TAG, "[permissionCallback] CAMERA permission granted by user");
         } else {
             boolean shouldShowRationale = getActivity().shouldShowRequestPermissionRationale(Manifest.permission.CAMERA);
             ret.put("camera", shouldShowRationale ? "prompt-with-rationale" : "denied");
-            Log.d(TAG, "[permissionCallback] CAMERA permission denied by user, rationale: " + shouldShowRationale);
+            Log.d(TAG, "[permissionCallback] CAMERA permission denied by user (shouldShowRationale=" + shouldShowRationale + ")");
         }
         call.resolve(ret);
     }
 
+    /**
+     * Opens the official Android App Settings screen for ScanMe AI
+     * using ACTION_APPLICATION_DETAILS_SETTINGS and dynamic package name.
+     */
     @PluginMethod
     public void openAppSettings(PluginCall call) {
         try {
-            Log.d(TAG, "[openAppSettings] Opening application details settings");
+            String packageName = getActivity().getPackageName();
+            Log.d(TAG, "[openAppSettings] Opening application details settings for package: " + packageName);
+
             Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-            Uri uri = Uri.fromParts("package", getContext().getPackageName(), null);
+            Uri uri = Uri.fromParts("package", packageName, null);
             intent.setData(uri);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(intent);
+            getActivity().startActivity(intent);
+
             JSObject ret = new JSObject();
             ret.put("success", true);
             call.resolve(ret);
         } catch (Exception e) {
-            Log.e(TAG, "[openAppSettings] Error opening settings: " + e.getMessage(), e);
-            call.reject("Could not open settings: " + e.getMessage(), e);
+            Log.e(TAG, "[openAppSettings] Error opening details settings: " + e.getMessage(), e);
+            try {
+                // Secondary fallback to general settings
+                Intent fallback = new Intent(Settings.ACTION_SETTINGS);
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().startActivity(fallback);
+
+                JSObject ret = new JSObject();
+                ret.put("success", true);
+                call.resolve(ret);
+            } catch (Exception ex) {
+                Log.e(TAG, "[openAppSettings] General settings fallback also failed: " + ex.getMessage(), ex);
+                call.reject("Could not open settings: " + ex.getMessage(), ex);
+            }
         }
     }
 
+    /**
+     * Opens native CameraX preview view inside the app.
+     */
     @PluginMethod
     public void openCamera(PluginCall call) {
         boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
+
         if (!isGranted) {
             Log.d(TAG, "[openCamera] Permission not granted, requesting via alias");
+            markPermissionRequested();
             requestPermissionForAlias("camera", call, "openCameraPermissionCallback");
             return;
         }
+
         startCameraInternal(call);
     }
 
@@ -147,12 +214,13 @@ public class ScanMeCameraPlugin extends Plugin {
     private void openCameraPermissionCallback(PluginCall call) {
         boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
+
         if (isGranted) {
             Log.d(TAG, "[openCameraPermissionCallback] Permission granted, starting camera");
             startCameraInternal(call);
         } else {
             boolean shouldShowRationale = getActivity().shouldShowRequestPermissionRationale(Manifest.permission.CAMERA);
-            Log.d(TAG, "[openCameraPermissionCallback] Permission denied, rationale: " + shouldShowRationale);
+            Log.d(TAG, "[openCameraPermissionCallback] Permission denied (shouldShowRationale=" + shouldShowRationale + ")");
             call.reject("Camera permission is required to take a photo. Please allow camera access.", shouldShowRationale ? "PERMISSION_DENIED" : "PERMISSION_PERMANENTLY_DENIED");
         }
     }
@@ -241,6 +309,9 @@ public class ScanMeCameraPlugin extends Plugin {
         );
     }
 
+    /**
+     * Closes the in-app CameraX preview and restores WebView background.
+     */
     @PluginMethod
     public void closeCamera(PluginCall call) {
         getActivity().runOnUiThread(() -> {
@@ -272,6 +343,10 @@ public class ScanMeCameraPlugin extends Plugin {
         }
     }
 
+    /**
+     * Takes picture using ImageCapture and returns Base64 dataUrl directly.
+     * Saved in internal cache directory (no external storage permissions needed).
+     */
     @PluginMethod
     public void capturePhoto(PluginCall call) {
         if (imageCapture == null || !isCameraOpen) {
@@ -286,7 +361,7 @@ public class ScanMeCameraPlugin extends Plugin {
         ImageCapture.OutputFileOptions outputOptions =
             new ImageCapture.OutputFileOptions.Builder(photoFile).build();
 
-        Log.d(TAG, "[capturePhoto] Taking picture to: " + photoFile.getAbsolutePath());
+        Log.d(TAG, "[capturePhoto] Taking picture to internal cache: " + photoFile.getAbsolutePath());
         imageCapture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(getContext()),
@@ -306,11 +381,15 @@ public class ScanMeCameraPlugin extends Plugin {
                         String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
                         String dataUrl = "data:image/jpeg;base64," + base64;
 
-                        Log.d(TAG, "[capturePhoto] Image saved and converted to dataUrl, bytes: " + bytes.length);
+                        // Clean up temporary cache file
+                        try {
+                            photoFile.delete();
+                        } catch (Exception ignored) {}
+
+                        Log.d(TAG, "[capturePhoto] Photo successfully captured, size bytes: " + bytes.length);
                         JSObject ret = new JSObject();
                         ret.put("success", true);
                         ret.put("dataUrl", dataUrl);
-                        ret.put("path", photoFile.getAbsolutePath());
                         ret.put("format", "jpeg");
                         call.resolve(ret);
                     } catch (Exception e) {
@@ -402,7 +481,10 @@ public class ScanMeCameraPlugin extends Plugin {
     @Override
     protected void handleOnResume() {
         super.handleOnResume();
-        if (isCameraOpen) {
+        boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED;
+        Log.d(TAG, "[handleOnResume] CAMERA granted: " + isGranted + ", isCameraOpen: " + isCameraOpen);
+        if (isCameraOpen && isGranted) {
             getActivity().runOnUiThread(this::bindCameraUseCases);
         }
     }
