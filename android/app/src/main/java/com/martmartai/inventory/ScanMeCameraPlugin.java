@@ -30,7 +30,8 @@ import com.getcapacitor.annotation.PermissionCallback;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.File;
-import java.nio.file.Files;
+import java.io.FileInputStream;
+import java.io.ByteArrayOutputStream;
 
 @CapacitorPlugin(
     name = "ScanMeCamera",
@@ -103,7 +104,6 @@ public class ScanMeCameraPlugin extends Plugin {
 
         getActivity().runOnUiThread(() -> {
             try {
-                // Remove any previous previewView
                 removePreviewView();
 
                 previewView = new PreviewView(getContext());
@@ -117,7 +117,6 @@ public class ScanMeCameraPlugin extends Plugin {
                 ViewGroup webViewParent = (ViewGroup) bridge.getWebView().getParent();
                 if (toBack) {
                     bridge.getWebView().setBackgroundColor(Color.TRANSPARENT);
-                    // Add PreviewView behind the WebView
                     webViewParent.addView(previewView, 0);
                 } else {
                     webViewParent.addView(previewView);
@@ -223,7 +222,15 @@ public class ScanMeCameraPlugin extends Plugin {
                 @Override
                 public void onImageSaved(@NonNull ImageCapture.OutputFileResults outputFileResults) {
                     try {
-                        byte[] bytes = Files.readAllBytes(photoFile.toPath());
+                        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                        try (FileInputStream fis = new FileInputStream(photoFile)) {
+                            byte[] chunk = new byte[8192];
+                            int bytesRead;
+                            while ((bytesRead = fis.read(chunk)) != -1) {
+                                buffer.write(chunk, 0, bytesRead);
+                            }
+                        }
+                        byte[] bytes = buffer.toByteArray();
                         String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
                         String dataUrl = "data:image/jpeg;base64," + base64;
 
@@ -302,6 +309,22 @@ public class ScanMeCameraPlugin extends Plugin {
             call.resolve(ret);
         } catch (Exception e) {
             call.reject("Failed to set flash mode: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    protected void handleOnPause() {
+        if (cameraProvider != null) {
+            cameraProvider.unbindAll();
+        }
+        super.handleOnPause();
+    }
+
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        if (isCameraOpen) {
+            getActivity().runOnUiThread(this::bindCameraUseCases);
         }
     }
 

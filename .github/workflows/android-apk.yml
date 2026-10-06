@@ -59,78 +59,24 @@ jobs:
           rm -rf android
           npx cap add android
 
-      - name: Install persistent ScanMe native camera bridge
-        run: |
-          set -e
-          mkdir -p android/app/src/main/java/com/martmartai/inventory
-          cp native/android/ScanMeCameraPlugin.java android/app/src/main/java/com/martmartai/inventory/ScanMeCameraPlugin.java
-          cp native/android/NativeDevicePlugin.java android/app/src/main/java/com/martmartai/inventory/NativeDevicePlugin.java
-          cp native/android/MainActivity.java android/app/src/main/java/com/martmartai/inventory/MainActivity.java
-
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("android/app/build.gradle")
-          s = p.read_text()
-          marker = "dependencies {"
-          deps = """dependencies {
-              implementation "androidx.camera:camera-core:1.4.1"
-              implementation "androidx.camera:camera-camera2:1.4.1"
-              implementation "androidx.camera:camera-lifecycle:1.4.1"
-              implementation "androidx.camera:camera-view:1.4.1"
-              implementation "androidx.lifecycle:lifecycle-runtime:2.8.7"
-          """
-          if marker not in s:
-              raise SystemExit("dependencies block not found")
-          s = s.replace(marker, deps, 1)
-          p.write_text(s)
-          PY
-
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("android/app/src/main/AndroidManifest.xml")
-          s = p.read_text()
-          manifest_start = s.find("<manifest")
-          if manifest_start < 0:
-              raise SystemExit("manifest root not found")
-          root_end = s.find(">", manifest_start)
-          if root_end < 0:
-              raise SystemExit("manifest root closing tag not found")
-
-          permission = '<uses-permission android:name="android.permission.CAMERA" />'
-          feature = '<uses-feature android:name="android.hardware.camera.any" android:required="false" />'
-
-          additions = []
-          if permission not in s:
-              additions.append(permission)
-          if feature not in s:
-              additions.append(feature)
-
-          if additions:
-              insertion = "\n    " + "\n    ".join(additions)
-              s = s[:root_end+1] + insertion + s[root_end+1:]
-
-          p.write_text(s)
-          PY
+      - name: Prepare native CameraX plugins and configuration
+        run: node scripts/prepare-android.js
 
       - name: Generate Android app icon and splash assets
         run: |
-          npx @capacitor/assets generate --android --assetPath assets             --iconBackgroundColor '#092B4C'             --iconBackgroundColorDark '#092B4C'             --splashBackgroundColor '#092B4C'             --splashBackgroundColorDark '#092B4C'
+          npx @capacitor/assets generate --android --assetPath assets \
+            --iconBackgroundColor '#092B4C' \
+            --iconBackgroundColorDark '#092B4C' \
+            --splashBackgroundColor '#092B4C' \
+            --splashBackgroundColorDark '#092B4C'
 
       - name: Sync Capacitor
-        run: npx cap sync android
-
-      - name: Verify native camera bridge
         run: |
-          set -e
-          test -f android/app/src/main/java/com/martmartai/inventory/ScanMeCameraPlugin.java
-          test -f android/app/src/main/java/com/martmartai/inventory/NativeDevicePlugin.java
-          test -f android/app/src/main/java/com/martmartai/inventory/MainActivity.java
-          grep -q 'registerPlugin(ScanMeCameraPlugin.class)' android/app/src/main/java/com/martmartai/inventory/MainActivity.java
-          grep -q 'registerPlugin(NativeDevicePlugin.class)' android/app/src/main/java/com/martmartai/inventory/MainActivity.java
-          grep -q 'androidx.camera:camera-core:1.4.1' android/app/build.gradle
-          grep -q 'android.permission.CAMERA' android/app/src/main/AndroidManifest.xml
-          grep -q '@CapacitorPlugin(name="ScanMeCamera"' android/app/src/main/java/com/martmartai/inventory/ScanMeCameraPlugin.java
-          grep -q '@CapacitorPlugin(' android/app/src/main/java/com/martmartai/inventory/NativeDevicePlugin.java
+          npx cap sync android
+          node scripts/prepare-android.js
+
+      - name: Validate Android project configuration
+        run: node scripts/validate-android.js
 
       - name: Verify live web sync configuration
         run: |
@@ -166,4 +112,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v0.1.${{ github.run_number }}"
-          gh release create "$TAG" android/app/build/outputs/apk/debug/app-debug.apk             --title "ScanMe AI Android ${TAG}"             --notes "ScanMe AI Android APK. Install on Android devices with APK installation enabled."             --latest
+          gh release create "$TAG" android/app/build/outputs/apk/debug/app-debug.apk \
+            --title "ScanMe AI Android ${TAG}" \
+            --notes "ScanMe AI Android APK with Native CameraX Integration. Install on Android devices with APK installation enabled." \
+            --latest

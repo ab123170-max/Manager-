@@ -3,23 +3,36 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
+import React, { useState, useRef, useEffect, ChangeEvent, useCallback } from 'react';
 import {
+  Camera,
   UploadCloud,
   Sparkles,
   Trash2,
   Plus,
-  AlertTriangle,
   Layers,
   Image as ImageIcon,
   ArrowRight,
   Info,
-  Camera,
-  RefreshCw,
+  RotateCcw,
+  Zap,
+  ZapOff,
+  X,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
+import {
+  isScanMeCameraNative,
+  openScanMeCamera,
+  closeScanMeCamera,
+  captureScanMePhoto,
+  switchScanMeCamera,
+  setScanMeFlashMode,
+  requestCameraPermission,
+} from '../../plugins/scanmeCamera';
 import { fileToBase64 } from '../../utils/imageEncoder';
 import { SampleDoc } from '../../types';
-import { ScanMeCamera } from '../../plugins/scanmeCamera';
 
 interface MultiShotProductScannerProps {
   onAnalyze: (images: string[]) => void;
@@ -43,12 +56,29 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'upload' | 'samples'>('upload');
+  const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'samples'>('camera');
   const [sampleDocs, setSampleDocs] = useState<SampleDoc[]>([]);
   const [showTips, setShowTips] = useState(false);
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraBusy, setCameraBusy] = useState(false);
+
+  // Native CameraX state
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [flashMode, setFlashMode] = useState<'auto' | 'on' | 'off' | 'torch'>('auto');
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [lastCapturedToast, setLastCapturedToast] = useState(false);
+
+  const isNative = isScanMeCameraNative();
+
+  // Clean shutdown of native camera when unmounting
+  useEffect(() => {
+    return () => {
+      if (isScanMeCameraNative()) {
+        closeScanMeCamera().catch(() => {});
+      }
+    };
+  }, []);
 
   // Dynamically load sample packaged products on-demand
   useEffect(() => {
@@ -59,40 +89,101 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
     }
   }, [activeTab, sampleDocs.length]);
 
-  const openNativeCamera = async () => {
-    if (capturedPhotos.length >= MAX_PHOTOS || cameraBusy) return;
-    setCameraBusy(true); setCameraError(null);
-    try {
-      await ScanMeCamera.requestCameraPermission();
-      await ScanMeCamera.openCamera({ facingMode: 'environment' });
-      setCameraOpen(true);
-    } catch (err) {
-      setCameraError(err instanceof Error ? err.message : 'Unable to open the in-app camera.');
-    } finally { setCameraBusy(false); }
-  };
+  const handleStartNativeCamera = useCallback(async () => {
+    if (!isNative) {
+      setActiveTab('upload');
+      return;
+    }
 
-  const captureNativePhoto = async () => {
-    if (cameraBusy) return;
-    setCameraBusy(true); setCameraError(null);
+    if (capturedPhotos.length >= MAX_PHOTOS) {
+      alert(`Maximum ${MAX_PHOTOS} photos reached. You can now analyze the product.`);
+      return;
+    }
+
+    setCameraError(null);
+    setCameraLoading(true);
+
     try {
-      const result = await ScanMeCamera.capturePhoto();
-      if (result?.dataUrl) setCapturedPhotos((prev) => [...prev, result.dataUrl].slice(0, MAX_PHOTOS));
-      if (capturedPhotos.length + 1 >= MAX_PHOTOS) {
-        await ScanMeCamera.closeCamera(); setCameraOpen(false);
+      const granted = await requestCameraPermission();
+      if (!granted) {
+        setCameraError('Camera permission is required to take a photo. Please allow camera access in Android settings.');
+        setCameraLoading(false);
+        return;
       }
+
+      const result = await openScanMeCamera({ facingMode, toBack: true });
+      if (result.success) {
+        setIsCameraActive(true);
+      }
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('[MultiShotProductScanner] open camera error:', error);
+      setCameraError(error.message || 'Failed to initialize CameraX.');
+    } finally {
+      setCameraLoading(false);
+    }
+  }, [isNative, capturedPhotos.length, facingMode]);
+
+  const handleCloseNativeCamera = useCallback(async () => {
+    try {
+      await closeScanMeCamera();
     } catch (err) {
-      setCameraError(err instanceof Error ? err.message : 'Photo capture failed.');
-    } finally { setCameraBusy(false); }
+      console.warn('[MultiShotProductScanner] close camera error:', err);
+    } finally {
+      setIsCameraActive(false);
+    }
+  }, []);
+
+  const handleCapturePhoto = async () => {
+    if (isCapturing || !isCameraActive) return;
+    setIsCapturing(true);
+    try {
+      const result = await captureScanMePhoto();
+      if (result && result.dataUrl) {
+        setCapturedPhotos((prev) => {
+          const next = [...prev, result.dataUrl];
+          if (next.length >= MAX_PHOTOS) {
+            handleCloseNativeCamera();
+          }
+          return next;
+        });
+
+        // Show brief success toast
+        setLastCapturedToast(true);
+        setTimeout(() => setLastCapturedToast(false), 1500);
+      }
+    } catch (err: unknown) {
+      const error = err as Error;
+      alert(`Capture failed: ${error.message || 'Please try again'}`);
+    } finally {
+      setIsCapturing(false);
+    }
   };
 
-  const closeNativeCamera = async () => {
-    try { await ScanMeCamera.closeCamera(); } catch {}
-    setCameraOpen(false);
+  const handleSwitchCamera = async () => {
+    try {
+      const result = await switchScanMeCamera();
+      if (result.success) {
+        setFacingMode(result.facingMode === 'user' ? 'user' : 'environment');
+      }
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.warn('[MultiShotProductScanner] switch camera error:', error);
+    }
   };
 
-  const switchNativeCamera = async () => {
-    try { await ScanMeCamera.switchCamera(); }
-    catch (err) { setCameraError(err instanceof Error ? err.message : 'Could not switch camera.'); }
+  const handleToggleFlash = async () => {
+    const modes: ('auto' | 'on' | 'off' | 'torch')[] = ['auto', 'on', 'torch', 'off'];
+    const nextMode = modes[(modes.indexOf(flashMode) + 1) % modes.length];
+    try {
+      const result = await setScanMeFlashMode(nextMode);
+      if (result.success) {
+        setFlashMode(nextMode);
+      }
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.warn('[MultiShotProductScanner] toggle flash error:', error);
+    }
   };
 
   const handleRemovePhoto = (index: number) => {
@@ -135,6 +226,9 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
 
   const handleStartAnalysis = () => {
     if (capturedPhotos.length === 0) return;
+    if (isCameraActive) {
+      handleCloseNativeCamera();
+    }
     onAnalyze(capturedPhotos);
   };
 
@@ -142,8 +236,6 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-
-
       {/* Top Header & Tab Controls */}
       <div className="p-3.5 sm:p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-50/50">
         <div>
@@ -166,27 +258,46 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
           </div>
           {showTips && (
             <p className="text-xs text-slate-600 mt-1.5 animate-in fade-in duration-150">
-              Upload 1 to {MAX_PHOTOS} photos of product packaging (Front, Dates, Best Before) for combined AI extraction.
+              Take or upload 1 to {MAX_PHOTOS} photos of product packaging (Front label, dates, best before) for AI extraction.
             </p>
           )}
         </div>
 
         {/* Source Mode Selector */}
         <div className="flex bg-slate-200/60 p-1 rounded-xl gap-1 self-start sm:self-auto">
+          {isNative && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('camera')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'camera'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5" /> Camera
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => setActiveTab('upload')}
+            onClick={() => {
+              if (isCameraActive) handleCloseNativeCamera();
+              setActiveTab('upload');
+            }}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'upload'
                 ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <UploadCloud className="w-3.5 h-3.5" /> Upload Photos
+            <UploadCloud className="w-3.5 h-3.5" /> Upload
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('samples')}
+            onClick={() => {
+              if (isCameraActive) handleCloseNativeCamera();
+              setActiveTab('samples');
+            }}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'samples'
                 ? 'bg-white text-slate-900 shadow-sm'
@@ -217,33 +328,141 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
           </div>
         )}
 
-        {cameraOpen && (
-          <div className="fixed inset-0 z-[9999] bg-black flex flex-col">
-            <div className="flex-1 relative min-h-0">
-              <div className="absolute top-0 left-0 right-0 z-10 p-4 flex justify-between items-center bg-gradient-to-b from-black/70 to-transparent">
-                <button type="button" onClick={closeNativeCamera} className="px-3 py-2 rounded-full bg-black/50 text-white text-xs font-semibold">Close</button>
-                <span className="text-white text-xs font-bold">ScanMe AI Camera</span>
-                <button type="button" onClick={switchNativeCamera} className="p-2 rounded-full bg-black/50 text-white"><RefreshCw className="w-5 h-5" /></button>
+        {/* 1. Android Native Camera Mode */}
+        {activeTab === 'camera' && (
+          <div className="space-y-3">
+            {isCameraActive ? (
+              <div className="relative aspect-[4/3] sm:aspect-[16/10] max-h-[440px] w-full bg-transparent rounded-2xl overflow-hidden border-2 border-emerald-500 flex flex-col justify-between p-4 shadow-xl">
+                {/* Top Controls Overlay */}
+                <div className="flex items-center justify-between z-10">
+                  <div className="bg-slate-950/70 text-white px-3 py-1.5 rounded-full text-xs font-bold backdrop-blur-md border border-white/10 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Shot #{capturedPhotos.length + 1} of {MAX_PHOTOS}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Toggle Flash */}
+                    <button
+                      type="button"
+                      onClick={handleToggleFlash}
+                      className="p-2 rounded-full bg-slate-950/70 hover:bg-slate-950 text-white backdrop-blur-md border border-white/10 transition-transform active:scale-95 cursor-pointer"
+                      title={`Flash: ${flashMode.toUpperCase()}`}
+                    >
+                      {flashMode === 'off' ? (
+                        <ZapOff className="w-4 h-4 text-slate-400" />
+                      ) : (
+                        <Zap className={`w-4 h-4 ${flashMode === 'torch' ? 'text-amber-400' : 'text-emerald-400'}`} />
+                      )}
+                    </button>
+
+                    {/* Switch Camera */}
+                    <button
+                      type="button"
+                      onClick={handleSwitchCamera}
+                      className="p-2 rounded-full bg-slate-950/70 hover:bg-slate-950 text-white backdrop-blur-md border border-white/10 transition-transform active:scale-95 cursor-pointer"
+                      title="Switch Camera (Front / Rear)"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+
+                    {/* Close Camera */}
+                    <button
+                      type="button"
+                      onClick={handleCloseNativeCamera}
+                      className="p-2 rounded-full bg-rose-600/80 hover:bg-rose-600 text-white backdrop-blur-md border border-white/10 transition-transform active:scale-95 cursor-pointer"
+                      title="Close Camera"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Viewfinder Boundary Guides */}
+                <div className="absolute inset-x-8 inset-y-16 border-2 border-dashed border-emerald-400/60 rounded-2xl pointer-events-none flex items-center justify-center">
+                  <div className="text-center px-4 py-1.5 rounded-lg bg-slate-950/60 text-white text-[11px] font-medium backdrop-blur-sm">
+                    Center product packaging label & dates
+                  </div>
+                </div>
+
+                {/* Shutter Capture Button Overlay */}
+                <div className="flex items-center justify-center z-10 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleCapturePhoto}
+                    disabled={isCapturing}
+                    className="w-16 h-16 rounded-full bg-white hover:bg-slate-100 border-4 border-emerald-500 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer disabled:opacity-50"
+                    title="Capture Photo"
+                  >
+                    {isCapturing ? (
+                      <Loader2 className="w-6 h-6 text-emerald-600 animate-spin" />
+                    ) : (
+                      <div className="w-11 h-11 rounded-full bg-emerald-500 flex items-center justify-center text-white">
+                        <Camera className="w-5 h-5" />
+                      </div>
+                    )}
+                  </button>
+                </div>
+
+                {/* Toast feedback when photo taken */}
+                {lastCapturedToast && (
+                  <div className="absolute top-16 inset-x-0 mx-auto w-max bg-emerald-600 text-white px-3.5 py-1 rounded-full text-xs font-bold shadow-lg flex items-center gap-1.5 animate-in fade-in zoom-in-95">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Photo captured!</span>
+                  </div>
+                )}
               </div>
-              <div className="absolute bottom-7 left-0 right-0 z-10 flex justify-center">
-                <button type="button" onClick={captureNativePhoto} disabled={cameraBusy} className="w-20 h-20 rounded-full border-4 border-white bg-white/20 shadow-2xl flex items-center justify-center active:scale-95 disabled:opacity-50">
-                  <span className="w-14 h-14 rounded-full bg-white" />
+            ) : (
+              <div className="p-8 rounded-2xl border border-slate-200 bg-slate-50 text-center space-y-4">
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-sm">
+                  <Camera className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Native In-App CameraX</h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+                    Take high-resolution photos of product packaging directly inside the app for AI product recognition and date extraction.
+                  </p>
+                </div>
+
+                {cameraError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2 text-left max-w-md mx-auto">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold">{cameraError}</p>
+                      <button
+                        type="button"
+                        onClick={handleStartNativeCamera}
+                        className="mt-1.5 text-xs font-bold text-rose-700 underline hover:text-rose-900 cursor-pointer"
+                      >
+                        Retry Camera Permission
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleStartNativeCamera}
+                  disabled={cameraLoading || disabled}
+                  className="py-3 px-6 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold shadow-md hover:shadow-lg transition-all inline-flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-60"
+                >
+                  {cameraLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Opening Camera...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-4 h-4 text-emerald-400" />
+                      <span>Open Camera & Take Photo</span>
+                    </>
+                  )}
                 </button>
               </div>
-              {cameraError && <div className="absolute bottom-28 left-4 right-4 z-20 p-3 rounded-xl bg-red-600/90 text-white text-xs text-center">{cameraError}</div>}
-            </div>
+            )}
           </div>
         )}
 
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <button type="button" onClick={openNativeCamera} disabled={disabled || cameraBusy || capturedPhotos.length >= MAX_PHOTOS} className="w-full py-4 rounded-xl bg-[#1473EA] text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50">
-            <Camera className="w-5 h-5" /> {cameraBusy ? 'Opening camera…' : 'Open Camera & Take Photo'}
-          </button>
-          {cameraError && !cameraOpen && <p className="mt-2 text-xs text-red-600 text-center">{cameraError}</p>}
-          <p className="mt-2 text-[11px] text-slate-600 text-center">Android APK: camera opens inside ScanMe AI. No browser camera or file picker is used.</p>
-        </div>
-
-        {/* 1. File Upload Mode */}
+        {/* 2. File Upload Mode */}
         {activeTab === 'upload' && (
           <div
             onClick={() => fileInputRef.current?.click()}
@@ -277,7 +496,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
           </div>
         )}
 
-        {/* 2. Sample Packaged Products */}
+        {/* 3. Sample Packaged Products */}
         {activeTab === 'samples' && (
           <div className="space-y-3">
             <p className="text-xs text-slate-500">
@@ -336,7 +555,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
           {/* Thumbnails Grid */}
           {capturedPhotos.length === 0 ? (
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 text-center text-xs text-slate-500">
-              No photos selected yet. Upload 1 to {MAX_PHOTOS} shots of the product packaging.
+              No photos captured yet. Take or upload 1 to {MAX_PHOTOS} shots of the product packaging.
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
@@ -370,7 +589,12 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
               {capturedPhotos.length < MAX_PHOTOS && (
                 <div
                   onClick={() => {
-                    fileInputRef.current?.click();
+                    if (isNative) {
+                      setActiveTab('camera');
+                      handleStartNativeCamera();
+                    } else {
+                      fileInputRef.current?.click();
+                    }
                   }}
                   className="rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/30 transition-all flex flex-col items-center justify-center p-2 text-center cursor-pointer aspect-square text-slate-500 hover:text-emerald-700"
                 >
