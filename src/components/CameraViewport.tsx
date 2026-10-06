@@ -25,6 +25,7 @@ import {
   switchScanMeCamera,
   setScanMeFlashMode,
   getCameraPermissionStatus,
+  requestCameraPermission,
 } from '../plugins/scanmeCamera';
 import {
   NativeCameraPermissionModal,
@@ -58,7 +59,7 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
 
   // Permission modal states
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
-  const [permissionModalInitialState, setPermissionModalInitialState] = useState<PermissionModalState>('explanation');
+  const [permissionModalInitialState, setPermissionModalInitialState] = useState<PermissionModalState>('denied');
 
   const isNative = isScanMeCameraNative();
 
@@ -104,24 +105,32 @@ export const CameraViewport: React.FC<CameraViewportProps> = ({
 
     try {
       const status = await getCameraPermissionStatus();
-      setCameraLoading(false);
+      console.log('[CameraViewport] initial permission status:', status);
 
       if (status === 'granted') {
         await launchCameraDirect();
-      } else if (status === 'prompt') {
-        setPermissionModalInitialState('explanation');
-        setIsPermissionModalOpen(true);
-      } else if (status === 'prompt-with-rationale') {
-        setPermissionModalInitialState('denied');
-        setIsPermissionModalOpen(true);
+      } else if (status === 'prompt' || status === 'prompt-with-rationale') {
+        const requestedStatus = await requestCameraPermission();
+        console.log('[CameraViewport] requested permission result:', requestedStatus);
+        if (requestedStatus === 'granted') {
+          await launchCameraDirect();
+        } else if (requestedStatus === 'prompt-with-rationale') {
+          setPermissionModalInitialState('denied');
+          setIsPermissionModalOpen(true);
+        } else {
+          setPermissionModalInitialState('permanently_denied');
+          setIsPermissionModalOpen(true);
+        }
       } else {
         setPermissionModalInitialState('permanently_denied');
         setIsPermissionModalOpen(true);
       }
     } catch (err) {
-      setCameraLoading(false);
-      setPermissionModalInitialState('explanation');
+      console.error('[CameraViewport] permission flow error:', err);
+      setPermissionModalInitialState('denied');
       setIsPermissionModalOpen(true);
+    } finally {
+      setCameraLoading(false);
     }
   }, [isNative, launchCameraDirect]);
 

@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.provider.Settings;
 import android.util.Base64;
+import android.util.Log;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
@@ -45,6 +46,8 @@ import java.io.ByteArrayOutputStream;
 )
 public class ScanMeCameraPlugin extends Plugin {
 
+    private static final String TAG = "ScanMeCameraPlugin";
+
     private ProcessCameraProvider cameraProvider;
     private PreviewView previewView;
     private ImageCapture imageCapture;
@@ -60,9 +63,22 @@ public class ScanMeCameraPlugin extends Plugin {
                 == PackageManager.PERMISSION_GRANTED;
         if (isGranted) {
             ret.put("camera", "granted");
+            Log.d(TAG, "[getPermissionStatus] CAMERA is granted");
         } else {
             boolean shouldShowRationale = getActivity().shouldShowRequestPermissionRationale(Manifest.permission.CAMERA);
-            ret.put("camera", shouldShowRationale ? "prompt-with-rationale" : "prompt");
+            if (shouldShowRationale) {
+                ret.put("camera", "prompt-with-rationale");
+                Log.d(TAG, "[getPermissionStatus] CAMERA prompt-with-rationale");
+            } else {
+                PermissionState state = getPermissionState("camera");
+                if (state == PermissionState.DENIED) {
+                    ret.put("camera", "denied");
+                    Log.d(TAG, "[getPermissionStatus] CAMERA permanently denied");
+                } else {
+                    ret.put("camera", "prompt");
+                    Log.d(TAG, "[getPermissionStatus] CAMERA prompt");
+                }
+            }
         }
         call.resolve(ret);
     }
@@ -77,6 +93,7 @@ public class ScanMeCameraPlugin extends Plugin {
             call.resolve(ret);
             return;
         }
+        Log.d(TAG, "[requestCameraPermission] Requesting native CAMERA permission");
         requestPermissionForAlias("camera", call, "permissionCallback");
     }
 
@@ -85,13 +102,21 @@ public class ScanMeCameraPlugin extends Plugin {
         JSObject ret = new JSObject();
         boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
-        ret.put("camera", isGranted ? "granted" : "denied");
+        if (isGranted) {
+            ret.put("camera", "granted");
+            Log.d(TAG, "[permissionCallback] CAMERA permission granted by user");
+        } else {
+            boolean shouldShowRationale = getActivity().shouldShowRequestPermissionRationale(Manifest.permission.CAMERA);
+            ret.put("camera", shouldShowRationale ? "prompt-with-rationale" : "denied");
+            Log.d(TAG, "[permissionCallback] CAMERA permission denied by user, rationale: " + shouldShowRationale);
+        }
         call.resolve(ret);
     }
 
     @PluginMethod
     public void openAppSettings(PluginCall call) {
         try {
+            Log.d(TAG, "[openAppSettings] Opening application details settings");
             Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
             Uri uri = Uri.fromParts("package", getContext().getPackageName(), null);
             intent.setData(uri);
@@ -101,6 +126,7 @@ public class ScanMeCameraPlugin extends Plugin {
             ret.put("success", true);
             call.resolve(ret);
         } catch (Exception e) {
+            Log.e(TAG, "[openAppSettings] Error opening settings: " + e.getMessage(), e);
             call.reject("Could not open settings: " + e.getMessage(), e);
         }
     }
@@ -110,6 +136,7 @@ public class ScanMeCameraPlugin extends Plugin {
         boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
         if (!isGranted) {
+            Log.d(TAG, "[openCamera] Permission not granted, requesting via alias");
             requestPermissionForAlias("camera", call, "openCameraPermissionCallback");
             return;
         }
@@ -121,9 +148,12 @@ public class ScanMeCameraPlugin extends Plugin {
         boolean isGranted = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_GRANTED;
         if (isGranted) {
+            Log.d(TAG, "[openCameraPermissionCallback] Permission granted, starting camera");
             startCameraInternal(call);
         } else {
-            call.reject("Camera permission is required to take a photo. Please allow camera access in Android settings.");
+            boolean shouldShowRationale = getActivity().shouldShowRequestPermissionRationale(Manifest.permission.CAMERA);
+            Log.d(TAG, "[openCameraPermissionCallback] Permission denied, rationale: " + shouldShowRationale);
+            call.reject("Camera permission is required to take a photo. Please allow camera access.", shouldShowRationale ? "PERMISSION_DENIED" : "PERMISSION_PERMANENTLY_DENIED");
         }
     }
 
@@ -166,11 +196,13 @@ public class ScanMeCameraPlugin extends Plugin {
                         bindCameraUseCases();
                         isCameraOpen = true;
 
+                        Log.d(TAG, "[startCameraInternal] CameraX preview successfully bound and active");
                         JSObject ret = new JSObject();
                         ret.put("success", true);
                         ret.put("facingMode", lensFacing == CameraSelector.LENS_FACING_FRONT ? "user" : "environment");
                         call.resolve(ret);
                     } catch (Exception e) {
+                        Log.e(TAG, "[startCameraInternal] Failed to initialize CameraX: " + e.getMessage(), e);
                         removePreviewView();
                         bridge.getWebView().setBackgroundColor(Color.WHITE);
                         call.reject("Failed to initialize CameraX: " + e.getMessage(), e);
@@ -178,6 +210,7 @@ public class ScanMeCameraPlugin extends Plugin {
                 }, ContextCompat.getMainExecutor(getContext()));
 
             } catch (Exception e) {
+                Log.e(TAG, "[startCameraInternal] Failed to setup camera view: " + e.getMessage(), e);
                 call.reject("Failed to setup camera view: " + e.getMessage(), e);
             }
         });
@@ -219,10 +252,12 @@ public class ScanMeCameraPlugin extends Plugin {
                 bridge.getWebView().setBackgroundColor(Color.WHITE);
                 isCameraOpen = false;
 
+                Log.d(TAG, "[closeCamera] Camera preview closed and unbound");
                 JSObject ret = new JSObject();
                 ret.put("success", true);
                 call.resolve(ret);
             } catch (Exception e) {
+                Log.e(TAG, "[closeCamera] Error closing camera: " + e.getMessage(), e);
                 call.reject("Failed to close camera: " + e.getMessage(), e);
             }
         });
@@ -240,6 +275,7 @@ public class ScanMeCameraPlugin extends Plugin {
     @PluginMethod
     public void capturePhoto(PluginCall call) {
         if (imageCapture == null || !isCameraOpen) {
+            Log.w(TAG, "[capturePhoto] Camera is not open");
             call.reject("Camera is not open. Please open camera first.");
             return;
         }
@@ -250,6 +286,7 @@ public class ScanMeCameraPlugin extends Plugin {
         ImageCapture.OutputFileOptions outputOptions =
             new ImageCapture.OutputFileOptions.Builder(photoFile).build();
 
+        Log.d(TAG, "[capturePhoto] Taking picture to: " + photoFile.getAbsolutePath());
         imageCapture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(getContext()),
@@ -269,6 +306,7 @@ public class ScanMeCameraPlugin extends Plugin {
                         String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
                         String dataUrl = "data:image/jpeg;base64," + base64;
 
+                        Log.d(TAG, "[capturePhoto] Image saved and converted to dataUrl, bytes: " + bytes.length);
                         JSObject ret = new JSObject();
                         ret.put("success", true);
                         ret.put("dataUrl", dataUrl);
@@ -276,12 +314,14 @@ public class ScanMeCameraPlugin extends Plugin {
                         ret.put("format", "jpeg");
                         call.resolve(ret);
                     } catch (Exception e) {
+                        Log.e(TAG, "[capturePhoto] Error processing captured image: " + e.getMessage(), e);
                         call.reject("Failed to process captured image: " + e.getMessage(), e);
                     }
                 }
 
                 @Override
                 public void onError(@NonNull ImageCaptureException exception) {
+                    Log.e(TAG, "[capturePhoto] takePicture error: " + exception.getMessage(), exception);
                     call.reject("Photo capture failed: " + exception.getMessage(), exception);
                 }
             }
@@ -302,11 +342,13 @@ public class ScanMeCameraPlugin extends Plugin {
         getActivity().runOnUiThread(() -> {
             try {
                 bindCameraUseCases();
+                Log.d(TAG, "[switchCamera] Switched lensFacing to: " + lensFacing);
                 JSObject ret = new JSObject();
                 ret.put("success", true);
                 ret.put("facingMode", lensFacing == CameraSelector.LENS_FACING_FRONT ? "user" : "environment");
                 call.resolve(ret);
             } catch (Exception e) {
+                Log.e(TAG, "[switchCamera] Failed to switch camera: " + e.getMessage(), e);
                 call.reject("Failed to switch camera: " + e.getMessage(), e);
             }
         });
@@ -338,11 +380,13 @@ public class ScanMeCameraPlugin extends Plugin {
                 if (imageCapture != null) imageCapture.setFlashMode(currentFlashMode);
             }
 
+            Log.d(TAG, "[setFlashMode] Set flash mode to: " + mode);
             JSObject ret = new JSObject();
             ret.put("success", true);
             ret.put("flashMode", mode);
             call.resolve(ret);
         } catch (Exception e) {
+            Log.e(TAG, "[setFlashMode] Failed to set flash mode: " + e.getMessage(), e);
             call.reject("Failed to set flash mode: " + e.getMessage(), e);
         }
     }

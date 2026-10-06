@@ -29,6 +29,7 @@ import {
   switchScanMeCamera,
   setScanMeFlashMode,
   getCameraPermissionStatus,
+  requestCameraPermission,
 } from '../../plugins/scanmeCamera';
 import {
   NativeCameraPermissionModal,
@@ -73,7 +74,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
 
   // Native Camera Permission Modal State
   const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
-  const [permissionModalInitialState, setPermissionModalInitialState] = useState<PermissionModalState>('explanation');
+  const [permissionModalInitialState, setPermissionModalInitialState] = useState<PermissionModalState>('denied');
 
   const isNative = isScanMeCameraNative();
 
@@ -126,30 +127,40 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
     setCameraLoading(true);
 
     try {
-      // 1. Check real Android permission status
+      // 1. Check real Android CAMERA permission state
       const status = await getCameraPermissionStatus();
-      setCameraLoading(false);
+      console.log('[MultiShotProductScanner] initial permission status:', status);
 
       if (status === 'granted') {
-        // Already granted: immediately launch camera
+        // Already granted: immediately launch in-app camera
         await launchCameraDirect();
-      } else if (status === 'prompt') {
-        // First time: show explanation popup
-        setPermissionModalInitialState('explanation');
-        setIsPermissionModalOpen(true);
-      } else if (status === 'prompt-with-rationale') {
-        // Denied previously with rationale: show Try Again & Settings
-        setPermissionModalInitialState('denied');
-        setIsPermissionModalOpen(true);
+      } else if (status === 'prompt' || status === 'prompt-with-rationale') {
+        // First time or temporarily denied: trigger native Android system dialog directly
+        const requestedStatus = await requestCameraPermission();
+        console.log('[MultiShotProductScanner] requested permission result:', requestedStatus);
+        if (requestedStatus === 'granted') {
+          // Granted by user in system dialog: automatically open camera immediately!
+          await launchCameraDirect();
+        } else if (requestedStatus === 'prompt-with-rationale') {
+          // Denied by user: show in-app modal with Try Again / Settings
+          setPermissionModalInitialState('denied');
+          setIsPermissionModalOpen(true);
+        } else {
+          // Permanently denied (Don't ask again): show in-app modal with Open Settings
+          setPermissionModalInitialState('permanently_denied');
+          setIsPermissionModalOpen(true);
+        }
       } else {
-        // Permanently denied: show Open Settings
+        // Permanently denied
         setPermissionModalInitialState('permanently_denied');
         setIsPermissionModalOpen(true);
       }
     } catch (err) {
-      setCameraLoading(false);
-      setPermissionModalInitialState('explanation');
+      console.error('[MultiShotProductScanner] permission error:', err);
+      setPermissionModalInitialState('denied');
       setIsPermissionModalOpen(true);
+    } finally {
+      setCameraLoading(false);
     }
   }, [isNative, capturedPhotos.length, launchCameraDirect]);
 

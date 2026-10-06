@@ -7,7 +7,7 @@ import {
   handleRegisterInstallation,
   handleTrackEvent,
   recordDownloadEvent,
-} from "./analyticsHandlers";
+} from "./_analyticsHandlers";
 
 export default async function handler(req: any, res: any) {
   if (req.method === "OPTIONS") {

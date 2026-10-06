@@ -25,12 +25,12 @@ import {
   handleSaveProfile,
   handleUploadAvatar,
   handleGetAvatar,
-} from "./api/authHandlers";
+} from "./api/_authHandlers";
 import {
   handleGetStats,
   handleRegisterInstallation,
   handleTrackEvent,
-} from "./api/analyticsHandlers";
+} from "./api/_analyticsHandlers";
 import downloadApkHandler from "./api/download-apk";
 
 dotenv.config();

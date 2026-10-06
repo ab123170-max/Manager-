@@ -4,14 +4,14 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Camera, ShieldAlert, Settings, RotateCcw, X, Loader2, CheckCircle2 } from 'lucide-react';
+import { Camera, ShieldAlert, Settings, RotateCcw, X, Loader2 } from 'lucide-react';
 import {
   getCameraPermissionStatus,
   requestCameraPermission,
   openCameraAppSettings,
 } from '../../plugins/scanmeCamera';
 
-export type PermissionModalState = 'explanation' | 'denied' | 'permanently_denied';
+export type PermissionModalState = 'denied' | 'permanently_denied';
 
 interface NativeCameraPermissionModalProps {
   isOpen: boolean;
@@ -22,7 +22,7 @@ interface NativeCameraPermissionModalProps {
 
 export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalProps> = ({
   isOpen,
-  initialState = 'explanation',
+  initialState = 'denied',
   onPermissionGranted,
   onClose,
 }) => {
@@ -33,12 +33,17 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
     setModalState(initialState);
   }, [initialState, isOpen]);
 
-  // Check real Android permission when window regains focus (e.g., returning from Settings)
+  // Check real Android permission when app regains focus or visibility (e.g. returning from Android Settings)
   const verifyPermissionState = useCallback(async () => {
     if (!isOpen) return;
-    const status = await getCameraPermissionStatus();
-    if (status === 'granted') {
-      onPermissionGranted();
+    try {
+      const status = await getCameraPermissionStatus();
+      console.log('[NativeCameraPermissionModal] verifyPermissionState on focus/resume:', status);
+      if (status === 'granted') {
+        onPermissionGranted();
+      }
+    } catch (err) {
+      console.warn('[NativeCameraPermissionModal] permission check on resume error:', err);
     }
   }, [isOpen, onPermissionGranted]);
 
@@ -62,6 +67,7 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
     setIsRequesting(true);
     try {
       const status = await requestCameraPermission();
+      console.log('[NativeCameraPermissionModal] request result:', status);
       if (status === 'granted') {
         onPermissionGranted();
       } else if (status === 'prompt-with-rationale') {
@@ -70,7 +76,7 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
         setModalState('permanently_denied');
       }
     } catch (err) {
-      console.warn('[CameraPermissionModal] request error:', err);
+      console.warn('[NativeCameraPermissionModal] request error:', err);
       setModalState('denied');
     } finally {
       setIsRequesting(false);
@@ -96,18 +102,18 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
           <X className="w-5 h-5" />
         </button>
 
-        {/* State 1: Explanation Popup (First Time) */}
-        {modalState === 'explanation' && (
+        {/* State 1: Denied (Temporarily) */}
+        {modalState === 'denied' && (
           <>
-            <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm">
-              <Camera className="w-8 h-8" />
+            <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shadow-sm">
+              <ShieldAlert className="w-8 h-8" />
             </div>
             <div className="space-y-1.5">
               <h3 className="text-lg font-black text-slate-900">
-                Camera Access Needed
+                Camera Permission Needed
               </h3>
               <p className="text-xs leading-relaxed text-slate-600">
-                ScanMe AI uses your camera to scan product barcodes, packaging labels, and expiry dates directly inside the app.
+                Camera permission is required to scan products and barcodes directly inside the app.
               </p>
             </div>
             <div className="w-full pt-2 flex flex-col gap-2">
@@ -124,59 +130,15 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
                   </>
                 ) : (
                   <>
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Allow Camera</span>
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-all"
-              >
-                Not Now
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* State 2: Denied */}
-        {modalState === 'denied' && (
-          <>
-            <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shadow-sm">
-              <ShieldAlert className="w-8 h-8" />
-            </div>
-            <div className="space-y-1.5">
-              <h3 className="text-lg font-black text-slate-900">
-                Permission Required
-              </h3>
-              <p className="text-xs leading-relaxed text-slate-600">
-                Camera permission is required to scan products and barcodes.
-              </p>
-            </div>
-            <div className="w-full pt-2 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={handleRequestPermission}
-                disabled={isRequesting}
-                className="w-full py-3.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold shadow-md active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-              >
-                {isRequesting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Requesting...</span>
-                  </>
-                ) : (
-                  <>
                     <RotateCcw className="w-4 h-4" />
-                    <span>Try Again</span>
+                    <span>Allow Camera Access</span>
                   </>
                 )}
               </button>
               <button
                 type="button"
                 onClick={handleOpenSettings}
-                className="w-full py-2.5 px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5"
+                className="w-full py-2.5 px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Settings className="w-3.5 h-3.5 text-slate-500" />
                 <span>Open Settings</span>
@@ -185,7 +147,7 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
           </>
         )}
 
-        {/* State 3: Permanently Denied */}
+        {/* State 2: Permanently Denied */}
         {modalState === 'permanently_denied' && (
           <>
             <div className="w-16 h-16 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shadow-sm">
@@ -193,7 +155,7 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
             </div>
             <div className="space-y-1.5">
               <h3 className="text-lg font-black text-slate-900">
-                Camera Disabled
+                Camera Access Disabled
               </h3>
               <p className="text-xs leading-relaxed text-slate-600">
                 Camera permission is disabled. Please enable Camera permission in Android Settings to use ScanMe AI.
@@ -206,12 +168,12 @@ export const NativeCameraPermissionModal: React.FC<NativeCameraPermissionModalPr
                 className="w-full py-3.5 px-4 rounded-xl bg-[#1473EA] hover:bg-blue-600 text-white text-sm font-bold shadow-md shadow-blue-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Settings className="w-4 h-4" />
-                <span>Open Settings</span>
+                <span>Open Android Settings</span>
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-all"
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition-all cursor-pointer"
               >
                 Cancel
               </button>

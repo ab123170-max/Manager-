@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { recordDownloadEvent } from "./analyticsHandlers";
+import { recordDownloadEvent } from "./_analyticsHandlers";
 
 const APK_URL =
   'https://github.com/ab123170-max/Manager-/releases/latest/download/app-debug.apk';
