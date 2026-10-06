@@ -205,8 +205,8 @@ const GoogleSheetsSyncModal = lazy(() =>
 
 export default function App() {
   // Authentication & View Mode State
-  const [isAuthInitializing, setIsAuthInitializing] = useState<boolean>(true);
-  const [session, setSession] = useState<AuthSession | null>(() => authService.getSession());
+  const [isAuthInitializing] = useState<boolean>(false);
+  const [session] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot_password'>('login');
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isEditingProfileModal, setIsEditingProfileModal] = useState(false);
@@ -214,7 +214,7 @@ export default function App() {
   const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
   const [isCustomerMessagingOpen, setIsCustomerMessagingOpen] = useState(false);
   const [isInfoHelpOpen, setIsInfoHelpOpen] = useState(false);
-  const [rootMode, setRootMode] = useState<AppRootMode>('landing');
+  const [rootMode] = useState<AppRootMode>('dashboard');
   const [currentPath, setCurrentPath] = useState<string>(() => {
     return typeof window !== 'undefined' ? window.location.pathname : '/';
   });
@@ -235,142 +235,7 @@ export default function App() {
     }
   };
 
-  // 1. App Startup: Check existing Supabase session and subscribe to auth state changes
-  useEffect(() => {
-    let isMounted = true;
-
-    const startupSessionCheck = async () => {
-      try {
-        const restoredSession = await authService.initAuthSession();
-        if (!isMounted) return;
-
-        const isRecovery = typeof window !== 'undefined' && window.location.hash.includes('type=recovery');
-
-        if (isRecovery) {
-          // Password recovery is a special authenticated Supabase session.
-          // Keep the user on the reset-password form instead of opening Home.
-          setSession(null);
-          setAuthMode('forgot_password');
-          setRootMode('auth');
-        } else if (restoredSession && restoredSession.user) {
-          setSession(restoredSession);
-          setRootMode('dashboard');
-        } else {
-          // No active Supabase session: always start in Sign In.
-          // The new-user form is only reachable when the user explicitly
-          // chooses Create Account / Sign Up from the authentication screen.
-          setSession(null);
-          const path = typeof window !== 'undefined' ? window.location.pathname : '/';
-
-          if (path === '/signup') {
-            setAuthMode('signup');
-            setRootMode('auth');
-          } else if (path === '/forgot-password' || path === '/reset-password') {
-            setAuthMode('forgot_password');
-            setRootMode('auth');
-          } else if (path === '/login') {
-            setAuthMode('login');
-            setRootMode('auth');
-          } else {
-            // New/unauthenticated visitors always start on the public Home page.
-            // Sign In is opened only when the user explicitly chooses Login.
-            setAuthMode('login');
-            setRootMode('landing');
-          }
-        }
-      } catch (err) {
-        console.warn('[App] Startup auth verification error:', err);
-        if (isMounted) {
-          // If startup verification fails, never expose the new-user form.
-          // Fall back safely to the Sign In screen.
-          setSession(null);
-          setAuthMode('login');
-          setRootMode('auth');
-        }
-      } finally {
-        if (isMounted) {
-          setIsAuthInitializing(false);
-        }
-      }
-    };
-
-    startupSessionCheck();
-
-    const unsubAuth = subscribeAuth((newSession) => {
-      if (!isMounted) return;
-      setSession(newSession);
-      if (newSession && newSession.user) {
-        setRootMode('dashboard');
-      } else {
-        setSession(null);
-        setAuthMode('login');
-        setRootMode((prev) => (prev === 'dashboard' ? 'auth' : prev));
-      }
-    });
-
-    const unsubRecovery = subscribePasswordRecovery((isRecovery) => {
-      if (!isMounted) return;
-
-      if (isRecovery) {
-        // Never let PASSWORD_RECOVERY fall through to the dashboard.
-        setSession(null);
-        setAuthMode('forgot_password');
-        setRootMode('auth');
-        setCurrentPath('/reset-password');
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      unsubAuth();
-      unsubRecovery();
-    };
-  }, []);
-
-  // 2. Centralized Route Guard
-  useEffect(() => {
-    if (isAuthInitializing) return;
-
-    const authenticatedRoutes = ['/home', '/dashboard', '/inventory', '/scanner', '/reports'];
-    const authRoutes = ['/login', '/signup', '/forgot-password', '/reset-password'];
-
-    // A recovery session must always stay on the password-reset screen.
-    const isRecovery = typeof window !== 'undefined' && window.location.hash.includes('type=recovery');
-    if (isRecovery) {
-      if (currentPath !== '/reset-password') {
-        if (typeof window !== 'undefined') {
-          window.history.replaceState(null, '', '/reset-password');
-          setCurrentPath('/reset-password');
-        }
-      }
-      setAuthMode('forgot_password');
-      setRootMode('auth');
-      return;
-    }
-
-    if (session && session.user) {
-      // Authenticated user
-      if (authRoutes.includes(currentPath)) {
-        if (typeof window !== 'undefined') {
-          window.history.replaceState(null, '', '/');
-          setCurrentPath('/');
-        }
-        setRootMode('dashboard');
-      }
-    } else {
-      // Unauthenticated user
-      if (authenticatedRoutes.includes(currentPath)) {
-        if (typeof window !== 'undefined') {
-          window.history.replaceState(null, '', '/login');
-          setCurrentPath('/login');
-        }
-        setAuthMode('login');
-        setRootMode('auth');
-      }
-    }
-  }, [session, currentPath, isAuthInitializing]);
-
-  // Navigation State
+  // Anonymous mode: no authentication or profile startup.\n  // Navigation State
   const [navState, setNavState] = useState<AppNavigationState>({
     activeSection: 'scanner',
     activeSubView: 'scan_product',
@@ -703,63 +568,7 @@ export default function App() {
     handleNavigate('inventory_out', 'stock_out');
   };
 
-  // Authentication & Onboarding Navigation Handlers
-  const handleLandingGetStarted = () => {
-    setAuthMode('signup');
-    setRootMode('auth');
-    if (typeof window !== 'undefined') {
-      window.history.pushState(null, '', '/signup');
-      setCurrentPath('/signup');
-    }
-  };
-
-  const handleLandingLogin = () => {
-    setAuthMode('login');
-    setRootMode('auth');
-    if (typeof window !== 'undefined') {
-      window.history.pushState(null, '', '/login');
-      setCurrentPath('/login');
-    }
-  };
-
-  const handleOnboardingFinish = () => {
-    setIsOnboardingOpen(false);
-    setAuthMode('login');
-    setRootMode('auth');
-  };
-
-  const handleAuthSuccess = (newSession: AuthSession, isNewUser: boolean) => {
-    setSession(newSession);
-    setRootMode('dashboard');
-    if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', '/');
-      setCurrentPath('/');
-    }
-  };
-
-  const handleProfileSaved = (savedProfile: UserProfile) => {
-    if (session) {
-      setSession({
-        ...session,
-        profile: savedProfile,
-      });
-    }
-    setIsEditingProfileModal(false);
-    setRootMode('dashboard');
-  };
-
-  const handleLogout = async () => {
-    await authService.logout();
-    setSession(null);
-    setAuthMode('login');
-    setRootMode('auth');
-    if (typeof window !== 'undefined') {
-      window.history.pushState(null, '', '/login');
-      setCurrentPath('/login');
-    }
-  };
-
-  // ---------------------------------------------------------------------------
+  // Authentication/profile handlers are disabled in anonymous mode.\n  const handleLandingGetStarted = () => {};\n  const handleLandingLogin = () => {};\n  const handleOnboardingFinish = () => setIsOnboardingOpen(false);\n  const handleAuthSuccess = () => {};\n  const handleProfileSaved = () => setIsEditingProfileModal(false);\n  const handleLogout = async () => {};\n\n  // ---------------------------------------------------------------------------
   // 0. Auth Initializing Splash State (Prevents Startup Authentication Flickering)
   // ---------------------------------------------------------------------------
   if (isAuthInitializing) {
@@ -779,122 +588,7 @@ export default function App() {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // 1. Landing Page & Public SEO Pages (Unauthenticated Users)
-  // ---------------------------------------------------------------------------
-  if (rootMode === 'landing') {
-    let publicContent: React.ReactNode;
-
-    if (currentPath === '/share-app') {
-      publicContent = <PublicShareAppPage onNavigatePath={handlePublicNavigate} />;
-    } else if (currentPath === '/grocery-inventory-management') {
-      publicContent = <PublicIndustryInventoryPage kind="grocery" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
-    } else if (currentPath === '/pharmacy-inventory-management') {
-      publicContent = <PublicIndustryInventoryPage kind="pharmacy" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
-    } else if (currentPath === '/restaurant-inventory-management') {
-      publicContent = <PublicIndustryInventoryPage kind="restaurant" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
-    } else if (currentPath === '/hotel-inventory-management') {
-      publicContent = <PublicIndustryInventoryPage kind="hotel" onNavigatePath={handlePublicNavigate} onLaunchApp={handleLandingGetStarted} onLogin={handleLandingLogin} />;
-    } else if (currentPath === '/ai-product-scanner') {
-      publicContent = (
-        <PublicAiScannerPage
-          onNavigatePath={handlePublicNavigate}
-          onLaunchApp={handleLandingGetStarted}
-          onLogin={handleLandingLogin}
-        />
-      );
-    } else if (currentPath === '/barcode-scanner') {
-      publicContent = (
-        <PublicBarcodeScannerPage
-          onNavigatePath={handlePublicNavigate}
-          onLaunchApp={handleLandingGetStarted}
-          onLogin={handleLandingLogin}
-        />
-      );
-    } else if (currentPath === '/expiry-date-scanner') {
-      publicContent = (
-        <PublicExpiryDatePage
-          onNavigatePath={handlePublicNavigate}
-          onLaunchApp={handleLandingGetStarted}
-          onLogin={handleLandingLogin}
-        />
-      );
-    } else if (currentPath === '/inventory-management') {
-      publicContent = (
-        <PublicInventoryManagementPage
-          onNavigatePath={handlePublicNavigate}
-          onLaunchApp={handleLandingGetStarted}
-          onLogin={handleLandingLogin}
-        />
-      );
-    } else if (currentPath === '/faq') {
-      publicContent = (
-        <PublicFaqPage
-          onNavigatePath={handlePublicNavigate}
-          onLaunchApp={handleLandingGetStarted}
-          onLogin={handleLandingLogin}
-        />
-      );
-    } else {
-      publicContent = (
-        <LandingPage
-          onGetStarted={handleLandingGetStarted}
-          onLogin={handleLandingLogin}
-          onNavigatePath={handlePublicNavigate}
-        />
-      );
-    }
-
-    return (
-      <Suspense fallback={<ViewLoadingSkeleton label="Loading ScanMe AI..." />}>
-        {publicContent}
-        <OnboardingModal
-          isOpen={isOnboardingOpen}
-          onClose={() => setIsOnboardingOpen(false)}
-          onFinish={handleOnboardingFinish}
-        />
-      </Suspense>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // 2. Authentication View (Login & Signup)
-  // ---------------------------------------------------------------------------
-  if (rootMode === 'auth') {
-    return (
-      <Suspense fallback={<ViewLoadingSkeleton label="Loading Authentication..." />}>
-        <AuthScreen
-          initialMode={authMode}
-          onSuccess={handleAuthSuccess}
-          onBackToLanding={() => setRootMode('landing')}
-        />
-      </Suspense>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // 3. User Profile Setup View (First-time or incomplete profiles)
-  // ---------------------------------------------------------------------------
-  if (rootMode === 'profile_setup') {
-    return (
-      <Suspense fallback={<ViewLoadingSkeleton label="Loading Profile Setup..." />}>
-        {session?.user ? (
-          <ProfileSetupView
-            user={session.user}
-            initialProfile={session.profile}
-            isInitialSetup={true}
-            onProfileSaved={handleProfileSaved}
-          />
-        ) : (
-          <div className="min-h-screen flex items-center justify-center bg-[#F5F7FA]">
-            <ViewLoadingSkeleton label="Initializing account session..." />
-          </div>
-        )}
-      </Suspense>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
+  // Anonymous app: skip landing/auth/profile gates and render dashboard directly.\n\n  // ---------------------------------------------------------------------------
   // 4. Main App Dashboard (Existing complete workflow)
   // ---------------------------------------------------------------------------
   return (
