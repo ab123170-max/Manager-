@@ -565,6 +565,7 @@ export async function handleExtractForm(req: any, res: any) {
       mimeType = "image/jpeg",
       apiKey,
       localOcrCues,
+      strictZeroHallucination,
     } = body;
 
     const inputImages: Array<{ imageBase64: string; mimeType?: string }> = [];
@@ -642,7 +643,11 @@ Raw Text Lines: ${(localOcrCues.rawTextLines || []).slice(0, 10).join(" | ") || 
 `
       : "";
 
-    const prompt = `You are an expert PRODUCT SCANNER & PACKAGING VISION SUPERVISOR with automatic Language, Currency, and Unit recognition.
+    const prompt = `${
+      strictZeroHallucination
+        ? "STRICT ZERO-HALLUCINATION INSTRUCTION: Extract ONLY data directly, clearly, and unambiguously printed on the product packaging. If any field (MFD, EXP, Price, Barcode, or Product Name) is obscured, blurry, or missing, leave it empty (empty string or null) with low confidence. DO NOT fabricate, guess, or hallucinate any dates, prices, or product names.\n\n"
+        : ""
+    }You are an expert PRODUCT SCANNER & PACKAGING VISION SUPERVISOR with automatic Language, Currency, and Unit recognition.
 Analyze the provided ${
       isMultiPhoto
         ? `${cleanImages.length} synchronized images of the SAME product (e.g., front face, manufacture/expiry panel, price tag, back/side label)`

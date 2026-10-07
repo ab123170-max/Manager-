@@ -146,7 +146,8 @@ public class NativeDevicePlugin extends Plugin {
         }
 
         String language = call.getString("language", "en-US");
-        float rate = (float) call.getDouble("rate", 1.0);
+        Double rateVal = call.getDouble("rate", 1.0);
+        float rate = rateVal != null ? rateVal.floatValue() : 1.0f;
 
         if (textToSpeech == null) {
             textToSpeech = new TextToSpeech(getContext(), status -> {

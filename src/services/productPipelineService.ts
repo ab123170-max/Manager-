@@ -6,6 +6,7 @@
 import { SavedInventoryItem, StockTransaction, ProductScanResult } from '../types';
 import { extractProduct5FieldsFromImages } from './geminiService';
 import { trackProductScanned } from './analyticsService';
+import { RetryManager, RetryProgressCallback, RetryExecutionResult } from './extraction/RetryManager';
 import {
   getProducts,
   saveProduct,
@@ -16,20 +17,36 @@ import { parseProductDate, validateProductDates, calculateExpiryDate } from '../
 
 /**
  * 1. extractProduct()
- * Reusable function to extract product information from captured images.
+ * Reusable function to extract product information from captured images with automatic extraction retry engine.
  */
-export async function extractProduct(images: string[]): Promise<ProductScanResult> {
+export async function extractProduct(
+  images: string[],
+  fullFrames?: string[],
+  onProgress?: RetryProgressCallback
+): Promise<ProductScanResult> {
   if (!images || images.length === 0) {
     throw new Error('No images provided for product extraction.');
   }
-  const result = await extractProduct5FieldsFromImages(images);
-  if (result && (result.productName || result.expiryDate)) {
+
+  const retryResult: RetryExecutionResult = await RetryManager.executeWithRetry(
+    images,
+    fullFrames,
+    onProgress
+  );
+
+  if (retryResult.finalResult && (retryResult.finalResult.productName || retryResult.finalResult.expiryDate)) {
     trackProductScanned({
       photosCount: images.length,
-      productName: result.productName || '',
+      productName: retryResult.finalResult.productName || '',
     });
+    return retryResult.finalResult;
   }
-  return result;
+
+  if (retryResult.finalResult) {
+    return retryResult.finalResult;
+  }
+
+  throw new Error(retryResult.lastError || 'Extraction failed after maximum retry attempts.');
 }
 
 /**

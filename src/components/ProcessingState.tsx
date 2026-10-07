@@ -18,25 +18,31 @@ import {
 interface ProcessingStateProps {
   imagePreview: string | null;
   error?: string | null;
+  statusMessage?: string | null;
+  currentAttempt?: number;
   onRetry?: () => void;
   onCancel?: () => void;
+  onManualEdit?: () => void;
 }
 
 export const ProcessingState: React.FC<ProcessingStateProps> = ({
   imagePreview,
   error,
+  statusMessage = 'Reading product…',
+  currentAttempt = 1,
   onRetry,
   onCancel,
+  onManualEdit,
 }) => {
   const [activeStep, setActiveStep] = useState(0);
 
-  // Multi-step scanning pipeline
+  // Multi-step scanning pipeline mapped to retry steps
   const pipelineSteps = [
-    { title: 'Image Enhancement', desc: 'Optimizing contrast and sharpness' },
-    { title: 'Label Extraction', desc: 'Detecting date markings and text cues' },
-    { title: 'Vision Verification', desc: 'Validating package dates and codes' },
-    { title: 'Field Mapping', desc: 'Resolving product name, batch, and dates' },
-    { title: 'Accuracy Check', desc: 'Applying date validation formulas' },
+    { title: 'Reading product…', desc: 'Attempt 1: Extracting with primary crop' },
+    { title: 'Enhancing image…', desc: 'Attempt 2: Contrast, sharpness & noise reduction' },
+    { title: 'Checking label…', desc: 'Attempt 3: Smart recrop & text region focus' },
+    { title: 'Trying another crop…', desc: 'Attempt 4: Full-frame fallback verification' },
+    { title: 'Final verification…', desc: 'Attempt 5: Strict zero-hallucination validation' },
   ];
 
   useEffect(() => {
@@ -166,11 +172,11 @@ export const ProcessingState: React.FC<ProcessingStateProps> = ({
           <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
         </div>
         <h3 className="text-base font-bold text-slate-900 flex items-center justify-center gap-2">
-          <span>Analyzing Product Package...</span>
+          <span>{statusMessage || 'Analyzing Product Package...'}</span>
           <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
         </h3>
-        <p className="text-xs text-slate-500 max-w-sm mx-auto">
-          Reading label stamps, expiry markings, and product details.
+        <p className="text-xs font-semibold text-indigo-600 max-w-sm mx-auto bg-indigo-50 py-1 px-3 rounded-full border border-indigo-100 w-max">
+          Attempt {currentAttempt} of 5 — Automatic Retry Active
         </p>
       </div>
 

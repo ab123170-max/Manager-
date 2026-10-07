@@ -42,6 +42,8 @@ import { SliderPageWrapper } from './components/slider/SliderPageWrapper';
 import { AdSenseUnit } from './components/ads/AdSenseUnit';
 import { StartupSplash } from './components/common/StartupSplash';
 import { formatUserFriendlyError } from './config/apiConfig';
+import { RetryStatusMessage } from './services/extraction/RetryManager';
+import { extractProduct } from './services/productPipelineService';
 
 // ============================================================================
 // CODE-SPLIT / LAZY-LOADED HEAVY VIEW CHUNKS
@@ -263,6 +265,8 @@ export default function App() {
   const [productScanResult, setProductScanResult] = useState<ProductScanResult | null>(null);
   const [isFormExtracting, setIsFormExtracting] = useState(false);
   const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [retryStatusMessage, setRetryStatusMessage] = useState<RetryStatusMessage>('Reading product…');
+  const [retryAttemptCount, setRetryAttemptCount] = useState<number>(1);
   const [submittedData, setSubmittedData] = useState<ExtractedFormData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -468,8 +472,10 @@ export default function App() {
     setCurrentStage('ready');
 
     try {
-      const { extractProduct5FieldsFromImages } = await import('./services/geminiService');
-      const result = await extractProduct5FieldsFromImages(images);
+      const result = await extractProduct(images, images, (status, attempt) => {
+        setRetryStatusMessage(status);
+        setRetryAttemptCount(attempt);
+      });
       setProductScanResult(result);
       if (result.capturedImages && result.capturedImages.length > 0) {
         setCapturedImages(result.capturedImages);
@@ -768,36 +774,54 @@ export default function App() {
                     {currentStage === 'processing' && (
                       <ProcessingState
                         imagePreview={capturedImage}
+                        statusMessage={retryStatusMessage}
+                        currentAttempt={retryAttemptCount}
                         onCancel={handleResetWorkflow}
                       />
                     )}
 
                     {currentStage === 'error' && (
-                      <div className="bg-white rounded-3xl p-8 border border-rose-200 shadow-sm text-center max-w-lg mx-auto space-y-4">
+                      <div className="bg-white rounded-3xl p-8 border border-rose-200 shadow-sm text-center max-w-lg mx-auto space-y-5">
+                        {capturedImage && (
+                          <div className="relative w-48 h-32 mx-auto rounded-2xl overflow-hidden border border-slate-200 shadow-md">
+                            <img
+                              src={capturedImage}
+                              alt="Preserved detected crop"
+                              className="w-full h-full object-cover"
+                            />
+                            <span className="absolute bottom-1 right-1 bg-black/75 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                              Preserved Crop
+                            </span>
+                          </div>
+                        )}
+
                         <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
                           <X className="w-6 h-6" />
                         </div>
                         <div>
-                          <h3 className="text-base font-bold text-slate-900">Extraction Error</h3>
-                          <p className="text-xs text-slate-600 mt-1">{extractionError}</p>
+                          <h3 className="text-base font-bold text-slate-900">Extraction Failed</h3>
+                          <p className="text-xs text-slate-600 mt-1">{extractionError || 'Could not extract product details after 5 automatic attempts.'}</p>
                         </div>
                         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-                          {capturedImages.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={handleRetryExtraction}
-                              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              Retry Extraction
-                            </button>
-                          )}
                           <button
                             type="button"
                             onClick={handleResetWorkflow}
-                            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors"
+                            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5"
                           >
-                            Discard & Retake Photo
+                            <Camera className="w-4 h-4" />
+                            <span>Retake Photo</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingProduct(null);
+                              handleNavigate('inventory_in', 'manual_entry');
+                            }}
+                            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>Manual Edit</span>
                           </button>
                         </div>
                       </div>
