@@ -41,6 +41,7 @@ export class ExtractionEngine {
     // Step 2: Pass options to main extract function
     const scanResult = await extractProduct5FieldsFromImages(images, {
       ...options,
+      strictZeroHallucination: options?.strictMode,
       localOcrCues: localCues,
     });
 

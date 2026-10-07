@@ -153,31 +153,31 @@ export class RetryManager {
         const recropResult = await CropManager.generateSmartRecropCandidates(fullFrames[0] || initialImages[0]);
         const candidates = recropResult.candidates;
 
-        const cropExtractionPromises = candidates.map((cropImg) =>
-          ExtractionEngine.execute([cropImg], { recropMode: true }).catch(() => null)
-        );
+        for (const cropImg of candidates) {
+          try {
+            const candidateResult = await ExtractionEngine.execute([cropImg], { recropMode: true });
+            const candidateVal = ExtractionValidator.validate(candidateResult);
 
-        const candidateResults = await Promise.all(cropExtractionPromises);
-        const bestCropResult = ExtractionValidator.selectBestCandidate([
-          lastResult,
-          ...candidateResults,
-        ]) as ProductScanResult | null;
+            if (candidateVal.isValid && candidateVal.score >= 70) {
+              console.info('[RetryManager] Attempt 3 succeeded with smart recrop candidate.');
+              return {
+                success: true,
+                attemptsCount: 3,
+                finalResult: candidateResult,
+                validationReport: candidateVal,
+                preservedImages: [cropImg],
+                lastError: null,
+              };
+            }
 
-        if (bestCropResult) {
-          const cropVal = ExtractionValidator.validate(bestCropResult);
-          if (cropVal.isValid && cropVal.score >= 70) {
-            console.info('[RetryManager] Attempt 3 succeeded with smart recrop candidate.');
-            return {
-              success: true,
-              attemptsCount: 3,
-              finalResult: bestCropResult,
-              validationReport: cropVal,
-              preservedImages,
-              lastError: null,
-            };
+            const bestCandidate = ExtractionValidator.selectBestCandidate([lastResult, candidateResult]);
+            if (bestCandidate) {
+              lastResult = bestCandidate as ProductScanResult;
+              lastValidation = ExtractionValidator.validate(lastResult);
+            }
+          } catch (cErr) {
+            console.debug('[RetryManager] Recrop candidate failed:', cErr);
           }
-          lastResult = bestCropResult;
-          lastValidation = cropVal;
         }
       } catch (err: unknown) {
         lastError = (err as Error)?.message || 'Attempt 3 smart recrop failed.';

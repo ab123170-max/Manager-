@@ -35,6 +35,7 @@ export interface ExtractionRequestOptions {
   localOcrCues?: LocalOcrHypothesis;
   optionalUserApiKey?: string;
   autoDeleteImages?: boolean;
+  strictZeroHallucination?: boolean;
 }
 
 export interface ExtractionErrorDetails {
@@ -108,6 +109,7 @@ export async function extractProduct5FieldsFromImages(
       body: JSON.stringify({
         images: parsedImages,
         localOcrCues: options?.localOcrCues,
+        strictZeroHallucination: options?.strictZeroHallucination,
         apiKey:
           options?.optionalUserApiKey ||
           (API_KEY_PLACEHOLDER !== 'YOUR_API_KEY' ? API_KEY_PLACEHOLDER : undefined),
