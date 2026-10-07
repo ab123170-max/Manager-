@@ -391,7 +391,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
       } finally {
         isAnalyzingRef.current = false;
       }
-    }, 140);
+    }, 160); // Highly optimized analysis cycle (~6 FPS)
   }, [autoCaptureEnabled, handleCaptureShot, isCapturing, isNative, maxShots, mode, scanSession.shots.length]);
 
   /**
@@ -406,7 +406,13 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
         document.body.classList.add('camera-preview-active');
         await openScanMeCamera({ facingMode, toBack: true });
         console.log('[ScanMeCameraModal] Native CameraX preview opened');
-        startRealtimeAnalysisLoop();
+        
+        // 550ms stabilization delay to allow camera auto-focus, exposure, and hardware binding
+        // to complete before starting CPU-intensive real-time frame analysis
+        setTimeout(() => {
+          console.info('TIMING: [analysis_started]');
+          startRealtimeAnalysisLoop();
+        }, 550);
       } catch (err) {
         console.error('[ScanMeCameraModal] Failed to open native CameraX:', err);
         document.documentElement.classList.remove('camera-preview-active');
@@ -430,7 +436,12 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
         }
-        startRealtimeAnalysisLoop();
+        
+        // Match stabilization delay on browser fallback
+        setTimeout(() => {
+          console.info('TIMING: [analysis_started]');
+          startRealtimeAnalysisLoop();
+        }, 550);
       } catch (err) {
         console.warn('[ScanMeCameraModal] Browser getUserMedia error:', err);
       }
