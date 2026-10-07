@@ -65,6 +65,11 @@ public class ScanMeCameraPlugin extends Plugin {
     private ProcessCameraProvider cameraProvider;
     private PreviewView previewView;
     private ImageCapture imageCapture;
+    private Preview preview;
+    private CameraSelector backCameraSelector;
+    private CameraSelector frontCameraSelector;
+    private Bitmap reusableAnalysisBitmap;
+    private android.graphics.Canvas reusableAnalysisCanvas;
     private Camera camera;
     private int lensFacing = CameraSelector.LENS_FACING_BACK;
     private int currentFlashMode = ImageCapture.FLASH_MODE_AUTO;
@@ -317,17 +322,34 @@ public class ScanMeCameraPlugin extends Plugin {
 
         cameraProvider.unbindAll();
 
-        CameraSelector cameraSelector = new CameraSelector.Builder()
-            .requireLensFacing(lensFacing)
-            .build();
+        // 1. Reuse camera selectors
+        if (backCameraSelector == null) {
+            backCameraSelector = new CameraSelector.Builder()
+                .requireLensFacing(CameraSelector.LENS_FACING_BACK)
+                .build();
+        }
+        if (frontCameraSelector == null) {
+            frontCameraSelector = new CameraSelector.Builder()
+                .requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+                .build();
+        }
+        CameraSelector cameraSelector = (lensFacing == CameraSelector.LENS_FACING_BACK) ? backCameraSelector : frontCameraSelector;
 
-        Preview preview = new Preview.Builder().build();
+        // 2. Reuse preview use case
+        if (preview == null) {
+            preview = new Preview.Builder().build();
+        }
         preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
-        imageCapture = new ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setFlashMode(currentFlashMode)
-            .build();
+        // 3. Reuse imageCapture use case
+        if (imageCapture == null) {
+            imageCapture = new ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setFlashMode(currentFlashMode)
+                .build();
+        } else {
+            imageCapture.setFlashMode(currentFlashMode);
+        }
 
         camera = cameraProvider.bindToLifecycle(
             (LifecycleOwner) getActivity(),
@@ -524,14 +546,28 @@ public class ScanMeCameraPlugin extends Plugin {
                 // Offload the heavy bitmap scaling, compression, and base64 operations
                 // off the main UI thread to preserve camera preview performance
                 frameAnalysisExecutor.execute(() -> {
-                    Bitmap scaled = null;
                     try {
                         int targetW = 320;
                         int targetH = Math.max(1, (bitmap.getHeight() * targetW) / bitmap.getWidth());
-                        scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true);
+
+                        // Lazy initialization of reusable downscaling canvas and bitmap
+                        if (reusableAnalysisBitmap == null || reusableAnalysisBitmap.getWidth() != targetW || reusableAnalysisBitmap.getHeight() != targetH) {
+                            if (reusableAnalysisBitmap != null) {
+                                try {
+                                    reusableAnalysisBitmap.recycle();
+                                } catch (Exception ignored) {}
+                            }
+                            reusableAnalysisBitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888);
+                            reusableAnalysisCanvas = new android.graphics.Canvas(reusableAnalysisBitmap);
+                        }
+
+                        // Draw and downscale onto the reusable canvas (zero extra allocation)
+                        android.graphics.Rect srcRect = new android.graphics.Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+                        android.graphics.RectF dstRect = new android.graphics.RectF(0, 0, targetW, targetH);
+                        reusableAnalysisCanvas.drawBitmap(bitmap, srcRect, dstRect, new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
 
                         ByteArrayOutputStream out = new ByteArrayOutputStream();
-                        scaled.compress(Bitmap.CompressFormat.JPEG, 65, out);
+                        reusableAnalysisBitmap.compress(Bitmap.CompressFormat.JPEG, 65, out);
                         byte[] bytes = out.toByteArray();
                         String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
 
@@ -545,15 +581,10 @@ public class ScanMeCameraPlugin extends Plugin {
                         Log.e(TAG, "[getPreviewFrame] Background processing failed: " + e.getMessage(), e);
                         call.reject("Failed to process frame on background thread: " + e.getMessage(), e);
                     } finally {
-                        // Recycle bitmap buffers immediately to prevent memory growth
+                        // Recycle source bitmap immediately
                         try {
                             bitmap.recycle();
                         } catch (Exception ignored) {}
-                        if (scaled != null) {
-                            try {
-                                scaled.recycle();
-                            } catch (Exception ignored) {}
-                        }
                     }
                 });
             } catch (Exception e) {
