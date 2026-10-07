@@ -495,9 +495,15 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
     }
   }, [initialShots, isNative, startLiveCamera]);
 
+  // Maintain a stable reference to checkAndInitCamera to prevent infinite re-render loops
+  const checkAndInitCameraRef = useRef(checkAndInitCamera);
+  useEffect(() => {
+    checkAndInitCameraRef.current = checkAndInitCamera;
+  });
+
   useEffect(() => {
     if (isOpen) {
-      checkAndInitCamera();
+      checkAndInitCameraRef.current();
     } else {
       stopLiveCamera();
     }
@@ -505,7 +511,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
     return () => {
       stopLiveCamera();
     };
-  }, [isOpen, checkAndInitCamera, stopLiveCamera]);
+  }, [isOpen, stopLiveCamera]);
 
   /**
    * Auto-detect permission change when returning from Android Settings
