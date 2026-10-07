@@ -441,11 +441,13 @@ export default function App() {
    * Multi-Shot Synchronized Analysis (1 to 5 photos of product packaging)
    * AI module is loaded strictly on-demand when user initiates analysis
    */
-  const handleMultiShotAnalyze = async (images: string[]) => {
+  const handleMultiShotAnalyze = async (images: string[], session?: any) => {
     if (!images || images.length === 0) return;
     setCapturedImages(images);
     setCapturedImage(images[0] || null);
     setExtractionError(null);
+
+    const trackingId = session?.extractedData?.trackingId || '';
 
     // Initial progressive draft to immediately show the AutoFill form without blocking
     const initialDraft: ProductScanResult = {
@@ -462,6 +464,7 @@ export default function App() {
       confidence: {},
       warnings: [],
       capturedImages: images,
+      trackingId,
     };
     setProductScanResult(initialDraft);
     setIsFormExtracting(true);
@@ -470,7 +473,8 @@ export default function App() {
     try {
       const { extractProduct5FieldsFromImages } = await import('./services/geminiService');
       const result = await extractProduct5FieldsFromImages(images);
-      setProductScanResult(result);
+      const finalResult = { ...result, trackingId };
+      setProductScanResult(finalResult);
       if (result.capturedImages && result.capturedImages.length > 0) {
         setCapturedImages(result.capturedImages);
         setCapturedImage(result.capturedImages[0]);
@@ -511,6 +515,7 @@ export default function App() {
         notesOrAdditional: '',
         confidenceScore: result.confidence.overall || 0.95,
         customFields: [],
+        trackingId,
       };
 
       setExtractedData(data);

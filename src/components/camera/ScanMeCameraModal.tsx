@@ -51,7 +51,10 @@ import {
   addShotToTrackedProduct,
   removeLastShotFromTrackedProduct,
   getMissingFieldGuidance,
+  ActiveTargetField,
+  getActiveTargetField,
 } from '../../utils/productTracker';
+import { DetectionOverlay } from './DetectionOverlay';
 
 export type CameraModalMode =
   | 'initializing'
@@ -59,60 +62,6 @@ export type CameraModalMode =
   | 'permission_denied'
   | 'permission_permanently_denied'
   | 'live_camera';
-
-export interface ActiveTargetField {
-  name: string;
-  types: string[];
-  description: string;
-}
-
-/**
- * Computes currently active target field based on sequential/priority-based list.
- * Skipped fields that are already successfully complete.
- */
-export const getActiveTargetField = (tracked: TrackedProduct): ActiveTargetField => {
-  const f = tracked.fields;
-  if (f.productName.status !== 'complete') {
-    return {
-      name: 'Label',
-      types: ['product_name', 'brand'],
-      description: 'Reading Label',
-    };
-  }
-  if (f.manufactureDate.status !== 'complete') {
-    return {
-      name: 'MFD',
-      types: ['mfd_date'],
-      description: 'Reading MFD',
-    };
-  }
-  if (f.expiryDate.status !== 'complete') {
-    return {
-      name: 'EXP',
-      types: ['expiry_date'],
-      description: 'Reading EXP',
-    };
-  }
-  if (f.price.status !== 'complete') {
-    return {
-      name: 'Price',
-      types: ['price_mrp'],
-      description: 'Reading Price',
-    };
-  }
-  if (f.barcode.status !== 'complete') {
-    return {
-      name: 'Barcode',
-      types: ['barcode_qr'],
-      description: 'Reading Barcode',
-    };
-  }
-  return {
-    name: 'Complete',
-    types: [],
-    description: 'Complete ✓',
-  };
-};
 
 interface ScanMeCameraModalProps {
   isOpen: boolean;
@@ -602,6 +551,10 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
     const finalSession: ScanSession = {
       ...scanSession,
       status: 'processing',
+      extractedData: {
+        ...scanSession.extractedData,
+        trackingId: trackedProduct.id,
+      },
     };
 
     // Extract the cropped product or region-specific crop images instead of raw full camera photos
@@ -1042,129 +995,15 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
           {/* REAL-TIME DYNAMIC BOUNDING BOX OVERLAY (Follows moving product smoothly)  */}
           {/* ========================================================================= */}
           <div className="absolute inset-0 pointer-events-none z-10 flex items-center justify-center p-4">
-            {detection.hasProduct && detection.productBox ? (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: `${Math.round(detection.productBox.x * 100)}%`,
-                  top: `${Math.round(detection.productBox.y * 100)}%`,
-                  width: `${Math.round(detection.productBox.width * 100)}%`,
-                  height: `${Math.round(detection.productBox.height * 100)}%`,
-                  transition: 'left 0.10s ease-out, top 0.10s ease-out, width 0.10s ease-out, height 0.10s ease-out',
-                }}
-                className={`border-2 rounded-3xl relative ${
-                  detection.trackingState === 'stable'
-                    ? 'border-emerald-400 shadow-[0_0_25px_rgba(52,211,153,0.5)]'
-                    : detection.trackingState === 'tracking'
-                    ? 'border-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.35)]'
-                    : 'border-blue-400 shadow-[0_0_12px_rgba(96,165,250,0.25)]'
-                }`}
-              >
-                {/* 4 Corner Bracket Accents */}
-                <div className="absolute -top-1.5 -left-1.5 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
-                <div className="absolute -top-1.5 -right-1.5 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
-                <div className="absolute -bottom-1.5 -left-1.5 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
-                <div className="absolute -bottom-1.5 -right-1.5 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
+            <DetectionOverlay
+              detection={detection}
+              trackedProduct={trackedProduct}
+              autoCaptureEnabled={autoCaptureEnabled}
+              stableCountdownProgress={stableCountdownProgress}
+            />
 
-                {/* Tracking Badge with Live Guidance */}
-                <div className="absolute -top-4 left-3 bg-black/85 backdrop-blur-md px-3 py-0.5 rounded-full border border-white/20 text-[11px] font-black text-white flex items-center gap-1.5 shadow-md">
-                  <Crosshair
-                    className={`w-3.5 h-3.5 ${
-                      detection.trackingState === 'stable'
-                        ? 'text-emerald-400 animate-spin'
-                        : 'text-cyan-400'
-                    }`}
-                  />
-                  <span>
-                    {detection.trackingState === 'stable'
-                      ? autoCaptureEnabled
-                        ? `Stable — Capturing (${stableCountdownProgress}%)`
-                        : 'Product Stable ✓ Ready'
-                      : detection.trackingState === 'tracking'
-                      ? 'Tracking ✓ Hold Steady'
-                      : 'Product Detected ✓'}
-                  </span>
-                </div>
-
-                {/* 1. Only show the currently active target region as a box on screen */}
-                {(() => {
-                  const activeRegion = detection.regions.find((reg) => activeTarget.types.includes(reg.type));
-                  if (!activeRegion) return null;
-
-                  return (
-                    <div
-                      key={activeRegion.id}
-                      style={{
-                        position: 'absolute',
-                        left: `${Math.max(0, Math.min(90, Math.round(((activeRegion.box.x - detection.productBox!.x) / detection.productBox!.width) * 100)))}%`,
-                        top: `${Math.max(0, Math.min(90, Math.round(((activeRegion.box.y - detection.productBox!.y) / detection.productBox!.height) * 100)))}%`,
-                        width: `${Math.max(8, Math.min(100, Math.round((activeRegion.box.width / detection.productBox!.width) * 100)))}%`,
-                        height: `${Math.max(6, Math.min(100, Math.round((activeRegion.box.height / detection.productBox!.height) * 100)))}%`,
-                      }}
-                      className={`border-2 border-dashed rounded-lg flex items-start p-1 pointer-events-none transition-all duration-120 ${
-                        activeRegion.type === 'expiry_date'
-                          ? 'border-amber-400 bg-amber-400/10 shadow-[0_0_8px_rgba(251,191,36,0.3)]'
-                          : activeRegion.type === 'mfd_date'
-                          ? 'border-orange-400 bg-orange-400/10 shadow-[0_0_8px_rgba(251,146,60,0.3)]'
-                          : activeRegion.type === 'barcode_qr'
-                          ? 'border-cyan-400 bg-cyan-400/10 shadow-[0_0_8px_rgba(34,211,238,0.3)]'
-                          : activeRegion.type === 'price_mrp'
-                          ? 'border-emerald-400 bg-emerald-400/10 shadow-[0_0_8px_rgba(52,211,153,0.3)]'
-                          : 'border-white bg-white/10 shadow-[0_0_8px_rgba(255,255,255,0.2)]'
-                      }`}
-                    >
-                      <span className="text-[10px] font-black bg-black/85 px-1.5 py-0.5 rounded text-white truncate max-w-full flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                        <span>{activeTarget.name}</span>
-                      </span>
-                    </div>
-                  );
-                })()}
-
-                {/* 2. Show previously detected/completed regions as small subtle secondary indicator checkdots */}
-                {(() => {
-                  const completedTypes = Object.entries(trackedProduct.fields)
-                    .filter(([_, val]) => val.status === 'complete')
-                    .map(([key, _]) => {
-                      if (key === 'productName') return 'product_name';
-                      if (key === 'manufactureDate') return 'mfd_date';
-                      if (key === 'expiryDate') return 'expiry_date';
-                      if (key === 'price') return 'price_mrp';
-                      if (key === 'barcode') return 'barcode_qr';
-                      return '';
-                    })
-                    .filter(Boolean);
-
-                  const completedRegions = detection.regions.filter((reg) => completedTypes.includes(reg.type as any));
-
-                  return completedRegions.map((reg) => {
-                    const relX = ((reg.box.x - detection.productBox!.x) / detection.productBox!.width) * 100;
-                    const relY = ((reg.box.y - detection.productBox!.y) / detection.productBox!.height) * 100;
-                    const relW = (reg.box.width / detection.productBox!.width) * 100;
-                    const relH = (reg.box.height / detection.productBox!.height) * 100;
-                    const centerX = relX + relW / 2;
-                    const centerY = relY + relH / 2;
-
-                    return (
-                      <div
-                        key={reg.id}
-                        style={{
-                          position: 'absolute',
-                          left: `${centerX}%`,
-                          top: `${centerY}%`,
-                          transform: 'translate(-50%, -50%)',
-                        }}
-                        className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center border border-white shadow-md animate-in zoom-in duration-150"
-                        title={`${reg.label} Captured ✓`}
-                      >
-                        <Check className="w-3.5 h-3.5 stroke-[3]" />
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            ) : (
-              /* Default Soft Framing Box when searching for product */
+            {/* Default Soft Framing Box when NOT searching/tracking/lost */}
+            {!detection.hasProduct && (
               <div className="relative w-full max-w-sm aspect-[3/4] sm:aspect-square border-2 border-dashed border-amber-400/50 rounded-3xl flex flex-col items-center justify-between p-4 shadow-2xl animate-pulse">
                 <div className="absolute top-2 left-2 w-6 h-6 border-t-4 border-l-4 border-amber-400 rounded-tl-xl" />
                 <div className="absolute top-2 right-2 w-6 h-6 border-t-4 border-r-4 border-amber-400 rounded-tr-xl" />

@@ -102,3 +102,23 @@ body.camera-preview-active main {
   background-color: transparent !important;
 }
 
+@keyframes laser-scan {
+  0% { top: 0%; }
+  50% { top: 100%; }
+  100% { top: 0%; }
+}
+
+@keyframes target-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.025); }
+  100% { transform: scale(1); }
+}
+
+.animate-scan-laser {
+  animation: laser-scan 3.5s linear infinite;
+}
+
+.animate-target-pulse {
+  animation: target-pulse 2s ease-in-out infinite;
+}
+

@@ -21,7 +21,7 @@ import { fileToBase64 } from '../../utils/imageEncoder';
 import { SampleDoc } from '../../types';
 
 interface MultiShotProductScannerProps {
-  onAnalyze: (images: string[]) => void;
+  onAnalyze: (images: string[], session?: any) => void;
   disabled?: boolean;
   initialAutoOpen?: boolean;
   onCameraOpened?: () => void;
@@ -79,11 +79,11 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
   }, [capturedPhotos.length]);
 
   const handleFinishAndExtractFromCamera = useCallback(
-    (shots: string[]) => {
+    (shots: string[], session?: any) => {
       setCapturedPhotos(shots);
       setIsCameraModalOpen(false);
       if (shots.length > 0) {
-        onAnalyze(shots);
+        onAnalyze(shots, session);
       }
     },
     [onAnalyze]

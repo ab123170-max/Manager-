@@ -41,6 +41,7 @@ export interface Product5Fields {
 }
 
 export interface ProductScanResult extends Product5Fields {
+  trackingId?: string;
   isCalculatedExpiry?: boolean;
   packageSize?: string;
   confidence?: {
@@ -102,6 +103,7 @@ export interface CapturedPhotoItem {
  * Complete structured data returned by the Gemini Vision supervisor
  */
 export interface ExtractedFormData extends ProductLabelData {
+  trackingId?: string;
   // Classification
   isProductOrPackage: boolean;
   documentType: string;
@@ -195,6 +197,7 @@ export interface LocalOcrHypothesis {
  */
 export interface SavedInventoryItem {
   id: string;
+  trackingId?: string;
   savedAt: string;
   created_at?: string;
   updatedAt?: string;

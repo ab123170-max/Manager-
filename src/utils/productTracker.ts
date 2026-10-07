@@ -8,6 +8,60 @@ import { ProductScanResult } from '../types';
 
 export type FieldStatus = 'missing' | 'detected' | 'complete';
 
+export interface ActiveTargetField {
+  name: string;
+  types: string[];
+  description: string;
+}
+
+/**
+ * Computes currently active target field based on sequential/priority-based list.
+ * Skipped fields that are already successfully complete.
+ */
+export const getActiveTargetField = (tracked: TrackedProduct): ActiveTargetField => {
+  const f = tracked.fields;
+  if (f.productName.status !== 'complete') {
+    return {
+      name: 'Label',
+      types: ['product_name', 'brand'],
+      description: 'Reading Label',
+    };
+  }
+  if (f.manufactureDate.status !== 'complete') {
+    return {
+      name: 'MFD',
+      types: ['mfd_date'],
+      description: 'Reading MFD',
+    };
+  }
+  if (f.expiryDate.status !== 'complete') {
+    return {
+      name: 'EXP',
+      types: ['expiry_date'],
+      description: 'Reading EXP',
+    };
+  }
+  if (f.price.status !== 'complete') {
+    return {
+      name: 'Price',
+      types: ['price_mrp'],
+      description: 'Reading Price',
+    };
+  }
+  if (f.barcode.status !== 'complete') {
+    return {
+      name: 'Barcode',
+      types: ['barcode_qr'],
+      description: 'Reading Barcode',
+    };
+  }
+  return {
+    name: 'Complete',
+    types: [],
+    description: 'Complete ✓',
+  };
+};
+
 export interface FieldEntry<T = string | number | null> {
   value: T;
   status: FieldStatus;
