@@ -33,6 +33,7 @@ export interface TrackedShotRecord {
   croppedProductImage?: string; // Auto-cropped product bounding area
   timestamp: number;
   label: string;
+  completedField?: string; // Field ID completed by this shot
   cropRegions?: {
     type: string;
     cropDataUrl: string;
@@ -138,7 +139,8 @@ export async function addShotToTrackedProduct(
   tracked: TrackedProduct,
   photoDataUrl: string,
   regions: DetectedRegion[] = [],
-  productBoxOverride?: NormalizedRect | null
+  productBoxOverride?: NormalizedRect | null,
+  completedField?: string
 ): Promise<TrackedProduct> {
   const shotNum = tracked.shots.length + 1;
   const shotId = `shot-${shotNum}`;
@@ -188,13 +190,31 @@ export async function addShotToTrackedProduct(
     croppedProductImage,
     timestamp: Date.now(),
     label: getSuggestedShotLabel(shotNum),
+    completedField,
     cropRegions,
   };
+
+  const fields = { ...tracked.fields };
+  if (completedField) {
+    if (completedField === 'productName') {
+      fields.productName = { ...fields.productName, status: 'complete', confidence: 0.95 };
+      fields.brand = { ...fields.brand, status: 'complete', confidence: 0.95 };
+    } else if (completedField === 'manufactureDate') {
+      fields.manufactureDate = { ...fields.manufactureDate, status: 'complete', confidence: 0.95 };
+    } else if (completedField === 'expiryDate') {
+      fields.expiryDate = { ...fields.expiryDate, status: 'complete', confidence: 0.95 };
+    } else if (completedField === 'price') {
+      fields.price = { ...fields.price, status: 'complete', confidence: 0.95 };
+    } else if (completedField === 'barcode') {
+      fields.barcode = { ...fields.barcode, status: 'complete', confidence: 0.95 };
+    }
+  }
 
   return {
     ...tracked,
     lastUpdated: Date.now(),
     shots: [...tracked.shots, newShot],
+    fields,
   };
 }
 
@@ -203,10 +223,30 @@ export async function addShotToTrackedProduct(
  */
 export function removeLastShotFromTrackedProduct(tracked: TrackedProduct): TrackedProduct {
   if (tracked.shots.length === 0) return tracked;
+  const lastShot = tracked.shots[tracked.shots.length - 1];
+  const fields = { ...tracked.fields };
+
+  if (lastShot.completedField) {
+    const fld = lastShot.completedField;
+    if (fld === 'productName') {
+      fields.productName = { ...fields.productName, status: 'missing', confidence: 0 };
+      fields.brand = { ...fields.brand, status: 'missing', confidence: 0 };
+    } else if (fld === 'manufactureDate') {
+      fields.manufactureDate = { ...fields.manufactureDate, status: 'missing', confidence: 0 };
+    } else if (fld === 'expiryDate') {
+      fields.expiryDate = { ...fields.expiryDate, status: 'missing', confidence: 0 };
+    } else if (fld === 'price') {
+      fields.price = { ...fields.price, status: 'missing', confidence: 0 };
+    } else if (fld === 'barcode') {
+      fields.barcode = { ...fields.barcode, status: 'missing', confidence: 0 };
+    }
+  }
+
   return {
     ...tracked,
     lastUpdated: Date.now(),
     shots: tracked.shots.slice(0, -1),
+    fields,
   };
 }
 

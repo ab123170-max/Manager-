@@ -40,6 +40,8 @@ import com.google.common.util.concurrent.ListenableFuture;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * ScanMe AI Unified Native Android CameraX & Runtime Permission Plugin.
@@ -57,9 +59,17 @@ public class ScanMeCameraPlugin extends Plugin {
     private static final String PREF_NAME = "scanme_camera_prefs";
     private static final String KEY_REQUESTED = "has_requested_camera_permission";
 
+    private static final ExecutorService frameAnalysisExecutor = Executors.newSingleThreadExecutor();
+    private boolean isFirstFrameCaptured = false;
+
     private ProcessCameraProvider cameraProvider;
     private PreviewView previewView;
     private ImageCapture imageCapture;
+    private Preview preview;
+    private CameraSelector backCameraSelector;
+    private CameraSelector frontCameraSelector;
+    private Bitmap reusableAnalysisBitmap;
+    private android.graphics.Canvas reusableAnalysisCanvas;
     private Camera camera;
     private int lensFacing = CameraSelector.LENS_FACING_BACK;
     private int currentFlashMode = ImageCapture.FLASH_MODE_AUTO;
@@ -227,6 +237,9 @@ public class ScanMeCameraPlugin extends Plugin {
     }
 
     private void startCameraInternal(PluginCall call) {
+        Log.d(TAG, "TIMING: [camera_open_requested]");
+        isFirstFrameCaptured = false;
+
         String facing = call.getString("facingMode", "environment");
         boolean toBack = call.getBoolean("toBack", true);
 
@@ -256,16 +269,35 @@ public class ScanMeCameraPlugin extends Plugin {
                     webViewParent.addView(previewView);
                 }
 
+                // If ProcessCameraProvider is already cached, bind use cases immediately!
+                if (cameraProvider != null) {
+                    Log.d(TAG, "TIMING: [camera_provider_ready] (reused cached provider)");
+                    bindCameraUseCases();
+                    isCameraOpen = true;
+
+                    Log.d(TAG, "TIMING: [camera_bound]");
+                    Log.d(TAG, "TIMING: [preview_started]");
+
+                    JSObject ret = new JSObject();
+                    ret.put("success", true);
+                    ret.put("facingMode", lensFacing == CameraSelector.LENS_FACING_FRONT ? "user" : "environment");
+                    call.resolve(ret);
+                    return;
+                }
+
                 ListenableFuture<ProcessCameraProvider> cameraProviderFuture =
                     ProcessCameraProvider.getInstance(getContext());
 
                 cameraProviderFuture.addListener(() -> {
                     try {
                         cameraProvider = cameraProviderFuture.get();
+                        Log.d(TAG, "TIMING: [camera_provider_ready] (initialized)");
                         bindCameraUseCases();
                         isCameraOpen = true;
 
-                        Log.d(TAG, "[startCameraInternal] CameraX preview successfully bound and active");
+                        Log.d(TAG, "TIMING: [camera_bound]");
+                        Log.d(TAG, "TIMING: [preview_started]");
+
                         JSObject ret = new JSObject();
                         ret.put("success", true);
                         ret.put("facingMode", lensFacing == CameraSelector.LENS_FACING_FRONT ? "user" : "environment");
@@ -290,13 +322,24 @@ public class ScanMeCameraPlugin extends Plugin {
 
         cameraProvider.unbindAll();
 
-        CameraSelector cameraSelector = new CameraSelector.Builder()
-            .requireLensFacing(lensFacing)
-            .build();
+        // Use selectors
+        if (backCameraSelector == null) {
+            backCameraSelector = new CameraSelector.Builder()
+                .requireLensFacing(CameraSelector.LENS_FACING_BACK)
+                .build();
+        }
+        if (frontCameraSelector == null) {
+            frontCameraSelector = new CameraSelector.Builder()
+                .requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+                .build();
+        }
+        CameraSelector cameraSelector = (lensFacing == CameraSelector.LENS_FACING_BACK) ? backCameraSelector : frontCameraSelector;
 
-        Preview preview = new Preview.Builder().build();
-        preview.setSurfaceProvider(previewView.getSurfaceProvider());
+        // Construct a fresh Preview usecase to bind correctly to the newly created previewView surface
+        Preview previewUsecase = new Preview.Builder().build();
+        previewUsecase.setSurfaceProvider(previewView.getSurfaceProvider());
 
+        // Construct a fresh ImageCapture usecase to match flash and latency preferences
         imageCapture = new ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             .setFlashMode(currentFlashMode)
@@ -305,7 +348,7 @@ public class ScanMeCameraPlugin extends Plugin {
         camera = cameraProvider.bindToLifecycle(
             (LifecycleOwner) getActivity(),
             cameraSelector,
-            preview,
+            previewUsecase,
             imageCapture
         );
     }
@@ -483,26 +526,61 @@ public class ScanMeCameraPlugin extends Plugin {
 
         getActivity().runOnUiThread(() -> {
             try {
-                Bitmap bitmap = previewView.getBitmap();
+                final Bitmap bitmap = previewView.getBitmap();
                 if (bitmap == null) {
                     call.reject("Bitmap preview unavailable");
                     return;
                 }
-                int targetW = 320;
-                int targetH = Math.max(1, (bitmap.getHeight() * targetW) / bitmap.getWidth());
-                Bitmap scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true);
 
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                scaled.compress(Bitmap.CompressFormat.JPEG, 65, out);
-                byte[] bytes = out.toByteArray();
-                String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+                if (!isFirstFrameCaptured) {
+                    isFirstFrameCaptured = true;
+                    Log.d(TAG, "TIMING: [preview_first_frame]");
+                }
 
-                JSObject ret = new JSObject();
-                ret.put("success", true);
-                ret.put("dataUrl", "data:image/jpeg;base64," + base64);
-                ret.put("width", targetW);
-                ret.put("height", targetH);
-                call.resolve(ret);
+                // Offload the heavy bitmap scaling, compression, and base64 operations
+                // off the main UI thread to preserve camera preview performance
+                frameAnalysisExecutor.execute(() -> {
+                    try {
+                        int targetW = 320;
+                        int targetH = Math.max(1, (bitmap.getHeight() * targetW) / bitmap.getWidth());
+
+                        // Lazy initialization of reusable downscaling canvas and bitmap
+                        if (reusableAnalysisBitmap == null || reusableAnalysisBitmap.getWidth() != targetW || reusableAnalysisBitmap.getHeight() != targetH) {
+                            if (reusableAnalysisBitmap != null) {
+                                try {
+                                    reusableAnalysisBitmap.recycle();
+                                } catch (Exception ignored) {}
+                            }
+                            reusableAnalysisBitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888);
+                            reusableAnalysisCanvas = new android.graphics.Canvas(reusableAnalysisBitmap);
+                        }
+
+                        // Draw and downscale onto the reusable canvas (zero extra allocation)
+                        android.graphics.Rect srcRect = new android.graphics.Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+                        android.graphics.RectF dstRect = new android.graphics.RectF(0, 0, targetW, targetH);
+                        reusableAnalysisCanvas.drawBitmap(bitmap, srcRect, dstRect, new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
+
+                        ByteArrayOutputStream out = new ByteArrayOutputStream();
+                        reusableAnalysisBitmap.compress(Bitmap.CompressFormat.JPEG, 65, out);
+                        byte[] bytes = out.toByteArray();
+                        String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+
+                        JSObject ret = new JSObject();
+                        ret.put("success", true);
+                        ret.put("dataUrl", "data:image/jpeg;base64," + base64);
+                        ret.put("width", targetW);
+                        ret.put("height", targetH);
+                        call.resolve(ret);
+                    } catch (Exception e) {
+                        Log.e(TAG, "[getPreviewFrame] Background processing failed: " + e.getMessage(), e);
+                        call.reject("Failed to process frame on background thread: " + e.getMessage(), e);
+                    } finally {
+                        // Recycle source bitmap immediately
+                        try {
+                            bitmap.recycle();
+                        } catch (Exception ignored) {}
+                    }
+                });
             } catch (Exception e) {
                 call.reject("Failed to capture frame: " + e.getMessage(), e);
             }

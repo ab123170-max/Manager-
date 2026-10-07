@@ -322,7 +322,7 @@ public class ScanMeCameraPlugin extends Plugin {
 
         cameraProvider.unbindAll();
 
-        // 1. Reuse camera selectors
+        // Use selectors
         if (backCameraSelector == null) {
             backCameraSelector = new CameraSelector.Builder()
                 .requireLensFacing(CameraSelector.LENS_FACING_BACK)
@@ -335,26 +335,20 @@ public class ScanMeCameraPlugin extends Plugin {
         }
         CameraSelector cameraSelector = (lensFacing == CameraSelector.LENS_FACING_BACK) ? backCameraSelector : frontCameraSelector;
 
-        // 2. Reuse preview use case
-        if (preview == null) {
-            preview = new Preview.Builder().build();
-        }
-        preview.setSurfaceProvider(previewView.getSurfaceProvider());
+        // Construct a fresh Preview usecase to bind correctly to the newly created previewView surface
+        Preview previewUsecase = new Preview.Builder().build();
+        previewUsecase.setSurfaceProvider(previewView.getSurfaceProvider());
 
-        // 3. Reuse imageCapture use case
-        if (imageCapture == null) {
-            imageCapture = new ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .setFlashMode(currentFlashMode)
-                .build();
-        } else {
-            imageCapture.setFlashMode(currentFlashMode);
-        }
+        // Construct a fresh ImageCapture usecase to match flash and latency preferences
+        imageCapture = new ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setFlashMode(currentFlashMode)
+            .build();
 
         camera = cameraProvider.bindToLifecycle(
             (LifecycleOwner) getActivity(),
             cameraSelector,
-            preview,
+            previewUsecase,
             imageCapture
         );
     }

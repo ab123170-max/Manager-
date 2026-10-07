@@ -274,12 +274,21 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
           shots: [...prev.shots, newShot],
         }));
 
+        const activeTarget = getActiveTargetField(trackedProduct);
+        let fieldKey = '';
+        if (activeTarget.name === 'Label') fieldKey = 'productName';
+        else if (activeTarget.name === 'MFD') fieldKey = 'manufactureDate';
+        else if (activeTarget.name === 'EXP') fieldKey = 'expiryDate';
+        else if (activeTarget.name === 'Price') fieldKey = 'price';
+        else if (activeTarget.name === 'Barcode') fieldKey = 'barcode';
+
         // Associate shot & extract targeted regions into tracked product
         const updatedTracked = await addShotToTrackedProduct(
           trackedProduct,
           photoDataUrl,
           detection.regions,
-          currentProductBox || detection.productBox
+          currentProductBox || detection.productBox,
+          fieldKey
         );
         setTrackedProduct(updatedTracked);
 
