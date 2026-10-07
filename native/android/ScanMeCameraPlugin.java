@@ -75,6 +75,28 @@ public class ScanMeCameraPlugin extends Plugin {
     private int currentFlashMode = ImageCapture.FLASH_MODE_AUTO;
     private boolean isCameraOpen = false;
 
+    @Override
+    public void load() {
+        super.load();
+        Log.d(TAG, "[load] Warm up / pre-cache ProcessCameraProvider asynchronously");
+        getActivity().runOnUiThread(() -> {
+            try {
+                ListenableFuture<ProcessCameraProvider> cameraProviderFuture =
+                    ProcessCameraProvider.getInstance(getContext());
+                cameraProviderFuture.addListener(() -> {
+                    try {
+                        cameraProvider = cameraProviderFuture.get();
+                        Log.d(TAG, "[load] ProcessCameraProvider successfully pre-cached and ready");
+                    } catch (Exception e) {
+                        Log.w(TAG, "[load] Failed to pre-cache ProcessCameraProvider: " + e.getMessage());
+                    }
+                }, ContextCompat.getMainExecutor(getContext()));
+            } catch (Exception e) {
+                Log.w(TAG, "[load] Error during ProcessCameraProvider pre-cache: " + e.getMessage());
+            }
+        });
+    }
+
     private boolean hasRequestedPermissionBefore() {
         Context context = getContext();
         if (context == null) return false;
@@ -335,20 +357,26 @@ public class ScanMeCameraPlugin extends Plugin {
         }
         CameraSelector cameraSelector = (lensFacing == CameraSelector.LENS_FACING_BACK) ? backCameraSelector : frontCameraSelector;
 
-        // Construct a fresh Preview usecase to bind correctly to the newly created previewView surface
-        Preview previewUsecase = new Preview.Builder().build();
-        previewUsecase.setSurfaceProvider(previewView.getSurfaceProvider());
+        // Re-use or construct Preview usecase
+        if (preview == null) {
+            preview = new Preview.Builder().build();
+        }
+        preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
-        // Construct a fresh ImageCapture usecase to match flash and latency preferences
-        imageCapture = new ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setFlashMode(currentFlashMode)
-            .build();
+        // Re-use or construct ImageCapture usecase
+        if (imageCapture == null) {
+            imageCapture = new ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setFlashMode(currentFlashMode)
+                .build();
+        } else {
+            imageCapture.setFlashMode(currentFlashMode);
+        }
 
         camera = cameraProvider.bindToLifecycle(
             (LifecycleOwner) getActivity(),
             cameraSelector,
-            previewUsecase,
+            preview,
             imageCapture
         );
     }
