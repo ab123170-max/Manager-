@@ -54,6 +54,12 @@ import {
   ActiveTargetField,
   getActiveTargetField,
 } from '../../utils/productTracker';
+import {
+  detectAndTrackObjectsInFrame,
+  cropTrackedObjectFromSource,
+  TrackedObject,
+  globalObjectTracker,
+} from '../../utils/realtimeVisionTracker';
 import { DetectionOverlay } from './DetectionOverlay';
 
 export type CameraModalMode =
@@ -108,6 +114,16 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
 
   // Tracked Product State across continuous angles
   const [trackedProduct, setTrackedProduct] = useState<TrackedProduct>(() => createNewTrackedProduct());
+
+  // Real-time Multi-Object Tracking State
+  const [visionObjects, setVisionObjects] = useState<TrackedObject[]>([]);
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [debugMetrics, setDebugMetrics] = useState({
+    fps: 24,
+    detLatency: 8,
+    trackLatency: 2,
+    resolution: { width: 1280, height: 720 },
+  });
 
   // Real-time Frame Detection Output
   const [detection, setDetection] = useState<RealtimeDetectionResult>({
@@ -295,8 +311,29 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
         }
 
         if (frameSource) {
+          // 1. Run real-time computer vision multi-object detection and tracking
+          const visionRes = await detectAndTrackObjectsInFrame(frameSource);
+          setVisionObjects(visionRes.objects);
+          setDebugMetrics({
+            fps: visionRes.fps,
+            detLatency: visionRes.detectionLatencyMs,
+            trackLatency: visionRes.trackingLatencyMs,
+            resolution: visionRes.sourceResolution,
+          });
+
+          // 2. Run detailed region & barcode extraction
           const res = await analyzeLiveFrame(frameSource, prevDetectionRef.current);
           prevDetectionRef.current = res;
+
+          // If multi-object vision tracker found an active or locked object, synchronize box coordinates
+          if (visionRes.primaryObject && visionRes.primaryObject.state !== 'TEMPORARILY_LOST') {
+            res.productBox = visionRes.primaryObject.box;
+            res.hasProduct = true;
+            if (visionRes.primaryObject.detectedBarcode) {
+              res.detectedBarcode = visionRes.primaryObject.detectedBarcode;
+            }
+          }
+
           setDetection(res);
 
           // Update tracked product identity
@@ -994,16 +1031,38 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
           {/* ========================================================================= */}
           {/* REAL-TIME DYNAMIC BOUNDING BOX OVERLAY (Follows moving product smoothly)  */}
           {/* ========================================================================= */}
-          <div className="absolute inset-0 pointer-events-none z-10 flex items-center justify-center p-4">
+          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
             <DetectionOverlay
               detection={detection}
               trackedProduct={trackedProduct}
               autoCaptureEnabled={autoCaptureEnabled}
               stableCountdownProgress={stableCountdownProgress}
+              trackedObjects={visionObjects}
+              selectedObjectId={selectedObjectId}
+              onSelectObject={(obj) => {
+                setSelectedObjectId(obj.id);
+                globalObjectTracker.lockObject(obj.id);
+                // Immediately align detection productBox to locked target
+                setDetection((prev) => ({
+                  ...prev,
+                  productBox: obj.box,
+                  hasProduct: true,
+                }));
+                // Audio & haptic feedback
+                playProductDetectedTone();
+                triggerScanVibrate();
+                setJustCapturedToast(`${obj.id} Locked ✓`);
+                setTimeout(() => setJustCapturedToast(null), 1600);
+              }}
+              showDebugInfo={false}
+              fps={debugMetrics.fps}
+              detectionLatencyMs={debugMetrics.detLatency}
+              trackingLatencyMs={debugMetrics.trackLatency}
+              sourceResolution={debugMetrics.resolution}
             />
 
             {/* Default Soft Framing Box when NOT searching/tracking/lost */}
-            {!detection.hasProduct && (
+            {!detection.hasProduct && visionObjects.length === 0 && (
               <div className="relative w-full max-w-sm aspect-[3/4] sm:aspect-square border-2 border-dashed border-amber-400/50 rounded-3xl flex flex-col items-center justify-between p-4 shadow-2xl animate-pulse">
                 <div className="absolute top-2 left-2 w-6 h-6 border-t-4 border-l-4 border-amber-400 rounded-tl-xl" />
                 <div className="absolute top-2 right-2 w-6 h-6 border-t-4 border-r-4 border-amber-400 rounded-tr-xl" />

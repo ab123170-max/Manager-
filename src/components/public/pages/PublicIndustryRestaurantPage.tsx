@@ -47,7 +47,7 @@ export const PublicIndustryRestaurantPage: React.FC<PublicIndustryRestaurantPage
       <PublicNavbar
         currentPath="/for-restaurants"
         onNavigatePath={onNavigatePath}
-        onLaunchApp={onNavigatePath}
+        onLaunchApp={onLaunchApp}
       />
 
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 space-y-16">
