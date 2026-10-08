@@ -32,33 +32,18 @@ export default async function handler(req: any, res: any) {
 
   // 2. Stream upstream APK
   try {
-    const upstream = await fetch(APK_URL, {
-      method: req.method,
-      redirect: 'follow',
-      headers: { Accept: 'application/vnd.android.package-archive' },
-    });
-
-    if (!upstream.ok) {
-      return res.status(upstream.status).send('APK is temporarily unavailable.');
-    }
-
-    const contentType =
-      upstream.headers.get('content-type') ||
-      'application/vnd.android.package-archive';
-    const contentLength = upstream.headers.get('content-length');
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename="ScanMe-AI.apk"',
-    );
+    // Do NOT proxy the APK through Vercel. The APK can be large, and buffering
+    // the entire GitHub asset inside a serverless function can cause slow/stuck
+    // downloads, memory pressure, or platform response-limit failures.
+    //
+    // Redirect the browser directly to GitHub's latest release asset instead.
+    // GitHub then handles the actual binary transfer.
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    if (contentLength) res.setHeader('Content-Length', contentLength);
+    res.setHeader('Location', APK_URL);
 
-    if (req.method === 'HEAD') return res.status(200).end();
-
-    const buffer = Buffer.from(await upstream.arrayBuffer());
-    return res.status(200).send(buffer);
+    // 302 works for normal browser navigation and preserves the download flow.
+    // HEAD is also redirected so availability checks follow the same path.
+    return res.status(302).end();
   } catch {
     return res.status(502).send('Unable to download the APK right now.');
   }
