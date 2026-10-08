@@ -72,7 +72,10 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
   const hasMultipleTrackedObjects = trackedObjects && trackedObjects.length > 1;
 
   // Primary box coordinates to render
-  const primaryBox = detection.hasProduct ? detection.productBox : (lostTracking ? lastBox : null);
+  // The tracker is the authoritative live geometry. Prefer its current box over the
+  // slower field-analysis box so the overlay follows the physical product every frame.
+  const trackedPrimaryBox = trackedObjects.length > 0 ? trackedObjects[0].box : null;
+  const primaryBox = trackedPrimaryBox || (detection.hasProduct ? detection.productBox : (lostTracking ? lastBox : null));
 
   // Completed fields calculation
   const totalFields = 5;
@@ -104,8 +107,8 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
           const isSelected = selectedObjectId === secObj.id || secObj.isLocked;
           const leftPct = Math.max(0, Math.min(94, secObj.box.x * 100));
           const topPct = Math.max(0, Math.min(94, secObj.box.y * 100));
-          const widthPct = Math.max(6, Math.min(100 - leftPct, secObj.box.width * 100));
-          const heightPct = Math.max(6, Math.min(100 - topPct, secObj.box.height * 100));
+          const widthPct = Math.max(1.5, Math.min(100 - leftPct, secObj.box.width * 100));
+          const heightPct = Math.max(1.5, Math.min(100 - topPct, secObj.box.height * 100));
 
           return (
             <div
@@ -116,7 +119,8 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
                 top: `${topPct}%`,
                 width: `${widthPct}%`,
                 height: `${heightPct}%`,
-                transition: 'left 0.08s linear, top 0.08s linear, width 0.08s linear, height 0.08s linear',
+                transition: 'left 0.06s linear, top 0.06s linear, width 0.06s linear, height 0.06s linear',
+            willChange: 'left, top, width, height',
               }}
               onClick={(e) => {
                 e.stopPropagation();
@@ -145,8 +149,8 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
             position: 'absolute',
             left: `${Math.max(0, Math.min(94, primaryBox.x * 100))}%`,
             top: `${Math.max(0, Math.min(94, primaryBox.y * 100))}%`,
-            width: `${Math.max(6, Math.min(100 - primaryBox.x * 100, primaryBox.width * 100))}%`,
-            height: `${Math.max(6, Math.min(100 - primaryBox.y * 100, primaryBox.height * 100))}%`,
+            width: `${Math.max(1.5, Math.min(100 - primaryBox.x * 100, primaryBox.width * 100))}%`,
+            height: `${Math.max(1.5, Math.min(100 - primaryBox.y * 100, primaryBox.height * 100))}%`,
             // Smooth, responsive interpolation: moves & resizes continuously with the physical object
             transition: 'left 0.08s linear, top 0.08s linear, width 0.08s linear, height 0.08s linear',
           }}
