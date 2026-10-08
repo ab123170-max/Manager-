@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Menu, Camera, Zap, Bell, Settings } from 'lucide-react';
+import { Menu, Camera, Zap, Bell, Settings, BookOpen } from 'lucide-react';
 import { MenuSection, AppSubView, UserProfile } from '../../types';
 import { LanguageSelectorButton } from '../common/LanguageSelectorButton';
 
@@ -12,6 +12,7 @@ interface AppHeaderProps {
   activeSection: MenuSection;
   activeSubView: AppSubView;
   onNavigate: (section: MenuSection, subView: AppSubView) => void;
+  onNavigateWebsite?: () => void;
   onOpenDrawer?: () => void;
   onToggleDrawer?: () => void;
   inventoryCount?: number;
@@ -38,6 +39,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   activeSection,
   activeSubView,
   onNavigate,
+  onNavigateWebsite,
   onOpenDrawer,
   onToggleDrawer,
   alertCount = 0,
@@ -75,6 +77,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          {onNavigateWebsite && (
+            <button
+              type="button"
+              onClick={onNavigateWebsite}
+              className="h-9 px-2.5 sm:px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1.5 text-xs font-bold transition-colors cursor-pointer"
+              title="Return to Website & Guides"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-[#1473EA]" />
+              <span className="hidden sm:inline">Website &amp; Guides</span>
+            </button>
+          )}
           {alertCount > 0 && (
             <button
               type="button"

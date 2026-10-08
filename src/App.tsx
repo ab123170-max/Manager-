@@ -39,7 +39,6 @@ import { setPrivatePageSeo } from './utils/seoHelper';
 import { AppSliderNavigation } from './components/slider/AppSliderNavigation';
 import { HomeDashboard } from './components/home/HomeDashboard';
 import { SliderPageWrapper } from './components/slider/SliderPageWrapper';
-import { AdSenseUnit } from './components/ads/AdSenseUnit';
 import { StartupSplash } from './components/common/StartupSplash';
 import { formatUserFriendlyError } from './config/apiConfig';
 
@@ -153,30 +152,75 @@ const ProductReputationView = lazy(() =>
   }))
 );
 
-// Lazy-loaded Authentication, Onboarding, Landing & Profile Modules
-const LandingPage = lazy(() =>
-  import('./components/landing/LandingPage').then((m) => ({ default: m.LandingPage }))
+// Lazy-loaded Public Content Area Pages (Code-split for maximum performance)
+const PublicHomePage = lazy(() =>
+  import('./components/public/pages/PublicHomePage').then((m) => ({ default: m.PublicHomePage }))
 );
-const PublicAiScannerPage = lazy(() =>
-  import('./components/seo/PublicAiScannerPage').then((m) => ({ default: m.PublicAiScannerPage }))
+const PublicFeaturesPage = lazy(() =>
+  import('./components/public/pages/PublicFeaturesPage').then((m) => ({ default: m.PublicFeaturesPage }))
 );
-const PublicBarcodeScannerPage = lazy(() =>
-  import('./components/seo/PublicBarcodeScannerPage').then((m) => ({ default: m.PublicBarcodeScannerPage }))
+const PublicHowItWorksPage = lazy(() =>
+  import('./components/public/pages/PublicHowItWorksPage').then((m) => ({ default: m.PublicHowItWorksPage }))
 );
-const PublicExpiryDatePage = lazy(() =>
-  import('./components/seo/PublicExpiryDatePage').then((m) => ({ default: m.PublicExpiryDatePage }))
+const PublicIndustryGroceryPage = lazy(() =>
+  import('./components/public/pages/PublicIndustryGroceryPage').then((m) => ({ default: m.PublicIndustryGroceryPage }))
+);
+const PublicIndustryPharmacyPage = lazy(() =>
+  import('./components/public/pages/PublicIndustryPharmacyPage').then((m) => ({ default: m.PublicIndustryPharmacyPage }))
+);
+const PublicIndustryMedicalStorePage = lazy(() =>
+  import('./components/public/pages/PublicIndustryMedicalStorePage').then((m) => ({ default: m.PublicIndustryMedicalStorePage }))
+);
+const PublicIndustryRestaurantPage = lazy(() =>
+  import('./components/public/pages/PublicIndustryRestaurantPage').then((m) => ({ default: m.PublicIndustryRestaurantPage }))
+);
+const PublicIndustryHotelPage = lazy(() =>
+  import('./components/public/pages/PublicIndustryHotelPage').then((m) => ({ default: m.PublicIndustryHotelPage }))
 );
 const PublicInventoryManagementPage = lazy(() =>
-  import('./components/seo/PublicInventoryManagementPage').then((m) => ({ default: m.PublicInventoryManagementPage }))
+  import('./components/public/pages/PublicInventoryManagementPage').then((m) => ({ default: m.PublicInventoryManagementPage }))
+);
+const PublicExpiryManagementPage = lazy(() =>
+  import('./components/public/pages/PublicExpiryManagementPage').then((m) => ({ default: m.PublicExpiryManagementPage }))
+);
+const PublicBarcodeScanningPage = lazy(() =>
+  import('./components/public/pages/PublicBarcodeScanningPage').then((m) => ({ default: m.PublicBarcodeScanningPage }))
+);
+const PublicAiProductScanningPage = lazy(() =>
+  import('./components/public/pages/PublicAiProductScanningPage').then((m) => ({ default: m.PublicAiProductScanningPage }))
+);
+const PublicGuidesIndexPage = lazy(() =>
+  import('./components/public/pages/PublicGuidesIndexPage').then((m) => ({ default: m.PublicGuidesIndexPage }))
+);
+const PublicGuideDetailPage = lazy(() =>
+  import('./components/public/pages/PublicGuideDetailPage').then((m) => ({ default: m.PublicGuideDetailPage }))
+);
+const PublicAboutPage = lazy(() =>
+  import('./components/public/pages/PublicAboutPage').then((m) => ({ default: m.PublicAboutPage }))
+);
+const PublicContactPage = lazy(() =>
+  import('./components/public/pages/PublicContactPage').then((m) => ({ default: m.PublicContactPage }))
+);
+const PublicPrivacyPolicyPage = lazy(() =>
+  import('./components/public/pages/PublicPrivacyPolicyPage').then((m) => ({ default: m.PublicPrivacyPolicyPage }))
+);
+const PublicTermsPage = lazy(() =>
+  import('./components/public/pages/PublicTermsPage').then((m) => ({ default: m.PublicTermsPage }))
+);
+const PublicCookiePolicyPage = lazy(() =>
+  import('./components/public/pages/PublicCookiePolicyPage').then((m) => ({ default: m.PublicCookiePolicyPage }))
+);
+const PublicAccessibilityPage = lazy(() =>
+  import('./components/public/pages/PublicAccessibilityPage').then((m) => ({ default: m.PublicAccessibilityPage }))
 );
 const PublicFaqPage = lazy(() =>
-  import('./components/seo/PublicFaqPage').then((m) => ({ default: m.PublicFaqPage }))
+  import('./components/public/pages/PublicFaqPage').then((m) => ({ default: m.PublicFaqPage }))
 );
-const PublicShareAppPage = lazy(() =>
-  import('./components/seo/PublicShareAppPage').then((m) => ({ default: m.PublicShareAppPage }))
+const PublicAdSenseAuditPage = lazy(() =>
+  import('./components/public/pages/PublicAdSenseAuditPage').then((m) => ({ default: m.PublicAdSenseAuditPage }))
 );
-const PublicIndustryInventoryPage = lazy(() =>
-  import('./components/seo/PublicIndustryInventoryPage').then((m) => ({ default: m.PublicIndustryInventoryPage }))
+const LandingPage = lazy(() =>
+  import('./components/landing/LandingPage').then((m) => ({ default: m.LandingPage }))
 );
 const AuthScreen = lazy(() =>
   import('./components/auth/AuthScreen').then((m) => ({ default: m.AuthScreen }))
@@ -212,13 +256,35 @@ export default function App() {
   const [isCustomerMessagingOpen, setIsCustomerMessagingOpen] = useState(false);
   const [isInfoHelpOpen, setIsInfoHelpOpen] = useState(false);
   const [rootMode] = useState<AppRootMode>('dashboard');
+  const isExplicitAppPath = (path: string) => {
+    const p = path.toLowerCase();
+    return (
+      p === '/app' ||
+      p.startsWith('/app/') ||
+      p === '/scan' ||
+      p === '/scanner' ||
+      p === '/dashboard'
+    );
+  };
+
   const [currentPath, setCurrentPath] = useState<string>(() => {
     return typeof window !== 'undefined' ? window.location.pathname : '/';
   });
 
+  const [isAppActive, setIsAppActive] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return isExplicitAppPath(window.location.pathname);
+  });
+
   useEffect(() => {
     const onPopState = () => {
-      setCurrentPath(window.location.pathname);
+      const p = window.location.pathname;
+      setCurrentPath(p);
+      if (isExplicitAppPath(p)) {
+        setIsAppActive(true);
+      } else {
+        setIsAppActive(false);
+      }
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -228,8 +294,23 @@ export default function App() {
     if (typeof window !== 'undefined') {
       window.history.pushState(null, '', path);
       setCurrentPath(path);
+      if (isExplicitAppPath(path)) {
+        setIsAppActive(true);
+      } else {
+        setIsAppActive(false);
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+  };
+
+  const handleLaunchApp = () => {
+    setIsAppActive(true);
+    handlePublicNavigate('/app');
+  };
+
+  const handleReturnToWebsite = (targetPath = '/') => {
+    setIsAppActive(false);
+    handlePublicNavigate(targetPath);
   };
 
   // Anonymous mode: no authentication or profile startup.
@@ -605,7 +686,259 @@ export default function App() {
     );
   }
 
-  // Anonymous app: skip landing/auth/profile gates and render dashboard directly.
+  // Anonymous app: skip landing/auth/profile gates.
+  // ---------------------------------------------------------------------------
+  // 3.5 Public Website Content Routing (AdSense approved publisher content pages)
+  // When user is not explicitly in /app or is on public content routes, render the
+  // rich, crawlable publisher pages with AdSense compliant slots.
+  // ---------------------------------------------------------------------------
+  if (!isAppActive) {
+    const norm = currentPath.toLowerCase();
+
+    // Check for guide article detail: /guides/:slug
+    if (norm.startsWith('/guides/') && norm.length > 8) {
+      const slug = norm.replace(/^\/guides\//, '').replace(/\/$/, '');
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Guide..." />}>
+          <PublicGuideDetailPage
+            slug={slug}
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/features') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Features..." />}>
+          <PublicFeaturesPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/how-it-works') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading How It Works..." />}>
+          <PublicHowItWorksPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/for-grocery-stores' || norm === '/grocery-inventory-management') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Grocery Solutions..." />}>
+          <PublicIndustryGroceryPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/for-pharmacies' || norm === '/pharmacy-inventory-management') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Pharmacy Solutions..." />}>
+          <PublicIndustryPharmacyPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/for-medical-stores') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Medical Store Solutions..." />}>
+          <PublicIndustryMedicalStorePage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/for-restaurants' || norm === '/restaurant-inventory-management') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Restaurant Solutions..." />}>
+          <PublicIndustryRestaurantPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/for-hotels' || norm === '/hotel-inventory-management') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Hotel Solutions..." />}>
+          <PublicIndustryHotelPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/inventory-management') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Inventory Management..." />}>
+          <PublicInventoryManagementPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/expiry-management' || norm === '/expiry-date-scanner') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Expiry Radar..." />}>
+          <PublicExpiryManagementPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/barcode-scanning' || norm === '/barcode-scanner') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Barcode Scanner Info..." />}>
+          <PublicBarcodeScanningPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/ai-product-scanning' || norm === '/ai-product-scanner') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading AI Scanner Info..." />}>
+          <PublicAiProductScanningPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/guides') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Retail Guides..." />}>
+          <PublicGuidesIndexPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/about') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading About Us..." />}>
+          <PublicAboutPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/contact') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Contact..." />}>
+          <PublicContactPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/privacy-policy') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Privacy Policy..." />}>
+          <PublicPrivacyPolicyPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/terms') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Terms of Service..." />}>
+          <PublicTermsPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/cookie-policy') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Cookie Policy..." />}>
+          <PublicCookiePolicyPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/accessibility') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading Accessibility Statement..." />}>
+          <PublicAccessibilityPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/faq') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading FAQ..." />}>
+          <PublicFaqPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    if (norm === '/adsense-audit') {
+      return (
+        <Suspense fallback={<ViewLoadingSkeleton label="Loading AdSense Compliance Audit..." />}>
+          <PublicAdSenseAuditPage
+            onNavigatePath={handlePublicNavigate}
+            onLaunchApp={handleLaunchApp}
+          />
+        </Suspense>
+      );
+    }
+
+    // Default public root: Home landing & content portal
+    return (
+      <Suspense fallback={<ViewLoadingSkeleton label="Loading ScanMe AI..." />}>
+        <PublicHomePage
+          onNavigatePath={handlePublicNavigate}
+          onLaunchApp={handleLaunchApp}
+        />
+      </Suspense>
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // 4. Main App Dashboard (Existing complete workflow)
@@ -633,6 +966,7 @@ export default function App() {
         activeSection={navState.activeSection}
         activeSubView={navState.activeSubView}
         onNavigate={handleNavigate}
+        onNavigateWebsite={() => handleReturnToWebsite('/')}
         onToggleDrawer={() => setIsDrawerOpen(true)}
         inventoryCount={products.length}
         alertCount={valuation.lowStockCount + activeExpiryAlertsCount}
@@ -651,6 +985,7 @@ export default function App() {
             activeSection={navState.activeSection}
             activeSubView={navState.activeSubView}
             onNavigate={handleNavigate}
+            onNavigateWebsite={() => handleReturnToWebsite('/')}
             counts={{
               products: products.length,
               lowStock: valuation.lowStockCount,
@@ -1016,10 +1351,6 @@ export default function App() {
             )}
           </Suspense>
         </SliderPageWrapper>
-
-        {/* Google AdSense Placement - Non-intrusive container below active dashboard slider */}
-        <AdSenseUnit className="max-w-4xl mx-auto my-6" />
-
       </main>
 
       {/* Semantic Site Footer */}

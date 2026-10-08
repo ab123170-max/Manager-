@@ -7,6 +7,7 @@ interface AndroidNavDrawerProps {
   isOpen:boolean; onClose:()=>void;
   activeSection:MenuSection; activeSubView:AppSubView;
   onNavigate:(section:MenuSection,subView:AppSubView)=>void;
+  onNavigateWebsite?:()=>void;
   badges?:{lowStock?:number;expiringSoon?:number;expired?:number;totalProducts?:number};
   counts?:{products?:number;lowStock?:number;expiring?:number;expired?:number;scanHistory?:number};
   userProfile?:UserProfile|null;
@@ -15,7 +16,7 @@ interface AndroidNavDrawerProps {
 }
 
 export const AndroidNavDrawer:React.FC<AndroidNavDrawerProps>=({
-  isOpen,onClose,activeSection,activeSubView,onNavigate,userProfile,onEditProfile,onShowOnboarding,onLogout,onOpenSettings,onOpenInfoHelp,onOpenGoogleSheets
+  isOpen,onClose,activeSection,activeSubView,onNavigate,onNavigateWebsite,userProfile,onEditProfile,onShowOnboarding,onLogout,onOpenSettings,onOpenInfoHelp,onOpenGoogleSheets
 })=>{
   const {t,languageOption,openLanguageSelector}=useLanguage();
   if(!isOpen)return null;
@@ -62,8 +63,9 @@ export const AndroidNavDrawer:React.FC<AndroidNavDrawerProps>=({
           </div>
         </section>
 
-        <section><p className="px-2 mb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">Account</p>
+        <section><p className="px-2 mb-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">Account & Resources</p>
           <div className="bg-white rounded-3xl border border-slate-200 p-1.5 space-y-1">
+            {onNavigateWebsite&&row('Website & Guides',BookOpen,()=>{onClose();onNavigateWebsite();})}
             {row('Profile',User,()=>{onClose();onEditProfile?.();})}
             {row('Language',Globe,()=>openLanguageSelector())}
             {row('Settings',Settings,()=>{onClose();onOpenSettings?.();})}

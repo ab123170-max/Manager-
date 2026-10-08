@@ -19,7 +19,6 @@ import {
   getInventoryValuation,
   subscribeToStore,
 } from '../../utils/unifiedDataStore';
-import { AdSenseUnit } from '../ads/AdSenseUnit';
 
 export const InventoryReportsView: React.FC = () => {
   const [products, setProducts] = useState(getProducts());
@@ -157,9 +156,6 @@ export const InventoryReportsView: React.FC = () => {
           </p>
         </div>
       </div>
-
-      {/* Non-intrusive Content Ad Unit */}
-      <AdSenseUnit className="mt-4" />
     </div>
   );
 };
