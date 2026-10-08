@@ -519,11 +519,13 @@ export async function detectAndTrackObjectsInFrame(
     const padX = 0.03;
     const padY = 0.03;
 
+    // Tight product boundary: keep only a small safety margin around the detected hull.
+    // The previous larger padding made the live box look detached from the product.
     const box: NormalizedRect = {
-      x: Math.max(0.02, rawX - padX),
-      y: Math.max(0.02, rawY - padY),
-      width: Math.min(0.96, rawW + padX * 2),
-      height: Math.min(0.96, rawH + padY * 2),
+      x: Math.max(0, rawX - padX),
+      y: Math.max(0, rawY - padY),
+      width: Math.min(1 - Math.max(0, rawX - padX), rawW + padX * 2),
+      height: Math.min(1 - Math.max(0, rawY - padY), rawH + padY * 2),
     };
 
     // Classify label / category based on aspect ratio & color
