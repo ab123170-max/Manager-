@@ -203,7 +203,7 @@ export async function addShotToTrackedProduct(
   let croppedProductImage: string | undefined = undefined;
 
   // 1. Auto-crop main product if bounded
-  if (activeBox && activeBox.width > 0.15 && activeBox.height > 0.15) {
+  if (activeBox && activeBox.width > 0.05 && activeBox.height > 0.05) {
     try {
       croppedProductImage = await cropNormalizedRegion(photoDataUrl, activeBox, 0.04);
     } catch {
