@@ -148,6 +148,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   const isAnalyzingRef = useRef<boolean>(false);
   const prevDetectionRef = useRef<RealtimeDetectionResult | null>(null);
   const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const analysisLoopRunningRef = useRef(false);
 
   // Auto-capture countdown refs
   const stableSinceRef = useRef<number | null>(null);
@@ -284,8 +285,9 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
       clearInterval(analysisIntervalRef.current);
     }
 
-    analysisIntervalRef.current = setInterval(async () => {
-      if (isAnalyzingRef.current || mode !== 'live_camera') return;
+    const runFrame = async () => {
+      if (analysisLoopRunningRef.current || mode !== 'live_camera') return;
+      analysisLoopRunningRef.current = true;
       isAnalyzingRef.current = true;
 
       try {
@@ -385,8 +387,23 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
         console.debug('[RealtimeAnalysis] Frame skipped:', err);
       } finally {
         isAnalyzingRef.current = false;
+        analysisLoopRunningRef.current = false;
       }
-    }, 160); // Highly optimized analysis cycle (~6 FPS)
+    };
+
+    // Adaptive cadence: schedule the next frame only after the previous one
+    // finishes, preventing overlapping analysis and queue buildup on slower phones.
+    const scheduleNext = () => {
+      if (mode !== 'live_camera') return;
+      const delay = isNative ? 110 : 90;
+      analysisIntervalRef.current = setTimeout(async () => {
+        await runFrame();
+        scheduleNext();
+      }, delay) as unknown as NodeJS.Timeout;
+    };
+
+    void runFrame();
+    scheduleNext(); // adaptive ~7-10 FPS, never overlapping work
   }, [autoCaptureEnabled, handleCaptureShot, isCapturing, isNative, maxShots, mode, scanSession.shots.length]);
 
   /**
