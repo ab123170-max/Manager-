@@ -2,9 +2,10 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Fast barcode/QR path for the live scanner.
- * Uses the browser's native BarcodeDetector when available and falls back
- * to the existing ZXing engine only on a throttled cadence.
+ * Fast barcode/QR path for live scanning.
+ * Prefers the platform BarcodeDetector and throttles the ZXing fallback.
+ * A single-flight guard prevents slow mobile devices from processing several
+ * camera frames concurrently, which can otherwise increase latency and jank.
  */
 
 import { DetectedCode } from '../types';
@@ -37,6 +38,7 @@ let nativeInitAttempted = false;
 let lastFallbackAt = 0;
 let lastValue = '';
 let lastValueAt = 0;
+let detectionInFlight = false;
 
 function getNativeDetector(): BarcodeDetectorLike | null {
   if (nativeInitAttempted) return nativeDetector;
@@ -44,8 +46,7 @@ function getNativeDetector(): BarcodeDetectorLike | null {
 
   try {
     const Ctor = (globalThis as any).BarcodeDetector as BarcodeDetectorCtor | undefined;
-    if (!Ctor) return null;
-    nativeDetector = new Ctor({ formats: detectorFormats });
+    if (Ctor) nativeDetector = new Ctor({ formats: detectorFormats });
   } catch {
     nativeDetector = null;
   }
@@ -72,7 +73,9 @@ function buildCode(rawValue: string, format?: string): DetectedCode {
         isJson = true;
         parsedJson = parsed as Record<string, unknown>;
       }
-    } catch {}
+    } catch {
+      // Plain text QR codes are valid too.
+    }
   }
 
   return {
@@ -89,49 +92,74 @@ function buildCode(rawValue: string, format?: string): DetectedCode {
 }
 
 /**
- * Returns a code immediately when the platform can decode it.
- * ZXing fallback is throttled so it never blocks every live frame.
+ * Fast path for a live camera frame.
+ * - Skips overlapping work instead of queuing stale frames.
+ * - Uses native decoding where supported.
+ * - Runs the heavier ZXing fallback at most once per 300ms.
+ * - Suppresses repeated results briefly to avoid duplicate inventory actions.
  */
 export async function detectFastCode(
   source: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
   forceFallback = false
 ): Promise<DetectedCode | null> {
-  const now = performance.now();
+  if (detectionInFlight) return null;
 
-  const native = getNativeDetector();
-  if (native && !forceFallback) {
-    try {
-      const results = await native.detect(source);
-      const first = results.find((r) => !!r.rawValue);
-      if (first?.rawValue) {
-        const value = first.rawValue.trim();
-        if (value !== lastValue || now - lastValueAt > 1200) {
+  if (source instanceof HTMLVideoElement) {
+    if (source.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+        source.videoWidth <= 0 || source.videoHeight <= 0) {
+      return null;
+    }
+  } else if (source instanceof HTMLImageElement) {
+    if (!source.complete || source.naturalWidth <= 0 || source.naturalHeight <= 0) {
+      return null;
+    }
+  } else if (source.width <= 0 || source.height <= 0) {
+    return null;
+  }
+
+  detectionInFlight = true;
+  try {
+    const now = performance.now();
+    const native = getNativeDetector();
+
+    if (native && !forceFallback) {
+      try {
+        const results = await native.detect(source);
+        const first = results.find((r) => !!r.rawValue?.trim());
+        if (first?.rawValue) {
+          const value = first.rawValue.trim();
+          if (value === lastValue && now - lastValueAt < 900) return null;
           lastValue = value;
           lastValueAt = now;
           return buildCode(value, first.format);
         }
-        return null;
+        // Native detector ran successfully but found no code. Do not spend
+        // CPU on ZXing for every frame; fallback is reserved for throttled checks.
+        if (now - lastFallbackAt < 300) return null;
+      } catch {
+        // Native decoder may exist but fail on a specific device/frame.
       }
-    } catch {
-      // Fall through to throttled ZXing.
     }
-  }
 
-  // Never run the heavier fallback more than once every 450ms.
-  if (now - lastFallbackAt < 450) return null;
-  lastFallbackAt = now;
+    if (now - lastFallbackAt < 300) return null;
+    lastFallbackAt = now;
 
-  try {
-    const codes = await detectCodesInImage(source, 'all');
-    const code = codes[0];
-    if (!code?.value) return null;
+    try {
+      const codes = await detectCodesInImage(source, 'all');
+      const code = codes[0];
+      if (!code?.value) return null;
 
-    if (code.value === lastValue && now - lastValueAt < 1200) return null;
-    lastValue = code.value;
-    lastValueAt = now;
-    return code;
-  } catch {
-    return null;
+      const value = code.value.trim();
+      const completedAt = performance.now();
+      if (value === lastValue && completedAt - lastValueAt < 900) return null;
+      lastValue = value;
+      lastValueAt = completedAt;
+      return code;
+    } catch {
+      return null;
+    }
+  } finally {
+    detectionInFlight = false;
   }
 }
 
@@ -139,4 +167,5 @@ export function resetFastBarcodeState() {
   lastValue = '';
   lastValueAt = 0;
   lastFallbackAt = 0;
+  detectionInFlight = false;
 }
