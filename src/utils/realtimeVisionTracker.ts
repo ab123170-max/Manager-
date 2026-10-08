@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { detectCodesInImage } from './barcodeDetector';
+import { detectFastCode } from './fastBarcodeEngine';
 
 export interface NormalizedRect {
   x: number; // 0.0 to 1.0 (relative to preview width)
@@ -552,10 +552,10 @@ export async function detectAndTrackObjectsInFrame(
   let frameBarcode: string | undefined = undefined;
   if (rawDetections.length > 0) {
     try {
-      const detectedCodes = await detectCodesInImage(ctxObj.canvas);
-      if (detectedCodes && detectedCodes.length > 0) {
-        frameBarcode = detectedCodes[0].value;
-        // Associate barcode with closest detection
+      const detectedCode = await detectFastCode(ctxObj.canvas);
+      if (detectedCode?.value) {
+        frameBarcode = detectedCode.value;
+        // Associate barcode with the primary detection.
         rawDetections[0].barcode = frameBarcode;
       }
     } catch {
