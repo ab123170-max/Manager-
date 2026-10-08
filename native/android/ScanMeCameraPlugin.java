@@ -263,7 +263,11 @@ public class ScanMeCameraPlugin extends Plugin {
         isFirstFrameCaptured = false;
 
         String facing = call.getString("facingMode", "environment");
-        boolean toBack = call.getBoolean("toBack", true);
+        if (facing == null) {
+            facing = "environment";
+        }
+        Boolean toBackObj = call.getBoolean("toBack", true);
+        boolean toBack = (toBackObj != null) ? toBackObj : true;
 
         if ("user".equalsIgnoreCase(facing) || "front".equalsIgnoreCase(facing)) {
             lensFacing = CameraSelector.LENS_FACING_FRONT;
@@ -508,6 +512,9 @@ public class ScanMeCameraPlugin extends Plugin {
     @PluginMethod
     public void setFlashMode(PluginCall call) {
         String mode = call.getString("flashMode", "auto");
+        if (mode == null) {
+            mode = "auto";
+        }
         if (camera == null) {
             call.reject("Camera is not active.");
             return;

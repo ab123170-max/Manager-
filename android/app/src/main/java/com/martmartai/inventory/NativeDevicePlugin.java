@@ -11,6 +11,7 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.speech.tts.TextToSpeech;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -105,13 +106,16 @@ public class NativeDevicePlugin extends Plugin {
     @PluginMethod
     public void notify(PluginCall call) {
         String title = call.getString("title", "ScanMe AI");
+        if (title == null || title.trim().isEmpty()) {
+            title = "ScanMe AI";
+        }
         String body = call.getString("body", "");
         if (body == null || body.trim().isEmpty()) {
             call.reject("Notification body is empty");
             return;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            getContext().checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            ContextCompat.checkSelfPermission(getContext(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             call.reject("Notification permission is not granted");
             return;
         }
@@ -146,24 +150,44 @@ public class NativeDevicePlugin extends Plugin {
         }
 
         String language = call.getString("language", "en-US");
-        Double requestedRate = call.getDouble("rate", 1.0);
-        float rate = requestedRate != null ? requestedRate.floatValue() : 1.0f;
+        if (language == null || language.trim().isEmpty()) {
+            language = "en-US";
+        }
+
+        Double requestedRate = null;
+        try {
+            requestedRate = call.getDouble("rate");
+        } catch (Exception ignored) {}
+        if (requestedRate == null) {
+            try {
+                Float requestedFloat = call.getFloat("rate");
+                if (requestedFloat != null) {
+                    requestedRate = requestedFloat.doubleValue();
+                }
+            } catch (Exception ignored) {}
+        }
+        float rate = (requestedRate != null) ? requestedRate.floatValue() : 1.0f;
+        rate = Math.max(0.5f, Math.min(rate, 2.0f));
+
+        final String finalLanguage = language;
+        final float finalRate = rate;
 
         if (textToSpeech == null) {
             textToSpeech = new TextToSpeech(getContext(), status -> {
                 if (status == TextToSpeech.SUCCESS) {
-                    speakNow(call, text, language, rate);
+                    speakNow(call, text, finalLanguage, finalRate);
                 } else {
                     call.reject("Android Text-to-Speech initialization failed");
                 }
             });
         } else {
-            speakNow(call, text, language, rate);
+            speakNow(call, text, finalLanguage, finalRate);
         }
     }
 
     private void speakNow(PluginCall call, String text, String language, float rate) {
-        Locale locale = Locale.forLanguageTag(language.replace('_', '-'));
+        String safeLanguage = (language != null && !language.trim().isEmpty()) ? language : "en-US";
+        Locale locale = Locale.forLanguageTag(safeLanguage.replace('_', '-'));
         int result = textToSpeech.setLanguage(locale);
         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
             locale = Locale.getDefault();
@@ -176,7 +200,11 @@ public class NativeDevicePlugin extends Plugin {
 
     @PluginMethod
     public void vibrate(PluginCall call) {
-        long duration = Math.max(1, call.getInt("duration", 120));
+        Integer requestedDuration = null;
+        try {
+            requestedDuration = call.getInt("duration", 120);
+        } catch (Exception ignored) {}
+        long duration = Math.max(1L, (requestedDuration != null) ? requestedDuration.longValue() : 120L);
         Vibrator vibrator = (Vibrator) getContext().getSystemService(Context.VIBRATOR_SERVICE);
         if (vibrator != null && vibrator.hasVibrator()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
