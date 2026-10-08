@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { detectCodesInImage } from './barcodeDetector';
+import { detectFastCode } from './fastBarcodeEngine';
 
 export type DetectedRegionType =
   | 'product_boundary'
@@ -364,14 +364,12 @@ export async function analyzeLiveFrame(
     }
   }
 
-  // 4. Fast Local Barcode Decoding (ZXing on sample frame)
+  // 4. Fast barcode path. Native BarcodeDetector is preferred; ZXing is throttled.
   let detectedBarcode: string | undefined = undefined;
   if (hasProduct) {
     try {
-      const codes = await detectCodesInImage(canvas, 'all');
-      if (codes && codes.length > 0 && codes[0].value) {
-        detectedBarcode = codes[0].value;
-      }
+      const code = await detectFastCode(canvas);
+      if (code?.value) detectedBarcode = code.value;
     } catch {
       // Non-fatal barcode decode skip
     }
