@@ -12,7 +12,7 @@ import { isNativeApp } from '../../utils/platform';
 import { PersonalizedIntro } from '../onboarding/PersonalizedIntro';
 import { useLanguage } from '../../context/LanguageContext';
 import { LandingStatsSection } from './LandingStatsSection';
-import { trackDownloadClick, getAnonymousId } from '../../services/analyticsService';
+import { trackDownloadClick } from '../../services/analyticsService';
 
 interface LandingPageProps {
   onGetStarted: () => void;
@@ -33,8 +33,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
     });
   }, []);
 
-  const anonId = getAnonymousId();
-  const APK_DOWNLOAD_URL = `https://github.com/ab123170-max/Manager-/releases/latest/download/scanme-ai.apk?anon_id=${encodeURIComponent(anonId)}`;
+  const APK_DOWNLOAD_URL = 'https://github.com/ab123170-max/Manager-/releases/latest/download/scanme-ai.apk';
   const [isDownloading, setIsDownloading] = useState(false);
   const [autoGuideActive, setAutoGuideActive] = useState(true);
   const autoScrollCancelledRef = useRef(false);
