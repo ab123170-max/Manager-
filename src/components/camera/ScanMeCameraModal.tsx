@@ -72,6 +72,7 @@ export type CameraModalMode =
 interface ScanMeCameraModalProps {
   isOpen: boolean;
   onFinishAndExtract: (shots: string[], session?: ScanSession) => void;
+  onShotCaptured?: (image: string, index: number) => void;
   onClose: () => void;
   title?: string;
   subtitle?: string;
@@ -82,6 +83,7 @@ interface ScanMeCameraModalProps {
 export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   isOpen,
   onFinishAndExtract,
+  onShotCaptured,
   onClose,
   title = 'Live Product Scanner',
   subtitle = 'Detects, tracks, and extracts product data in real-time',
@@ -239,6 +241,12 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
           ...prev,
           shots: [...prev.shots, newShot],
         }));
+
+        // Dispatch immediately; extraction runs independently of camera capture.
+        // Never await network/AI work from the live camera loop.
+        try { onShotCaptured?.(photoDataUrl, nextShotNum - 1); } catch (dispatchError) {
+          console.warn('[ProgressiveExtraction] Shot dispatch failed:', dispatchError);
+        }
 
         const activeTarget = getActiveTargetField(trackedProduct);
         let fieldKey = '';

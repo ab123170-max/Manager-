@@ -22,6 +22,7 @@ import { SampleDoc } from '../../types';
 
 interface MultiShotProductScannerProps {
   onAnalyze: (images: string[], session?: any) => void;
+  onShotCaptured?: (image: string, index: number) => Promise<any>;
   disabled?: boolean;
   initialAutoOpen?: boolean;
   onCameraOpened?: () => void;
@@ -39,11 +40,46 @@ const RECOMMENDED_SHOT_HINTS = [
 
 export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = ({
   onAnalyze,
+  onShotCaptured,
   disabled = false,
   initialAutoOpen = false,
   onCameraOpened,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Progressive extraction queue: at most two AI requests run at once so
+  // camera capture remains responsive and API concurrency stays bounded.
+  const progressiveJobsRef = useRef<Array<{ image: string; index: number; resolve: (value: any) => void }>>([]);
+  const progressivePromisesRef = useRef<Map<number, Promise<any>>>(new Map());
+  const activeProgressiveJobsRef = useRef(0);
+  const drainProgressiveQueueRef = useRef<() => void>(() => {});
+
+  drainProgressiveQueueRef.current = () => {
+    while (activeProgressiveJobsRef.current < 2 && progressiveJobsRef.current.length > 0) {
+      const job = progressiveJobsRef.current.shift()!;
+      activeProgressiveJobsRef.current += 1;
+      Promise.resolve()
+        .then(() => onShotCaptured ? onShotCaptured(job.image, job.index) : null)
+        .catch((error) => {
+          console.warn('[ProgressiveExtraction] Shot failed; final reconciliation may retry:', error);
+          return null;
+        })
+        .then(job.resolve)
+        .finally(() => {
+          activeProgressiveJobsRef.current -= 1;
+          drainProgressiveQueueRef.current();
+        });
+    }
+  };
+
+  const enqueueProgressiveShot = useCallback((image: string, index: number) => {
+    if (!onShotCaptured || progressivePromisesRef.current.has(index)) return;
+    const promise = new Promise<any>((resolve) => {
+      progressiveJobsRef.current.push({ image, index, resolve });
+      drainProgressiveQueueRef.current();
+    });
+    progressivePromisesRef.current.set(index, promise);
+  }, [onShotCaptured]);
 
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'camera' | 'upload' | 'samples'>('camera');
@@ -78,13 +114,26 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
     setIsCameraModalOpen(true);
   }, [capturedPhotos.length]);
 
+  const handleShotCaptured = useCallback((image: string, index: number) => {
+    setCapturedPhotos((prev) => prev.length > index ? prev : [...prev, image]);
+    enqueueProgressiveShot(image, index);
+  }, [enqueueProgressiveShot]);
+
   const handleFinishAndExtractFromCamera = useCallback(
-    (shots: string[], session?: any) => {
+    async (shots: string[], session?: any) => {
       setCapturedPhotos(shots);
       setIsCameraModalOpen(false);
       if (shots.length > 0) {
-        onAnalyze(shots, session);
+        // Wait for already-running per-shot jobs, without having blocked capture.
+        const progressiveResults = await Promise.all(
+          Array.from(progressivePromisesRef.current.entries())
+            .sort(([a], [b]) => a - b)
+            .map(async ([, promise]) => promise)
+        );
+        onAnalyze(shots, { ...session, progressiveResults });
       }
+      progressivePromisesRef.current.clear();
+      progressiveJobsRef.current = [];
     },
     [onAnalyze]
   );
@@ -140,6 +189,7 @@ export const MultiShotProductScanner: React.FC<MultiShotProductScannerProps> = (
       <ScanMeCameraModal
         isOpen={isCameraModalOpen}
         onFinishAndExtract={handleFinishAndExtractFromCamera}
+        onShotCaptured={handleShotCaptured}
         onClose={() => setIsCameraModalOpen(false)}
         initialShots={capturedPhotos}
         maxShots={MAX_PHOTOS}

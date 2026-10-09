@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { AppHeader } from './components/navigation/AppHeader';
 import { ViewLoadingSkeleton } from './components/common/ViewLoadingSkeleton';
 import {
@@ -518,11 +518,20 @@ export default function App() {
     }
   };
 
+  // Each captured shot is extracted in the background while the camera remains usable.
+  const progressiveScanTokenRef = useRef(0);
+  const handleProgressiveShot = async (image: string, index: number) => {
+    const { extractProduct5FieldsFromImages } = await import('./services/geminiService');
+    return extractProduct5FieldsFromImages([image]);
+  };
+
   /**
-   * Multi-Shot Synchronized Analysis (1 to 5 photos of product packaging)
-   * AI module is loaded strictly on-demand when user initiates analysis
+   * Multi-Shot Synchronized Analysis (1 to 5 photos of product packaging).
+   * Uses progressive per-shot results when available, and falls back to one
+   * combined request for uploads or if every background request failed.
    */
   const handleMultiShotAnalyze = async (images: string[], session?: any) => {
+    const scanToken = ++progressiveScanTokenRef.current;
     if (!images || images.length === 0) return;
     setCapturedImages(images);
     setCapturedImage(images[0] || null);
@@ -553,7 +562,51 @@ export default function App() {
 
     try {
       const { extractProduct5FieldsFromImages } = await import('./services/geminiService');
-      const result = await extractProduct5FieldsFromImages(images);
+      const progressiveResults = Array.isArray(session?.progressiveResults)
+        ? session.progressiveResults.filter((item: any) => item && typeof item === 'object')
+        : [];
+
+      let result: ProductScanResult;
+      if (progressiveResults.length > 0) {
+        // Merge the best non-empty value per field, preferring higher confidence.
+        const fields = ['productName', 'price', 'currency', 'manufactureDate', 'expiryDate',
+          'bestBeforeMonths', 'quantity', 'unit', 'detectedLanguage', 'isCalculatedExpiry'] as const;
+        const merged: any = {
+          productName: '', price: null, currency: 'USD', manufactureDate: null, expiryDate: null,
+          bestBeforeMonths: null, quantity: 1, unit: 'pcs', detectedLanguage: 'English',
+          isCalculatedExpiry: false, confidence: {}, warnings: [], photosCount: images.length,
+          capturedImages: images,
+        };
+        for (const partial of progressiveResults) {
+          for (const field of fields) {
+            const value = partial[field];
+            const empty = value === null || value === undefined || value === '' ||
+              (field === 'bestBeforeMonths' && !(Number(value) > 0));
+            if (empty) continue;
+            const existing = merged[field];
+            const existingEmpty = existing === null || existing === undefined || existing === '' ||
+              (field === 'bestBeforeMonths' && !(Number(existing) > 0));
+            const nextConfidence = Number(partial.confidence?.[field] ?? 0.5);
+            const currentConfidence = Number(merged.confidence[field] ?? 0);
+            if (existingEmpty || nextConfidence > currentConfidence) {
+              merged[field] = value;
+              merged.confidence[field] = nextConfidence;
+            }
+          }
+          merged.warnings.push(...(Array.isArray(partial.warnings) ? partial.warnings : []));
+        }
+        merged.warnings = [...new Set(merged.warnings)];
+        merged.confidence.overall = Object.values(merged.confidence).length
+          ? Math.max(...Object.values(merged.confidence).map(Number))
+          : 0.5;
+        const hasUsefulData = Boolean(merged.productName || merged.price !== null ||
+          merged.manufactureDate || merged.expiryDate || merged.bestBeforeMonths);
+        // If partial calls returned no useful fields, use the original combined-image supervisor.
+        result = hasUsefulData ? merged as ProductScanResult : await extractProduct5FieldsFromImages(images);
+      } else {
+        result = await extractProduct5FieldsFromImages(images);
+      }
+      if (scanToken !== progressiveScanTokenRef.current) return;
       const finalResult = { ...result, trackingId };
       setProductScanResult(finalResult);
       if (result.capturedImages && result.capturedImages.length > 0) {
@@ -1098,6 +1151,7 @@ export default function App() {
                         </Suspense>
                         <MultiShotProductScanner
                           onAnalyze={handleMultiShotAnalyze}
+                          onShotCaptured={handleProgressiveShot}
                           disabled={false}
                           initialAutoOpen={autoOpenScannerCamera}
                           onCameraOpened={() => setAutoOpenScannerCamera(false)}
@@ -1183,6 +1237,7 @@ export default function App() {
                   <div className="space-y-6">
                     <MultiShotProductScanner
                       onAnalyze={handleMultiShotAnalyze}
+                      onShotCaptured={handleProgressiveShot}
                       disabled={false}
                       initialAutoOpen={autoOpenScannerCamera}
                       onCameraOpened={() => setAutoOpenScannerCamera(false)}
