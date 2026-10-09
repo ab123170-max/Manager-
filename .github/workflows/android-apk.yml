@@ -107,12 +107,19 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      - name: Prepare stable APK download filename
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk scanme-ai.apk
+          test -s scanme-ai.apk
+          ls -lh scanme-ai.apk
+
       - name: Publish APK to GitHub Release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v0.1.${{ github.run_number }}"
-          gh release create "$TAG" android/app/build/outputs/apk/debug/app-debug.apk \
+          gh release create "$TAG" scanme-ai.apk \
             --title "ScanMe AI Android ${TAG}" \
             --notes "ScanMe AI Android APK with Native CameraX Integration. Install on Android devices with APK installation enabled." \
             --latest
