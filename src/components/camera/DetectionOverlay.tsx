@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Target, Check, Sparkles, Lock, AlertCircle, Crosshair } from 'lucide-react';
 import { RealtimeDetectionResult, NormalizedRect } from '../../utils/realtimeProductDetector';
 import { TrackedProduct, getActiveTargetField } from '../../utils/productTracker';
@@ -40,6 +40,54 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
 }) => {
   const [lastBox, setLastBox] = useState<NormalizedRect | null>(null);
   const [lostTracking, setLostTracking] = useState(false);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+
+  // Measure the camera viewport. Since the video uses object-cover, the source
+  // frame can be cropped on portrait screens; map boxes to the visible frame.
+  useEffect(() => {
+    const node = overlayRef.current;
+    if (!node) return;
+    const updateSize = () => {
+      const rect = node.getBoundingClientRect();
+      setViewportSize({ width: rect.width, height: rect.height });
+    };
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(node);
+    window.addEventListener('orientationchange', updateSize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('orientationchange', updateSize);
+    };
+  }, []);
+
+  const mapSourceRectToViewport = (box: NormalizedRect): NormalizedRect => {
+    const vw = viewportSize.width;
+    const vh = viewportSize.height;
+    const sw = sourceResolution.width;
+    const sh = sourceResolution.height;
+    if (!vw || !vh || !sw || !sh) return box;
+    const scale = Math.max(vw / sw, vh / sh);
+    const renderedW = sw * scale;
+    const renderedH = sh * scale;
+    const offsetX = (vw - renderedW) / 2;
+    const offsetY = (vh - renderedH) / 2;
+    const left = (box.x * renderedW + offsetX) / vw;
+    const top = (box.y * renderedH + offsetY) / vh;
+    const right = ((box.x + box.width) * renderedW + offsetX) / vw;
+    const bottom = ((box.y + box.height) * renderedH + offsetY) / vh;
+    const clippedLeft = Math.max(0, Math.min(1, left));
+    const clippedTop = Math.max(0, Math.min(1, top));
+    const clippedRight = Math.max(clippedLeft, Math.min(1, right));
+    const clippedBottom = Math.max(clippedTop, Math.min(1, bottom));
+    return {
+      x: clippedLeft,
+      y: clippedTop,
+      width: clippedRight - clippedLeft,
+      height: clippedBottom - clippedTop,
+    };
+  };
 
   // Keep track of primary product box to gracefully handle re-acquisition
   useEffect(() => {
@@ -75,7 +123,11 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
   // The tracker is the authoritative live geometry. Prefer its current box over the
   // slower field-analysis box so the overlay follows the physical product every frame.
   const trackedPrimaryBox = trackedObjects.length > 0 ? trackedObjects[0].box : null;
-  const primaryBox = trackedPrimaryBox || (detection.hasProduct ? detection.productBox : (lostTracking ? lastBox : null));
+  const visiblePrimaryTrack = trackedObjects.find((obj) =>
+    obj.state !== 'TEMPORARILY_LOST' && obj.confidence >= 0.55
+  );
+  const primaryBox = visiblePrimaryTrack?.box || (detection.hasProduct ? detection.productBox : (lostTracking ? lastBox : null));
+  const mappedPrimaryBox = primaryBox ? mapSourceRectToViewport(primaryBox) : null;
 
   // Completed fields calculation
   const totalFields = 5;
@@ -84,7 +136,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
   ).length;
 
   return (
-    <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden select-none">
+    <div ref={overlayRef} className="absolute inset-0 pointer-events-none z-10 overflow-hidden select-none">
       {/* Optional In-Development Debug HUD (Hidden in production) */}
       {showDebugInfo && (
         <div className="absolute top-2 left-2 z-40 bg-black/85 backdrop-blur-md text-emerald-400 font-mono text-[10px] p-2.5 rounded-xl border border-emerald-500/30 space-y-0.5 shadow-xl pointer-events-auto">
@@ -105,10 +157,13 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
       {hasMultipleTrackedObjects &&
         trackedObjects.slice(1).map((secObj) => {
           const isSelected = selectedObjectId === secObj.id || secObj.isLocked;
-          const leftPct = Math.max(0, Math.min(94, secObj.box.x * 100));
-          const topPct = Math.max(0, Math.min(94, secObj.box.y * 100));
-          const widthPct = Math.max(1.5, Math.min(100 - leftPct, secObj.box.width * 100));
-          const heightPct = Math.max(1.5, Math.min(100 - topPct, secObj.box.height * 100));
+          if (secObj.state === 'TEMPORARILY_LOST' || secObj.confidence < 0.55) return null;
+          const mappedBox = mapSourceRectToViewport(secObj.box);
+          if (mappedBox.width <= 0.005 || mappedBox.height <= 0.005) return null;
+          const leftPct = mappedBox.x * 100;
+          const topPct = mappedBox.y * 100;
+          const widthPct = Math.max(1.5, Math.min(100 - leftPct, mappedBox.width * 100));
+          const heightPct = Math.max(1.5, Math.min(100 - topPct, mappedBox.height * 100));
 
           return (
             <div
@@ -143,11 +198,11 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
         })}
 
       {/* Render Primary Tracked Product Bounding Box */}
-      {primaryBox && (() => {
-        const leftPct = Math.max(0, Math.min(94, primaryBox.x * 100));
-        const topPct = Math.max(0, Math.min(94, primaryBox.y * 100));
-        const widthPct = Math.max(4, Math.min(100 - leftPct, primaryBox.width * 100));
-        const heightPct = Math.max(4, Math.min(100 - topPct, primaryBox.height * 100));
+      {mappedPrimaryBox && mappedPrimaryBox.width > 0.005 && mappedPrimaryBox.height > 0.005 && (() => {
+        const leftPct = mappedPrimaryBox.x * 100;
+        const topPct = mappedPrimaryBox.y * 100;
+        const widthPct = Math.max(1.5, Math.min(100 - leftPct, mappedPrimaryBox.width * 100));
+        const heightPct = Math.max(1.5, Math.min(100 - topPct, mappedPrimaryBox.height * 100));
 
         return (
           <div
