@@ -598,10 +598,15 @@ export async function detectAndTrackObjectsInFrame(
   const trackedObjects = globalObjectTracker.update(rawDetections, Date.now());
   const trackingLatencyMs = Math.round(performance.now() - trackingStart);
 
-  const primaryObject = trackedObjects.length > 0 ? trackedObjects[0] : null;
+  // A stale/lost track must not win primary selection just because it has
+  // accumulated more frames than a currently visible object.
+  const visibleObjects = trackedObjects.filter(
+    (track) => track.state !== 'TEMPORARILY_LOST' && track.framesLost === 0 && track.confidence >= 0.55
+  );
+  const primaryObject = visibleObjects.find((track) => track.isLocked) || visibleObjects[0] || null;
 
   return {
-    hasObjects: trackedObjects.length > 0,
+    hasObjects: visibleObjects.length > 0,
     objects: trackedObjects,
     primaryObject,
     fps: fpsCounter || 24,
