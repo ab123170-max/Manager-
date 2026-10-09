@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Camera,
   X,
@@ -614,6 +615,21 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   });
 
   useEffect(() => {
+    if (!isOpen) return;
+
+    // Lock the document behind the camera and restore its exact previous state on close.
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
     if (isOpen) {
       checkAndInitCameraRef.current();
     } else {
@@ -835,8 +851,8 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   const f = trackedProduct.fields;
   const activeTarget = getActiveTargetField(trackedProduct);
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-hidden select-none">
+  return createPortal((
+    <div className="fixed inset-0 overflow-hidden select-none" style={{ zIndex: 2147483647, touchAction: 'none' }}>
       {/* Hidden canvas for browser preview snapshots */}
       <canvas ref={canvasRef} className="hidden" />
 
@@ -1036,7 +1052,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
               autoPlay
               playsInline
               muted
-              className="absolute inset-0 w-full h-full object-cover -z-10"
+              className="absolute inset-0 z-0 w-full h-full object-cover"
             />
           )}
 
@@ -1402,7 +1418,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
         </div>
       )}
     </div>
-  );
+  ), document.body);
 };
 
 export default ScanMeCameraModal;
