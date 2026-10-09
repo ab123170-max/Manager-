@@ -20,8 +20,18 @@ let modelPromise: Promise<cocoSsd.ObjectDetection> | null = null;
 let inferenceBusy = false;
 let lastInferenceAt = 0;
 let cachedDetections: RealObjectDetection[] = [];
+let cachedAt = 0;
 const MIN_CONFIDENCE = 0.55;
 const MIN_INFERENCE_INTERVAL_MS = 180;
+const MAX_CACHE_AGE_MS = 250;
+
+// COCO-SSD is a general-object model, not a package detector. Accept only
+// common physical product/food containers; people, furniture and background
+// objects must never be reported as products by this scanner.
+const PRODUCT_CLASSES = new Set([
+  'bottle', 'cup', 'bowl', 'wine glass', 'cup', 'banana', 'apple',
+  'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake',
+]);
 
 async function loadModel(): Promise<cocoSsd.ObjectDetection> {
   if (!modelPromise) {
@@ -49,7 +59,9 @@ async function loadModel(): Promise<cocoSsd.ObjectDetection> {
 export async function detectRealObjects(source: Source): Promise<RealObjectDetection[]> {
   const now = Date.now();
   if (inferenceBusy || now - lastInferenceAt < MIN_INFERENCE_INTERVAL_MS) {
-    return cachedDetections;
+    // Never keep a stale box following a moving object. Short-lived cache is
+    // used only to bridge normal frame cadence; expired results mean no detection.
+    return now - cachedAt <= MAX_CACHE_AGE_MS ? cachedDetections : [];
   }
   inferenceBusy = true;
   lastInferenceAt = now;
@@ -59,7 +71,7 @@ export async function detectRealObjects(source: Source): Promise<RealObjectDetec
     const width = ('videoWidth' in source ? source.videoWidth : 'naturalWidth' in source ? source.naturalWidth : source.width) || 1;
     const height = ('videoHeight' in source ? source.videoHeight : 'naturalHeight' in source ? source.naturalHeight : source.height) || 1;
     cachedDetections = predictions
-      .filter((prediction) => prediction.score >= MIN_CONFIDENCE && prediction.bbox[2] > 0 && prediction.bbox[3] > 0)
+      .filter((prediction) => PRODUCT_CLASSES.has(prediction.class.toLowerCase()) && prediction.score >= MIN_CONFIDENCE && prediction.bbox[2] > 0 && prediction.bbox[3] > 0)
       .map((prediction) => {
         const [x, y, boxWidth, boxHeight] = prediction.bbox;
         const left = Math.max(0, Math.min(1, x / width));
@@ -72,8 +84,11 @@ export async function detectRealObjects(source: Source): Promise<RealObjectDetec
           label: prediction.class,
         };
       });
+    cachedAt = Date.now();
     return cachedDetections;
   } catch (error) {
+    cachedDetections = [];
+    cachedAt = 0;
     console.warn('[RealObjectDetector] Model inference failed:', error);
     return [];
   } finally {
@@ -84,5 +99,6 @@ export async function detectRealObjects(source: Source): Promise<RealObjectDetec
 /** Clear predictions when the camera session closes so old boxes cannot leak into a new scan. */
 export function resetRealObjectDetector(): void {
   cachedDetections = [];
+  cachedAt = 0;
   lastInferenceAt = 0;
 }
