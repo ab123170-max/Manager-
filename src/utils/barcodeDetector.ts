@@ -112,10 +112,10 @@ class CodeDetectionEngine {
   }
 
   /**
-   * Detects barcode or QR code from an image element, canvas, or data URL
+   * Detects barcode or QR code from an image element, video element, canvas, or data URL
    */
   public async detectFromImage(
-    imageSource: HTMLImageElement | HTMLCanvasElement | string
+    imageSource: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | string
   ): Promise<DetectedCode | null> {
     const zxingInstance = await this.getZxingReader();
     if (!zxingInstance) return null;
@@ -141,10 +141,19 @@ class CodeDetectionEngine {
         width = imageSource.width;
         height = imageSource.height;
         sourceToDraw = imageSource;
-      } else {
+      } else if (imageSource instanceof HTMLVideoElement) {
+        width = imageSource.videoWidth || imageSource.width;
+        height = imageSource.videoHeight || imageSource.height;
+        sourceToDraw = imageSource;
+      } else if (imageSource instanceof HTMLImageElement) {
         width = imageSource.naturalWidth || imageSource.width;
         height = imageSource.naturalHeight || imageSource.height;
         sourceToDraw = imageSource;
+      } else {
+        const anySource = imageSource as any;
+        width = anySource?.width || anySource?.videoWidth || anySource?.naturalWidth || 0;
+        height = anySource?.height || anySource?.videoHeight || anySource?.naturalHeight || 0;
+        sourceToDraw = anySource;
       }
 
       if (!width || !height) return null;
@@ -258,7 +267,7 @@ export const codeDetector = new CodeDetectionEngine();
  * Image code detector helper
  */
 export async function detectCodesInImage(
-  imageSource: HTMLImageElement | HTMLCanvasElement | string,
+  imageSource: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | string,
   mode: 'barcode' | 'qr' | 'all' = 'all'
 ): Promise<DetectedCode[]> {
   const res = await codeDetector.detectFromImage(imageSource);

@@ -143,33 +143,40 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
         })}
 
       {/* Render Primary Tracked Product Bounding Box */}
-      {primaryBox && (
-        <div
-          style={{
-            position: 'absolute',
-            left: `${Math.max(0, Math.min(94, primaryBox.x * 100))}%`,
-            top: `${Math.max(0, Math.min(94, primaryBox.y * 100))}%`,
-            width: `${Math.max(1.5, Math.min(100 - primaryBox.x * 100, primaryBox.width * 100))}%`,
-            height: `${Math.max(1.5, Math.min(100 - primaryBox.y * 100, primaryBox.height * 100))}%`,
-            // Smooth, responsive interpolation: moves & resizes continuously with the physical object
-            transition: 'left 0.08s linear, top 0.08s linear, width 0.08s linear, height 0.08s linear',
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (trackedObjects.length > 0 && onSelectObject) {
-              onSelectObject(trackedObjects[0]);
-            }
-          }}
-          className={`border-2 rounded-3xl relative flex flex-col justify-between pointer-events-auto cursor-pointer transition-transform ${
-            lostTracking
-              ? 'border-amber-400 border-dashed shadow-[0_0_12px_rgba(251,191,36,0.4)] opacity-80'
-              : isComplete
-              ? 'border-emerald-500 shadow-[0_0_24px_rgba(16,185,129,0.7)] ring-2 ring-emerald-400/30'
-              : detection.trackingState === 'stable'
-              ? 'border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.55)]'
-              : 'border-[#1473EA] shadow-[0_0_18px_rgba(20,115,234,0.45)]'
-          }`}
-        >
+      {primaryBox && (() => {
+        const leftPct = Math.max(0, Math.min(94, primaryBox.x * 100));
+        const topPct = Math.max(0, Math.min(94, primaryBox.y * 100));
+        const widthPct = Math.max(4, Math.min(100 - leftPct, primaryBox.width * 100));
+        const heightPct = Math.max(4, Math.min(100 - topPct, primaryBox.height * 100));
+
+        return (
+          <div
+            style={{
+              position: 'absolute',
+              left: `${leftPct}%`,
+              top: `${topPct}%`,
+              width: `${widthPct}%`,
+              height: `${heightPct}%`,
+              // Responsive cubic transition: moves & resizes continuously with the physical object
+              transition: 'left 0.07s linear, top 0.07s linear, width 0.07s linear, height 0.07s linear',
+              willChange: 'left, top, width, height',
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (trackedObjects.length > 0 && onSelectObject) {
+                onSelectObject(trackedObjects[0]);
+              }
+            }}
+            className={`border-2 rounded-3xl relative flex flex-col justify-between pointer-events-auto cursor-pointer transition-transform ${
+              lostTracking
+                ? 'border-amber-400 border-dashed shadow-[0_0_12px_rgba(251,191,36,0.4)] opacity-80'
+                : isComplete
+                ? 'border-emerald-500 shadow-[0_0_24px_rgba(16,185,129,0.7)] ring-2 ring-emerald-400/30'
+                : detection.trackingState === 'stable'
+                ? 'border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.55)]'
+                : 'border-[#1473EA] shadow-[0_0_18px_rgba(20,115,234,0.45)]'
+            }`}
+          >
           {/* 4 Corner Bracket Accents (ScanMe signature design) */}
           <div className="absolute -top-1.5 -left-1.5 w-6 h-6 border-t-4 border-l-4 border-inherit rounded-tl-xl pointer-events-none" />
           <div className="absolute -top-1.5 -right-1.5 w-6 h-6 border-t-4 border-r-4 border-inherit rounded-tr-xl pointer-events-none" />
@@ -305,7 +312,7 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
             </div>
           )}
         </div>
-      )}
+      );})()}
     </div>
   );
 };

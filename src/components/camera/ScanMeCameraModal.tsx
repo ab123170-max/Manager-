@@ -60,6 +60,10 @@ import {
   TrackedObject,
   globalObjectTracker,
 } from '../../utils/realtimeVisionTracker';
+import {
+  progressiveExtractionService,
+  SessionExtractionState,
+} from '../../services/progressiveExtractionService';
 import { DetectionOverlay } from './DetectionOverlay';
 
 export type CameraModalMode =
@@ -113,6 +117,80 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
     extractedData: {},
     status: 'capturing',
   }));
+
+  // Progressive Background AI Extraction State
+  const [extractionState, setExtractionState] = useState<SessionExtractionState>(() =>
+    progressiveExtractionService.getOrCreateSession(scanSession.id)
+  );
+  const [isFinishing, setIsFinishing] = useState(false);
+
+  // Subscribe to background extraction updates and dynamically synchronize field completions
+  useEffect(() => {
+    const unsub = progressiveExtractionService.subscribe(scanSession.id, (state) => {
+      setExtractionState(state);
+
+      if (state.mergedResult) {
+        setTrackedProduct((prev) => {
+          const res = state.mergedResult!;
+          const f = { ...prev.fields };
+          let changed = false;
+
+          if (res.productName && f.productName.status !== 'complete') {
+            f.productName = {
+              value: res.productName,
+              status: 'complete',
+              confidence: res.confidence?.productName ?? 0.95,
+            };
+            changed = true;
+          }
+          if (res.brand && f.brand.status !== 'complete') {
+            f.brand = {
+              value: res.brand,
+              status: 'complete',
+              confidence: 0.95,
+            };
+            changed = true;
+          }
+          if (res.price !== null && f.price.status !== 'complete') {
+            f.price = {
+              value: res.price,
+              status: 'complete',
+              confidence: res.confidence?.price ?? 0.90,
+            };
+            changed = true;
+          }
+          if (res.manufactureDate && f.manufactureDate.status !== 'complete') {
+            f.manufactureDate = {
+              value: res.manufactureDate,
+              status: 'complete',
+              confidence: res.confidence?.manufactureDate ?? 0.95,
+            };
+            changed = true;
+          }
+          if (res.expiryDate && f.expiryDate.status !== 'complete') {
+            f.expiryDate = {
+              value: res.expiryDate,
+              status: 'complete',
+              confidence: res.confidence?.expiryDate ?? 0.95,
+            };
+            changed = true;
+          }
+          if (res.barcode && f.barcode.status !== 'complete') {
+            f.barcode = {
+              value: res.barcode,
+              status: 'complete',
+              confidence: 0.99,
+            };
+            changed = true;
+          }
+
+          return changed ? { ...prev, fields: f } : prev;
+        });
+      }
+    });
+
+    return unsub;
+  }, [scanSession.id]);
 
   // Tracked Product State across continuous angles
   const [trackedProduct, setTrackedProduct] = useState<TrackedProduct>(() => createNewTrackedProduct());
@@ -265,6 +343,20 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
           fieldKey
         );
         setTrackedProduct(updatedTracked);
+
+        // Start background AI extraction immediately for this shot without blocking user or camera
+        const lastShotRecord = updatedTracked.shots[updatedTracked.shots.length - 1];
+        const croppedImg = lastShotRecord?.croppedProductImage || photoDataUrl;
+
+        progressiveExtractionService.enqueueShot({
+          sessionId: scanSession.id,
+          shotId: newShot.id,
+          shotNumber: nextShotNum,
+          rawImage: photoDataUrl,
+          croppedImage: croppedImg,
+          detectedBarcode: detection.detectedBarcode,
+          targetFieldHint: fieldKey,
+        });
 
         // Sound & visual shutter feedback
         playCameraShutterBeep();
@@ -592,7 +684,12 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
    */
   const handleRetakeLast = () => {
     if (scanSession.shots.length === 0) return;
+    const lastShot = scanSession.shots[scanSession.shots.length - 1];
     const removedNum = scanSession.shots.length;
+
+    // Cancel and remove from progressive background extraction service
+    progressiveExtractionService.removeShot(scanSession.id, lastShot.id);
+
     setScanSession((prev) => ({
       ...prev,
       shots: prev.shots.slice(0, -1),
@@ -607,34 +704,75 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
    * FINISH & EXTRACT
    */
   const handleFinishAndExtract = async () => {
-    if (scanSession.shots.length === 0) return;
+    if (scanSession.shots.length === 0 || isFinishing) return;
+    setIsFinishing(true);
 
-    await stopLiveCamera();
-    const finalSession: ScanSession = {
-      ...scanSession,
-      status: 'processing',
-      extractedData: {
-        ...scanSession.extractedData,
-        trackingId: trackedProduct.id,
-      },
-    };
+    try {
+      // 1. Await in-flight background extractions with a bounded timeout
+      const summary = await progressiveExtractionService.finishSession(scanSession.id, 4500);
 
-    // Extract the cropped product or region-specific crop images instead of raw full camera photos
-    const imagesToExtract = scanSession.shots.map((s) => {
-      const matched = trackedProduct.shots.find((ts) => ts.id === s.id);
-      if (matched) {
-        if (matched.cropRegions && matched.cropRegions.length > 0) {
-          // If we cropped a specific targeted region (Label, MFD, EXP, Price), prefer that crop
-          return matched.cropRegions[0].cropDataUrl || matched.croppedProductImage || s.image;
+      await stopLiveCamera();
+
+      const finalResult = summary.mergedResult;
+      const currencySymbol =
+        finalResult.currency === 'NPR'
+          ? 'Rs. '
+          : finalResult.currency === 'INR'
+          ? '₹'
+          : finalResult.currency === 'EUR'
+          ? '€'
+          : finalResult.currency === 'GBP'
+          ? '£'
+          : '$';
+
+      const finalSession: ScanSession = {
+        ...scanSession,
+        status: 'processing',
+        detectedProduct: finalResult,
+        extractedData: {
+          ...scanSession.extractedData,
+          trackingId: trackedProduct.id,
+          productName: finalResult.productName,
+          brand: finalResult.brand || '',
+          category: '',
+          sku: '',
+          barcode: finalResult.barcode || '',
+          batchNumber: finalResult.batchNumber || '',
+          manufacturingDate: finalResult.manufactureDate || '',
+          expiryDate: finalResult.expiryDate || '',
+          bestBefore: finalResult.bestBeforeMonths ? `${finalResult.bestBeforeMonths} months` : '',
+          bestBeforeMonths: finalResult.bestBeforeMonths,
+          quantity: String(finalResult.quantity || 1),
+          unit: finalResult.unit || 'pcs',
+          mrp: finalResult.price !== null ? `${currencySymbol}${finalResult.price.toFixed(2)}` : '',
+          confidence: finalResult.confidence,
+          warnings: finalResult.warnings,
+        },
+      };
+
+      // Extract the cropped product or region-specific crop images instead of raw full camera photos
+      const imagesToExtract = scanSession.shots.map((s) => {
+        const matched = trackedProduct.shots.find((ts) => ts.id === s.id);
+        if (matched) {
+          if (matched.cropRegions && matched.cropRegions.length > 0) {
+            // If we cropped a specific targeted region (Label, MFD, EXP, Price), prefer that crop
+            return matched.cropRegions[0].cropDataUrl || matched.croppedProductImage || s.image;
+          }
+          // Fallback to cropped product bounding box
+          return matched.croppedProductImage || s.image;
         }
-        // Fallback to cropped product bounding box
-        return matched.croppedProductImage || s.image;
-      }
-      return s.image;
-    });
+        return s.image;
+      });
 
-    onFinishAndExtract(imagesToExtract, finalSession);
-    onClose();
+      onFinishAndExtract(imagesToExtract, finalSession);
+      onClose();
+    } catch (err) {
+      console.error('[ScanMeCameraModal] finish error:', err);
+      await stopLiveCamera();
+      onClose();
+    } finally {
+      setIsFinishing(false);
+    }
   };
 
   /**
@@ -642,6 +780,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
    */
   const handleCancel = async () => {
     await stopLiveCamera();
+    progressiveExtractionService.cancelSession(scanSession.id);
     setScanSession({
       id: `cancelled-${Date.now()}`,
       shots: [],
@@ -1111,21 +1250,40 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
             {scanSession.shots.length > 0 && (
               <div className="flex items-center justify-between gap-2 px-1">
                 <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-                  {scanSession.shots.map((shot, idx) => (
-                    <div
-                      key={shot.id}
-                      className="relative shrink-0 w-12 h-12 rounded-xl overflow-hidden border-2 border-emerald-400 bg-slate-900 shadow-md group"
-                    >
-                      <img
-                        src={shot.image}
-                        alt={`Shot ${idx + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                      <span className="absolute bottom-0 inset-x-0 bg-black/75 text-[9px] font-black text-center text-white">
-                        #{idx + 1}
-                      </span>
-                    </div>
-                  ))}
+                  {scanSession.shots.map((shot, idx) => {
+                    const job = extractionState.jobs.get(shot.id);
+                    return (
+                      <div
+                        key={shot.id}
+                        className="relative shrink-0 w-12 h-12 rounded-xl overflow-hidden border-2 border-emerald-400 bg-slate-900 shadow-md group"
+                      >
+                        <img
+                          src={shot.image}
+                          alt={`Shot ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        {/* Live extraction badge */}
+                        <div className="absolute top-0.5 right-0.5 z-10">
+                          {job?.status === 'extracting' || job?.status === 'retrying' ? (
+                            <div className="w-3.5 h-3.5 rounded-full bg-blue-500/90 text-white flex items-center justify-center animate-spin shadow-xs" title="Extracting in background...">
+                              <Loader2 className="w-2.5 h-2.5" />
+                            </div>
+                          ) : job?.status === 'completed' ? (
+                            <div className="w-3.5 h-3.5 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xs" title="Extracted ✓">
+                              <Check className="w-2.5 h-2.5 stroke-[3]" />
+                            </div>
+                          ) : job?.status === 'error' ? (
+                            <div className="w-3.5 h-3.5 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-xs" title="Extraction error">
+                              <AlertTriangle className="w-2.5 h-2.5" />
+                            </div>
+                          ) : null}
+                        </div>
+                        <span className="absolute bottom-0 inset-x-0 bg-black/75 text-[9px] font-black text-center text-white">
+                          #{idx + 1}
+                        </span>
+                      </div>
+                    );
+                  })}
                   {scanSession.shots.length < maxShots && (
                     <div className="shrink-0 w-12 h-12 rounded-xl border-2 border-dashed border-white/40 flex items-center justify-center text-white/70 text-[10px] font-bold">
                       +{maxShots - scanSession.shots.length}
@@ -1147,8 +1305,15 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
 
             {/* Smart Real-time Guidance Banner */}
             <div className="text-center">
-              <span className="inline-block px-3.5 py-1.5 rounded-full bg-black/70 backdrop-blur-md text-white font-bold text-xs border border-white/15 shadow-sm">
-                {detection.guidanceText}
+              <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/70 backdrop-blur-md text-white font-bold text-xs border border-white/15 shadow-sm">
+                {extractionState.activeRequests > 0 && (
+                  <Loader2 className="w-3 h-3 text-cyan-400 animate-spin shrink-0" />
+                )}
+                <span>
+                  {extractionState.activeRequests > 0
+                    ? `Background AI processing (${extractionState.completedCount}/${scanSession.shots.length} ready) • ${detection.guidanceText}`
+                    : detection.guidanceText}
+                </span>
               </span>
             </div>
 
@@ -1204,11 +1369,28 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
                 <button
                   type="button"
                   onClick={handleFinishAndExtract}
-                  className="min-w-[110px] py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer animate-in fade-in"
+                  disabled={isFinishing}
+                  className="min-w-[125px] py-3 px-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-1.5 transition-transform active:scale-95 cursor-pointer animate-in fade-in disabled:opacity-75"
                   id="btn-camera-finish-extract"
                 >
-                  <Sparkles className="w-4 h-4 text-white" />
-                  <span>Finish ({scanSession.shots.length})</span>
+                  {isFinishing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>Finalizing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-white" />
+                      <span>
+                        Finish ({scanSession.shots.length})
+                        {extractionState.completedCount > 0 && (
+                          <span className="ml-1 text-[10px] text-emerald-100 font-semibold">
+                            ✓{extractionState.completedCount}
+                          </span>
+                        )}
+                      </span>
+                    </>
+                  )}
                 </button>
               ) : (
                 <div className="min-w-[80px] text-right text-[11px] font-medium text-white/60 pr-1">

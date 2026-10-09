@@ -448,6 +448,19 @@ export async function cropNormalizedRegion(
   rect: NormalizedRect,
   paddingPercent: number = 0.08
 ): Promise<string> {
+  // If bounding box is invalid or excessively small, fall back safely to the original image
+  if (
+    !rect ||
+    isNaN(rect.x) ||
+    isNaN(rect.y) ||
+    isNaN(rect.width) ||
+    isNaN(rect.height) ||
+    rect.width < 0.05 ||
+    rect.height < 0.05
+  ) {
+    return fullImageDataUrl;
+  }
+
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -455,17 +468,24 @@ export async function cropNormalizedRegion(
       const origW = img.naturalWidth || img.width;
       const origH = img.naturalHeight || img.height;
 
-      const padX = rect.width * paddingPercent * origW;
-      const padY = rect.height * paddingPercent * origH;
+      if (origW <= 0 || origH <= 0) {
+        resolve(fullImageDataUrl);
+        return;
+      }
 
-      const cropX = Math.max(0, Math.floor(rect.x * origW - padX));
-      const cropY = Math.max(0, Math.floor(rect.y * origH - padY));
-      const cropW = Math.min(origW - cropX, Math.ceil(rect.width * origW + padX * 2));
-      const cropH = Math.min(origH - cropY, Math.ceil(rect.height * origH + padY * 2));
+      const padX = Math.max(8, rect.width * paddingPercent * origW);
+      const padY = Math.max(8, rect.height * paddingPercent * origH);
+
+      const cropX = Math.max(0, Math.min(origW - 20, Math.floor(rect.x * origW - padX)));
+      const cropY = Math.max(0, Math.min(origH - 20, Math.floor(rect.y * origH - padY)));
+      const cropW = Math.max(20, Math.min(origW - cropX, Math.ceil(rect.width * origW + padX * 2)));
+      const cropH = Math.max(20, Math.min(origH - cropY, Math.ceil(rect.height * origH + padY * 2)));
 
       const canvas = document.createElement('canvas');
-      canvas.width = Math.min(1280, Math.max(200, cropW));
-      canvas.height = Math.round((cropH * canvas.width) / cropW);
+      // Preserve sufficient resolution for OCR and barcode clarity (360px to 1600px)
+      const targetW = Math.min(1600, Math.max(360, cropW));
+      canvas.width = targetW;
+      canvas.height = Math.max(120, Math.round((cropH * targetW) / cropW));
 
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -477,7 +497,7 @@ export async function cropNormalizedRegion(
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
 
-      // Light contrast normalization for small text
+      // Light contrast normalization for small printed text & date stamps
       try {
         const idata = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const d = idata.data;
@@ -492,7 +512,7 @@ export async function cropNormalizedRegion(
         // Fallback to unadjusted draw
       }
 
-      resolve(canvas.toDataURL('image/jpeg', 0.90));
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
     };
 
     img.onerror = () => resolve(fullImageDataUrl);
