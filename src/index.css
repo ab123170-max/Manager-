@@ -97,6 +97,14 @@ body.camera-preview-active main {
   background-color: transparent !important;
 }
 
+/* Native CameraX is inserted behind the WebView. Hide the normal page while the
+   camera modal is portaled directly to <body>, otherwise page content overlays
+   the live preview even though the page background is transparent. */
+body.camera-preview-active #root {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 .camera-preview-transparent {
   background: transparent !important;
   background-color: transparent !important;
