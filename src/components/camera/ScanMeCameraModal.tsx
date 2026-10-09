@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import {
   Camera,
   X,
@@ -21,6 +20,7 @@ import {
   Timer,
   Play,
   Pause,
+  Cpu,
 } from 'lucide-react';
 import {
   isScanMeCameraNative,
@@ -61,6 +61,7 @@ import {
   TrackedObject,
   globalObjectTracker,
 } from '../../utils/realtimeVisionTracker';
+import { mlProductDetector, ModelLoadingStatus } from '../../utils/mlProductDetector';
 import {
   progressiveExtractionService,
   SessionExtractionState,
@@ -199,11 +200,16 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   // Real-time Multi-Object Tracking State
   const [visionObjects, setVisionObjects] = useState<TrackedObject[]>([]);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [showDebugHUD, setShowDebugHUD] = useState<boolean>(false);
   const [debugMetrics, setDebugMetrics] = useState({
     fps: 24,
     detLatency: 8,
     trackLatency: 2,
     resolution: { width: 1280, height: 720 },
+    modelStatus: 'ready' as ModelLoadingStatus,
+    modelError: null as string | null,
+    backendName: 'webgl',
+    cameraType: 'Web Video',
   });
 
   // Real-time Frame Detection Output
@@ -249,6 +255,22 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
 
     document.documentElement.classList.remove('camera-preview-active');
     document.body.classList.remove('camera-preview-active');
+
+    // Reset vision trackers and clear lingering detection state immediately
+    globalObjectTracker.reset();
+    mlProductDetector.reset();
+    prevDetectionRef.current = null;
+    setVisionObjects([]);
+    setDetection({
+      hasProduct: false,
+      isStable: false,
+      stabilityScore: 0,
+      productBox: null,
+      regions: [],
+      guidanceText: 'Point camera at product packaging',
+      trackingState: 'searching',
+      dominantColor: '#10b981',
+    });
 
     if (isNative) {
       try {
@@ -394,6 +416,10 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
       try {
         let frameSource: HTMLVideoElement | HTMLImageElement | null = null;
 
+        let camType = isNative ? 'Native CameraX' : 'Web Video';
+        let srcW = 1280;
+        let srcH = 720;
+
         if (isNative) {
           // In native Android APK, fetch lightweight preview bitmap snapshot
           const frameRes = await getScanMePreviewFrame();
@@ -405,11 +431,15 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
               img.onerror = r;
             });
             frameSource = img;
+            srcW = frameRes.width || img.naturalWidth || 1280;
+            srcH = frameRes.height || img.naturalHeight || 720;
           }
         } else {
           // On Web browser preview, analyze directly from video stream
           if (videoRef.current && videoRef.current.readyState >= 2) {
             frameSource = videoRef.current;
+            srcW = videoRef.current.videoWidth || 1280;
+            srcH = videoRef.current.videoHeight || 720;
           }
         }
 
@@ -421,31 +451,38 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
             fps: visionRes.fps,
             detLatency: visionRes.detectionLatencyMs,
             trackLatency: visionRes.trackingLatencyMs,
-            resolution: visionRes.sourceResolution,
+            resolution: visionRes.sourceResolution.width > 0 ? visionRes.sourceResolution : { width: srcW, height: srcH },
+            modelStatus: visionRes.modelStatus,
+            modelError: visionRes.modelError,
+            backendName: visionRes.backendName,
+            cameraType: camType,
           });
 
-          // 2. Run detailed region & barcode extraction
-          const res = await analyzeLiveFrame(frameSource, prevDetectionRef.current);
+          const prim = visionRes.primaryObject;
+          const hasGenuine = visionRes.hasObjects && prim !== null;
+
+          // 2. Feed genuine ML detection to pipeline
+          const res = await analyzeLiveFrame(
+            frameSource,
+            prevDetectionRef.current,
+            hasGenuine ? prim.box : null,
+            hasGenuine ? prim.label : undefined,
+            hasGenuine ? prim.confidence : undefined,
+            hasGenuine ? prim.dominantColor : undefined
+          );
           prevDetectionRef.current = res;
 
-          // The TensorFlow.js COCO-SSD model is the source of truth for object presence.
-          // Do not let the separate edge/contrast heuristic mark a background as a product.
-          const modelObject = visionRes.primaryObject &&
-            visionRes.primaryObject.state !== 'TEMPORARILY_LOST' &&
-            visionRes.primaryObject.confidence >= 0.55
-              ? visionRes.primaryObject
-              : null;
-
-          if (modelObject) {
-            res.productBox = modelObject.box;
+          if (hasGenuine && prim) {
+            res.productBox = prim.box;
             res.hasProduct = true;
-            if (modelObject.detectedBarcode) {
-              res.detectedBarcode = modelObject.detectedBarcode;
+            res.detectedLabel = prim.label;
+            res.confidence = prim.confidence;
+            if (prim.detectedBarcode) {
+              res.detectedBarcode = prim.detectedBarcode;
             }
           } else {
             res.productBox = null;
             res.hasProduct = false;
-            res.isStable = false;
           }
 
           setDetection(res);
@@ -463,29 +500,34 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
             hasPlayedInitialDetectionSoundRef.current = false;
           }
 
-          // Auto-capture countdown logic
+          // Auto-capture countdown logic (strictly requires verified genuine detection)
           const now = Date.now();
-          if (
+          const isEligibleForAutoCapture =
             autoCaptureEnabled &&
             res.hasProduct &&
+            hasGenuine &&
+            prim &&
+            prim.confidence >= 0.45 &&
             res.isStable &&
             res.productBox &&
             now >= cooldownUntilRef.current &&
             !isCapturing &&
-            scanSession.shots.length < maxShots
-          ) {
+            scanSession.shots.length < maxShots;
+
+          if (isEligibleForAutoCapture) {
             if (!stableSinceRef.current) {
               stableSinceRef.current = now;
-              setStableCountdownProgress(10);
+              setStableCountdownProgress(12);
             } else {
               const elapsed = now - stableSinceRef.current;
-              const requiredDuration = 1000; // 1.0 second of holding steady
+              const requiredDuration = 950; // 950ms of holding steady
               const progress = Math.min(100, Math.round((elapsed / requiredDuration) * 100));
               setStableCountdownProgress(progress);
 
               if (elapsed >= requiredDuration) {
                 // Trigger auto capture!
                 stableSinceRef.current = null;
+                cooldownUntilRef.current = now + 2000;
                 setStableCountdownProgress(100);
                 await handleCaptureShot(res.productBox);
               }
@@ -595,6 +637,8 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
     });
 
     setTrackedProduct(createNewTrackedProduct());
+    // Preload TensorFlow.js and object detection model weights
+    void mlProductDetector.loadModel();
 
     if (isNative) {
       try {
@@ -624,21 +668,6 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   useEffect(() => {
     checkAndInitCameraRef.current = checkAndInitCamera;
   });
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    // Lock the document behind the camera and restore its exact previous state on close.
-    const previousBodyOverflow = document.body.style.overflow;
-    const previousHtmlOverflow = document.documentElement.style.overflow;
-    document.body.style.overflow = 'hidden';
-    document.documentElement.style.overflow = 'hidden';
-
-    return () => {
-      document.body.style.overflow = previousBodyOverflow;
-      document.documentElement.style.overflow = previousHtmlOverflow;
-    };
-  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -862,8 +891,8 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   const f = trackedProduct.fields;
   const activeTarget = getActiveTargetField(trackedProduct);
 
-  return createPortal((
-    <div className="fixed inset-0 overflow-hidden select-none" style={{ zIndex: 2147483647, touchAction: 'none' }}>
+  return (
+    <div className="fixed inset-0 z-50 overflow-hidden select-none">
       {/* Hidden canvas for browser preview snapshots */}
       <canvas ref={canvasRef} className="hidden" />
 
@@ -1063,7 +1092,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
               autoPlay
               playsInline
               muted
-              className="absolute inset-0 z-0 w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover -z-10"
             />
           )}
 
@@ -1112,8 +1141,22 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
                 </span>
               </div>
 
-              {/* Lens Switch, Flash, Auto-Capture Controls */}
+              {/* Lens Switch, Flash, Auto-Capture, and Vision Diagnostics Controls */}
               <div className="flex items-center gap-2">
+                {/* Vision Diagnostics HUD Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowDebugHUD((v) => !v)}
+                  className={`p-2.5 rounded-full backdrop-blur-md border transition-all active:scale-95 cursor-pointer ${
+                    showDebugHUD
+                      ? 'bg-purple-600/80 border-purple-300 text-white shadow-[0_0_12px_rgba(168,85,247,0.5)]'
+                      : 'bg-black/55 border-white/15 text-white/70 hover:text-white'
+                  }`}
+                  title={showDebugHUD ? 'Vision Diagnostics: ON' : 'Vision Diagnostics: OFF'}
+                >
+                  <Cpu className="w-5 h-5" />
+                </button>
+
                 {/* Auto-Capture Toggle */}
                 <button
                   type="button"
@@ -1245,11 +1288,15 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
                 setJustCapturedToast(`${obj.id} Locked ✓`);
                 setTimeout(() => setJustCapturedToast(null), 1600);
               }}
-              showDebugInfo={false}
+              showDebugInfo={showDebugHUD}
               fps={debugMetrics.fps}
               detectionLatencyMs={debugMetrics.detLatency}
               trackingLatencyMs={debugMetrics.trackLatency}
               sourceResolution={debugMetrics.resolution}
+              modelStatus={debugMetrics.modelStatus}
+              modelError={debugMetrics.modelError}
+              backendName={debugMetrics.backendName}
+              cameraSourceType={debugMetrics.cameraType}
             />
 
             {/* Default Soft Framing Box when NOT searching/tracking/lost */}
@@ -1429,7 +1476,7 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
         </div>
       )}
     </div>
-  ), document.body);
+  );
 };
 
 export default ScanMeCameraModal;

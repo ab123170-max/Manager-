@@ -1,17 +1,16 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Real-time Multi-Object Tracker powered by genuine machine learning detections.
+ * Replaces fake heuristic contrast grids with TensorFlow.js SSDLite MobileNetV2.
  */
 
 import { detectFastCode } from './fastBarcodeEngine';
-import { detectRealObjects } from './realObjectDetector';
+import { mlProductDetector, ModelLoadingStatus } from './mlProductDetector';
+import { NormalizedRect } from './coordinateMapping';
 
-export interface NormalizedRect {
-  x: number; // 0.0 to 1.0 (relative to preview width)
-  y: number; // 0.0 to 1.0 (relative to preview height)
-  width: number; // 0.0 to 1.0
-  height: number; // 0.0 to 1.0
-}
+export type { NormalizedRect } from './coordinateMapping';
 
 export type TrackingState =
   | 'SEARCHING'
@@ -24,11 +23,12 @@ export type TrackingState =
 
 export interface TrackedObject {
   id: string; // Persistent tracking ID (e.g., 'ID 01', 'ID 02')
-  label: string; // Class / Category, e.g., 'Product / Package', 'Beverage / Can', 'Pharmaceutical'
-  confidence: number; // 0.0 to 1.0
+  label: string; // Class / Category, e.g., 'Bottle', 'Cup', 'Book / Box'
+  category: string;
+  confidence: number; // 0.0 to 1.0 (genuine ML score)
   box: NormalizedRect; // Current interpolated / smoothed bounding box
   rawBox: NormalizedRect; // Instantaneous detection box from latest frame
-  velocity: { vx: number; vy: number; vw: number; vh: number }; // Kalman/motion velocity
+  velocity: { vx: number; vy: number; vw: number; vh: number };
   state: TrackingState;
   framesTracked: number;
   framesLost: number;
@@ -46,209 +46,10 @@ export interface MultiObjectDetectionResult {
   detectionLatencyMs: number;
   trackingLatencyMs: number;
   sourceResolution: { width: number; height: number };
+  modelStatus: ModelLoadingStatus;
+  modelError: string | null;
+  backendName: string;
 }
-
-// Global persistent tracking registry to ensure continuity between frames
-class ObjectTrackerEngine {
-  private activeTracks: TrackedObject[] = [];
-  private nextTrackNumericId: number = 1;
-  private lastFrameTimestamp: number = 0;
-  private fpsBuffer: number[] = [];
-
-  // Reset or clear tracks
-  public reset() {
-    this.activeTracks = [];
-    this.nextTrackNumericId = 1;
-    this.lastFrameTimestamp = 0;
-    this.fpsBuffer = [];
-  }
-
-  // Lock a specific tracking ID
-  public lockObject(id: string) {
-    this.activeTracks = this.activeTracks.map((trk) => {
-      if (trk.id === id) {
-        return { ...trk, isLocked: true, state: 'LOCKED' };
-      }
-      return { ...trk, isLocked: false };
-    });
-  }
-
-  // Unlock all objects
-  public unlockAll() {
-    this.activeTracks = this.activeTracks.map((trk) => ({
-      ...trk,
-      isLocked: false,
-      state: trk.state === 'LOCKED' ? 'TRACKING' : trk.state,
-    }));
-  }
-
-  public getTracks(): TrackedObject[] {
-    return this.activeTracks;
-  }
-
-  /**
-   * Updates tracks with newly detected raw bounding boxes from the current frame.
-   * Uses Hungarian / IoU association + Exponential Smoothing + Motion Prediction.
-   */
-  public update(
-    rawDetections: { box: NormalizedRect; confidence: number; label: string; color: string; barcode?: string }[],
-    now: number
-  ): TrackedObject[] {
-    const dt = this.lastFrameTimestamp > 0 ? Math.max(0.016, (now - this.lastFrameTimestamp) / 1000) : 0.05;
-    this.lastFrameTimestamp = now;
-
-    // 1. Prediction step: extrapolate existing active tracks forward based on velocity
-    for (const track of this.activeTracks) {
-      if (track.state !== 'TEMPORARILY_LOST') {
-        track.box = {
-          x: Math.max(0.01, Math.min(0.95, track.box.x + track.velocity.vx * dt)),
-          y: Math.max(0.01, Math.min(0.95, track.box.y + track.velocity.vy * dt)),
-          width: Math.max(0.08, Math.min(0.98, track.box.width + track.velocity.vw * dt)),
-          height: Math.max(0.08, Math.min(0.98, track.box.height + track.velocity.vh * dt)),
-        };
-      }
-    }
-
-    // 2. Association step: Compute Intersection over Union (IoU) & Distance matrix
-    const matchedTrackIndices = new Set<number>();
-    const matchedDetectionIndices = new Set<number>();
-
-    // For locked track, give it highest priority if near detection
-    const lockedTrackIndex = this.activeTracks.findIndex((t) => t.isLocked);
-
-    // Compute pairwise cost / IoU
-    const pairs: { trackIdx: number; detIdx: number; iou: number; dist: number }[] = [];
-    for (let t = 0; t < this.activeTracks.length; t++) {
-      for (let d = 0; d < rawDetections.length; d++) {
-        const iou = computeIoU(this.activeTracks[t].box, rawDetections[d].box);
-        const dist = computeCenterDistance(this.activeTracks[t].box, rawDetections[d].box);
-        pairs.push({ trackIdx: t, detIdx: d, iou, dist });
-      }
-    }
-
-    // Sort matching pairs prioritizing IoU, then center proximity
-    pairs.sort((a, b) => {
-      // Prioritize locked track
-      if (a.trackIdx === lockedTrackIndex && b.trackIdx !== lockedTrackIndex) return -1;
-      if (b.trackIdx === lockedTrackIndex && a.trackIdx !== lockedTrackIndex) return 1;
-      if (b.iou !== a.iou) return b.iou - a.iou;
-      return a.dist - b.dist;
-    });
-
-    // Greedy assignment with minimum overlap / proximity gating
-    for (const pair of pairs) {
-      if (matchedTrackIndices.has(pair.trackIdx) || matchedDetectionIndices.has(pair.detIdx)) {
-        continue;
-      }
-
-      // Valid match criteria: IoU > 0.15 or Center distance < 0.28
-      if (pair.iou > 0.15 || pair.dist < 0.28) {
-        matchedTrackIndices.add(pair.trackIdx);
-        matchedDetectionIndices.add(pair.detIdx);
-
-        const track = this.activeTracks[pair.trackIdx];
-        const det = rawDetections[pair.detIdx];
-
-        // Smooth bounding box update with adaptive alpha
-        // If moving fast, increase responsiveness; if still, suppress jitter
-        const changeMagnitude = Math.abs(det.box.x - track.box.x) + Math.abs(det.box.y - track.box.y);
-        const alpha = Math.min(0.85, Math.max(0.40, 0.45 + changeMagnitude * 1.5));
-
-        const prevBox = { ...track.box };
-        track.box = {
-          x: prevBox.x + (det.box.x - prevBox.x) * alpha,
-          y: prevBox.y + (det.box.y - prevBox.y) * alpha,
-          width: prevBox.width + (det.box.width - prevBox.width) * alpha,
-          height: prevBox.height + (det.box.height - prevBox.height) * alpha,
-        };
-        track.rawBox = det.box;
-
-        // Estimate velocity
-        track.velocity = {
-          vx: (track.box.x - prevBox.x) / dt,
-          vy: (track.box.y - prevBox.y) / dt,
-          vw: (track.box.width - prevBox.width) / dt,
-          vh: (track.box.height - prevBox.height) / dt,
-        };
-
-        track.confidence = Math.min(0.99, Math.max(0.70, track.confidence * 0.7 + det.confidence * 0.3));
-        track.framesTracked++;
-        track.framesLost = 0;
-        track.lastSeenTimestamp = now;
-        track.dominantColor = det.color;
-        if (det.barcode) track.detectedBarcode = det.barcode;
-
-        if (track.isLocked) {
-          track.state = 'LOCKED';
-        } else if (track.framesTracked >= 3) {
-          track.state = 'TRACKING';
-        } else {
-          track.state = 'DETECTED';
-        }
-      }
-    }
-
-    // 3. Handle unmatched active tracks (Temporarily Lost or Decay)
-    for (let t = 0; t < this.activeTracks.length; t++) {
-      if (!matchedTrackIndices.has(t)) {
-        const track = this.activeTracks[t];
-        track.framesLost++;
-
-        // Keep predicting for up to ~1.4 seconds (approx 9 frames) before discarding
-        if (track.framesLost <= 9) {
-          track.state = 'TEMPORARILY_LOST';
-          track.confidence = Math.max(0.40, track.confidence * 0.88);
-          // Dampen velocity to prevent run-away drift
-          track.velocity.vx *= 0.7;
-          track.velocity.vy *= 0.7;
-          track.velocity.vw *= 0.7;
-          track.velocity.vh *= 0.7;
-        } else {
-          // Beyond grace period: will be filtered out below
-          track.state = 'TEMPORARILY_LOST';
-        }
-      }
-    }
-
-    // Remove tracks lost for more than 10 frames
-    this.activeTracks = this.activeTracks.filter((t) => t.framesLost <= 10);
-
-    // 4. Register brand new detected objects
-    for (let d = 0; d < rawDetections.length; d++) {
-      if (!matchedDetectionIndices.has(d)) {
-        const det = rawDetections[d];
-        const formattedNum = String(this.nextTrackNumericId++).padStart(2, '0');
-        const newTrack: TrackedObject = {
-          id: `ID ${formattedNum}`,
-          label: det.label,
-          confidence: det.confidence,
-          box: { ...det.box },
-          rawBox: { ...det.box },
-          velocity: { vx: 0, vy: 0, vw: 0, vh: 0 },
-          state: 'DETECTED',
-          framesTracked: 1,
-          framesLost: 0,
-          lastSeenTimestamp: now,
-          dominantColor: det.color,
-          detectedBarcode: det.barcode,
-          isLocked: false,
-        };
-        this.activeTracks.push(newTrack);
-      }
-    }
-
-    // Sort tracks so locked or most stable is always first
-    this.activeTracks.sort((a, b) => {
-      if (a.isLocked) return -1;
-      if (b.isLocked) return 1;
-      return b.framesTracked - a.framesTracked;
-    });
-
-    return this.activeTracks;
-  }
-}
-
-export const globalObjectTracker = new ObjectTrackerEngine();
 
 /**
  * Computes Intersection over Union (IoU) between two bounding boxes
@@ -283,58 +84,201 @@ function computeCenterDistance(boxA: NormalizedRect, boxB: NormalizedRect): numb
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-/**
- * Reusable analysis context to prevent garbage collection spikes
- */
-let sampleCanvas: HTMLCanvasElement | null = null;
-let sampleCtx: CanvasRenderingContext2D | null = null;
+// Global persistent tracking registry to ensure continuity between frames
+class ObjectTrackerEngine {
+  private activeTracks: TrackedObject[] = [];
+  private nextTrackNumericId: number = 1;
+  private lastFrameTimestamp: number = 0;
+  private fpsBuffer: number[] = [];
 
-function getSampleContext(w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null {
-  if (typeof document === 'undefined') return null;
-  if (!sampleCanvas) {
-    sampleCanvas = document.createElement('canvas');
-    sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+  // Reset or clear tracks
+  public reset() {
+    this.activeTracks = [];
+    this.nextTrackNumericId = 1;
+    this.lastFrameTimestamp = 0;
+    this.fpsBuffer = [];
+    mlProductDetector.reset();
   }
-  if (sampleCanvas.width !== w || sampleCanvas.height !== h) {
-    sampleCanvas.width = w;
-    sampleCanvas.height = h;
+
+  // Lock a specific tracking ID
+  public lockObject(id: string) {
+    this.activeTracks = this.activeTracks.map((trk) => {
+      if (trk.id === id) {
+        return { ...trk, isLocked: true, state: 'LOCKED' };
+      }
+      return { ...trk, isLocked: false };
+    });
   }
-  if (!sampleCtx) return null;
-  return { canvas: sampleCanvas, ctx: sampleCtx };
+
+  // Unlock all objects
+  public unlockAll() {
+    this.activeTracks = this.activeTracks.map((trk) => ({
+      ...trk,
+      isLocked: false,
+      state: trk.state === 'LOCKED' ? 'TRACKING' : trk.state,
+    }));
+  }
+
+  public getTracks(): TrackedObject[] {
+    return this.activeTracks;
+  }
+
+  /**
+   * Updates tracks with newly detected raw bounding boxes from the current frame.
+   * Matches via IoU & Center distance, applies smooth LERP without lag, and promptly
+   * purges lost tracks.
+   */
+  public update(
+    rawDetections: Array<{
+      box: NormalizedRect;
+      confidence: number;
+      label: string;
+      category: string;
+      color: string;
+      barcode?: string;
+    }>,
+    now: number
+  ): TrackedObject[] {
+    const dt = this.lastFrameTimestamp > 0 ? Math.max(0.016, (now - this.lastFrameTimestamp) / 1000) : 0.05;
+    this.lastFrameTimestamp = now;
+
+    // Track matching matrices
+    const matchedTrackIndices = new Set<number>();
+    const matchedDetectionIndices = new Set<number>();
+
+    // 1. Associate existing tracks with current detections
+    for (let t = 0; t < this.activeTracks.length; t++) {
+      const track = this.activeTracks[t];
+      let bestMatchIdx = -1;
+      let highestScore = -1;
+
+      for (let d = 0; d < rawDetections.length; d++) {
+        if (matchedDetectionIndices.has(d)) continue;
+        const det = rawDetections[d];
+
+        const iou = computeIoU(track.box, det.box);
+        const centerDist = computeCenterDistance(track.box, det.box);
+        const isSameClass = track.label.toLowerCase() === det.label.toLowerCase();
+
+        // Combined association score
+        let score = iou * 0.7;
+        if (centerDist < 0.20) {
+          score += (0.20 - centerDist) * 1.5;
+        }
+        if (isSameClass) {
+          score += 0.25;
+        }
+
+        // Must meet minimal physical threshold
+        if ((iou >= 0.15 || centerDist <= 0.22) && score > highestScore) {
+          highestScore = score;
+          bestMatchIdx = d;
+        }
+      }
+
+      if (bestMatchIdx !== -1) {
+        matchedTrackIndices.add(t);
+        matchedDetectionIndices.add(bestMatchIdx);
+
+        const det = rawDetections[bestMatchIdx];
+
+        // Velocity computation (normalized change per second)
+        const vx = (det.box.x - track.rawBox.x) / dt;
+        const vy = (det.box.y - track.rawBox.y) / dt;
+        const vw = (det.box.width - track.rawBox.width) / dt;
+        const vh = (det.box.height - track.rawBox.height) / dt;
+
+        // Smooth bounding box coordinates using adaptive LERP
+        // Alpha 0.55 gives smooth anti-jitter while following physical movement immediately
+        const alpha = 0.55;
+        const smoothedBox: NormalizedRect = {
+          x: track.box.x * (1 - alpha) + det.box.x * alpha,
+          y: track.box.y * (1 - alpha) + det.box.y * alpha,
+          width: track.box.width * (1 - alpha) + det.box.width * alpha,
+          height: track.box.height * (1 - alpha) + det.box.height * alpha,
+        };
+
+        track.rawBox = { ...det.box };
+        track.box = smoothedBox;
+        track.velocity = { vx, vy, vw, vh };
+        track.confidence = det.confidence;
+        track.label = det.label;
+        track.category = det.category;
+        track.dominantColor = det.color;
+        if (det.barcode) track.detectedBarcode = det.barcode;
+
+        track.framesTracked++;
+        track.framesLost = 0;
+        track.lastSeenTimestamp = now;
+
+        if (!track.isLocked) {
+          track.state = track.framesTracked >= 2 ? 'TRACKING' : 'DETECTED';
+        }
+      } else {
+        // Unmatched existing track: increment lost count
+        track.framesLost++;
+        track.state = 'TEMPORARILY_LOST';
+      }
+    }
+
+    // 2. Remove tracks lost for more than 2 frames (or older than 180ms)
+    // NEVER retain phantom boxes after an object leaves the frame!
+    this.activeTracks = this.activeTracks.filter(
+      (t) => t.framesLost <= 2 && now - t.lastSeenTimestamp <= 250
+    );
+
+    // 3. Register newly detected objects
+    for (let d = 0; d < rawDetections.length; d++) {
+      if (!matchedDetectionIndices.has(d)) {
+        const det = rawDetections[d];
+        const formattedNum = String(this.nextTrackNumericId++).padStart(2, '0');
+        const newTrack: TrackedObject = {
+          id: `ID ${formattedNum}`,
+          label: det.label,
+          category: det.category,
+          confidence: det.confidence,
+          box: { ...det.box },
+          rawBox: { ...det.box },
+          velocity: { vx: 0, vy: 0, vw: 0, vh: 0 },
+          state: 'DETECTED',
+          framesTracked: 1,
+          framesLost: 0,
+          lastSeenTimestamp: now,
+          dominantColor: det.color,
+          detectedBarcode: det.barcode,
+          isLocked: false,
+        };
+        this.activeTracks.push(newTrack);
+      }
+    }
+
+    // 4. Sort tracks so locked or most stable is always first
+    this.activeTracks.sort((a, b) => {
+      if (a.isLocked) return -1;
+      if (b.isLocked) return 1;
+      return b.framesTracked - a.framesTracked;
+    });
+
+    return this.activeTracks;
+  }
 }
 
+export const globalObjectTracker = new ObjectTrackerEngine();
+
 /**
- * REAL-TIME COMPUTER VISION OBJECT DETECTOR
+ * REAL-TIME COMPUTER VISION OBJECT DETECTOR & TRACKER
  *
- * Runs on device in < 12ms per frame:
- * 1. Analyzes luminance energy, multi-scale gradient magnitude, and color variance.
- * 2. Segments connected foreground component clusters into distinct physical objects.
- * 3. Extracts multiple independent object bounding boxes with dynamic width, height, and coordinates.
- * 4. Feeds detections to the persistent multi-object tracker engine.
+ * Runs genuine machine learning inference on the camera frame:
+ * 1. MobileNetV2 SSDLite detects actual objects and genuine bounding boxes.
+ * 2. Filters out humans/background and extracts true class labels & confidences.
+ * 3. Associates detections with persistent tracking IDs.
+ * 4. Checks for fast local barcodes non-blockingly.
  */
 export async function detectAndTrackObjectsInFrame(
   source: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement,
   fpsCounter?: number
 ): Promise<MultiObjectDetectionResult> {
   const startTime = performance.now();
-
-  const sampleW = 320;
-  const sampleH = 240;
-
-  const ctxObj = getSampleContext(sampleW, sampleH);
-  if (!ctxObj) {
-    return {
-      hasObjects: false,
-      objects: [],
-      primaryObject: null,
-      fps: 0,
-      detectionLatencyMs: 0,
-      trackingLatencyMs: 0,
-      sourceResolution: { width: 0, height: 0 },
-    };
-  }
-
-  const { ctx } = ctxObj;
 
   let srcW = 1280;
   let srcH = 720;
@@ -349,281 +293,69 @@ export async function detectAndTrackObjectsInFrame(
     srcH = source.height;
   }
 
-  try {
-    ctx.drawImage(source, 0, 0, sampleW, sampleH);
-  } catch {
-    return {
-      hasObjects: false,
-      objects: [],
-      primaryObject: null,
-      fps: 0,
-      detectionLatencyMs: 0,
-      trackingLatencyMs: 0,
-      sourceResolution: { width: srcW, height: srcH },
-    };
-  }
+  // 1. Genuine ML object detection
+  const mlResult = await mlProductDetector.detect(source, 0.38);
+  const detLatency = mlResult.inferenceLatencyMs;
 
-  const imgData = ctx.getImageData(0, 0, sampleW, sampleH);
-  const data = imgData.data;
+  const trackStart = performance.now();
 
-  // Segment frame into an analysis grid
-  const cell = 16;
-  const cols = Math.floor(sampleW / cell);
-  const rows = Math.floor(sampleH / cell);
-
-  const gridEnergy = new Float32Array(cols * rows);
-  const gridColors = new Array<{ r: number; g: number; b: number }>(cols * rows);
-
-  let totalEnergy = 0;
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      let rSum = 0, gSum = 0, bSum = 0;
-      let minLum = 255, maxLum = 0;
-      let gradSum = 0;
-      let sampleCount = 0;
-
-      const startX = c * cell;
-      const startY = r * cell;
-
-      for (let y = startY + 1; y < startY + cell - 1; y += 2) {
-        for (let x = startX + 1; x < startX + cell - 1; x += 2) {
-          const idx = (y * sampleW + x) * 4;
-          const red = data[idx];
-          const green = data[idx + 1];
-          const blue = data[idx + 2];
-          const lum = 0.299 * red + 0.587 * green + 0.114 * blue;
-
-          if (lum < minLum) minLum = lum;
-          if (lum > maxLum) maxLum = lum;
-
-          const dx = Math.abs(data[idx + 4] - data[idx - 4]);
-          const dy = Math.abs(data[idx + sampleW * 4] - data[idx - sampleW * 4]);
-          gradSum += dx + dy;
-
-          rSum += red;
-          gSum += green;
-          bSum += blue;
-          sampleCount++;
-        }
-      }
-
-      const contrast = maxLum - minLum;
-      const energy = (gradSum / (sampleCount || 1)) * (contrast / 255);
-      const gIdx = r * cols + c;
-      gridEnergy[gIdx] = energy;
-      totalEnergy += energy;
-
-      gridColors[gIdx] = {
-        r: Math.round(rSum / (sampleCount || 1)),
-        g: Math.round(gSum / (sampleCount || 1)),
-        b: Math.round(bSum / (sampleCount || 1)),
-      };
-    }
-  }
-
-  const avgEnergy = totalEnergy / (cols * rows);
-  const activationThreshold = Math.max(avgEnergy * 0.90, 4.0);
-
-  // Binary occupancy map of detected object features
-  const visited = new Uint8Array(cols * rows);
-  const rawClusters: {
-    minC: number;
-    maxC: number;
-    minR: number;
-    maxR: number;
-    cells: number;
-    avgR: number;
-    avgG: number;
-    avgB: number;
-  }[] = [];
-
-  // Connected Component Labeling (Flood Fill / BFS) to discover discrete products
-  for (let r = 1; r < rows - 1; r++) {
-    for (let c = 1; c < cols - 1; c++) {
-      const idx = r * cols + c;
-      if (visited[idx] || gridEnergy[idx] < activationThreshold) continue;
-
-      let minC = c, maxC = c, minR = r, maxR = r;
-      let clusterCells = 0;
-      let rTotal = 0, gTotal = 0, bTotal = 0;
-
-      const queue: number[] = [idx];
-      visited[idx] = 1;
-
-      while (queue.length > 0) {
-        const cur = queue.pop()!;
-        const curR = Math.floor(cur / cols);
-        const curC = cur % cols;
-
-        clusterCells++;
-        if (curC < minC) minC = curC;
-        if (curC > maxC) maxC = curC;
-        if (curR < minR) minR = curR;
-        if (curR > maxR) maxR = curR;
-
-        rTotal += gridColors[cur].r;
-        gTotal += gridColors[cur].g;
-        bTotal += gridColors[cur].b;
-
-        // Check 4-connected neighbors
-        const neighbors = [
-          cur - 1, // left
-          cur + 1, // right
-          cur - cols, // up
-          cur + cols, // down
-        ];
-
-        for (const n of neighbors) {
-          if (n >= 0 && n < cols * rows && !visited[n] && gridEnergy[n] >= activationThreshold) {
-            visited[n] = 1;
-            queue.push(n);
-          }
-        }
-      }
-
-      // Filter out tiny noise clusters (require at least 4 active cells)
-      if (clusterCells >= 4) {
-        rawClusters.push({
-          minC,
-          maxC,
-          minR,
-          maxR,
-          cells: clusterCells,
-          avgR: Math.round(rTotal / clusterCells),
-          avgG: Math.round(gTotal / clusterCells),
-          avgB: Math.round(bTotal / clusterCells),
-        });
-      }
-    }
-  }
-
-  // Convert valid clusters to normalized detection bounding boxes
-  const rawDetections: {
-    box: NormalizedRect;
-    confidence: number;
-    label: string;
-    color: string;
-    barcode?: string;
-  }[] = [];
-
-  for (const cl of rawClusters) {
-    const rawX = (cl.minC * cell) / sampleW;
-    const rawY = (cl.minR * cell) / sampleH;
-    const rawW = ((cl.maxC - cl.minC + 1) * cell) / sampleW;
-    const rawH = ((cl.maxR - cl.minR + 1) * cell) / sampleH;
-
-    // Minimum physical product area filter (at least 7% width and 7% height)
-    if (rawW < 0.08 || rawH < 0.08) continue;
-
-    // Small boundary margin padding around product hull
-    const padX = 0.03;
-    const padY = 0.03;
-
-    // Tight product boundary: keep only a small safety margin around the detected hull.
-    // The previous larger padding made the live box look detached from the product.
-    const box: NormalizedRect = {
-      x: Math.max(0, rawX - padX),
-      y: Math.max(0, rawY - padY),
-      width: Math.min(1 - Math.max(0, rawX - padX), rawW + padX * 2),
-      height: Math.min(1 - Math.max(0, rawY - padY), rawH + padY * 2),
-    };
-
-    // Classify label / category based on aspect ratio & color
-    const aspect = box.width / box.height;
-    let label = 'Product / Package';
-    if (aspect > 1.6) {
-      label = 'Retail Box / Carton';
-    } else if (aspect < 0.65) {
-      label = 'Bottle / Container';
-    } else if (aspect >= 0.85 && aspect <= 1.25) {
-      label = 'Packaged Item';
-    }
-
-    const hexColor = `#${((1 << 24) + (cl.avgR << 16) + (cl.avgG << 8) + cl.avgB).toString(16).slice(1)}`;
-    const confidence = Math.min(0.98, 0.72 + (cl.cells / (cols * rows)) * 2.5);
-
-    rawDetections.push({
-      box,
-      confidence,
-      label,
-      color: hexColor,
-    });
-  }
-
-  // Use actual on-device ML detections as the source of truth. The gradient/colour
-  // heuristic above is deliberately replaced, so background edges alone cannot
-  // make the UI claim that a product was detected.
-  const modelDetections = await detectRealObjects(source);
-  rawDetections.length = 0;
-  for (const prediction of modelDetections) {
-    const box = prediction.box;
-    const pixels = ctx.getImageData(
-      Math.max(0, Math.floor(box.x * sampleW)),
-      Math.max(0, Math.floor(box.y * sampleH)),
-      Math.max(1, Math.min(sampleW - Math.floor(box.x * sampleW), Math.ceil(box.width * sampleW))),
-      Math.max(1, Math.min(sampleH - Math.floor(box.y * sampleH), Math.ceil(box.height * sampleH)))
-    ).data;
-    let r = 0, g = 0, b = 0, count = 0;
-    for (let i = 0; i < pixels.length; i += 16) {
-      r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2]; count++;
-    }
-    rawDetections.push({
-      box,
-      confidence: prediction.confidence,
-      label: prediction.label,
-      color: count ? `#${((1 << 24) + (Math.round(r / count) << 16) + (Math.round(g / count) << 8) + Math.round(b / count)).toString(16).slice(1)}` : '#808080',
-    });
-  }
-
-  // Fast Barcode / QR scan check on the downsampled frame (non-blocking)
+  // Fast barcode check on source (non-blocking)
   let frameBarcode: string | undefined = undefined;
-  if (rawDetections.length > 0) {
+  if (mlResult.hasDetections) {
     try {
-      const detectedCode = await detectFastCode(ctxObj.canvas);
-      if (detectedCode?.value) {
-        frameBarcode = detectedCode.value;
-        // Associate barcode with the primary detection.
-        rawDetections[0].barcode = frameBarcode;
+      const code = await detectFastCode(source);
+      if (code?.value) {
+        frameBarcode = code.value;
       }
     } catch {
-      // Non-fatal
+      // Barcode scan is non-fatal
     }
   }
 
-  const detectionLatencyMs = Math.round(performance.now() - startTime);
+  // 2. Feed genuine ML detections to tracker
+  const rawDetectionsForTracker = mlResult.detections.map((det, idx) => ({
+    box: det.box,
+    confidence: det.confidence,
+    label: det.label,
+    category: det.category,
+    color: det.dominantColor,
+    barcode: idx === 0 ? frameBarcode : undefined,
+  }));
 
-  // Run persistent tracking update
-  const trackingStart = performance.now();
-  const trackedObjects = globalObjectTracker.update(rawDetections, Date.now());
-  const trackingLatencyMs = Math.round(performance.now() - trackingStart);
+  const now = performance.now();
+  const trackedTracks = globalObjectTracker.update(rawDetectionsForTracker, now);
 
-  // A stale/lost track must not win primary selection just because it has
-  // accumulated more frames than a currently visible object.
-  const visibleObjects = trackedObjects.filter(
-    (track) => track.state !== 'TEMPORARILY_LOST' && track.framesLost === 0 && track.confidence >= 0.55
-  );
-  const primaryObject = visibleObjects.find((track) => track.isLocked) || visibleObjects[0] || null;
+  const trackLatency = Math.round(performance.now() - trackStart);
+
+  // Active tracks that are current (not lost)
+  const activeObjects = trackedTracks.filter((t) => t.framesLost === 0);
+
+  // FPS estimation
+  const totalElapsed = performance.now() - startTime;
+  const fps = fpsCounter || (totalElapsed > 0 ? Math.min(60, Math.round(1000 / totalElapsed)) : 24);
 
   return {
-    hasObjects: visibleObjects.length > 0,
-    objects: trackedObjects,
-    primaryObject,
-    fps: fpsCounter || 24,
-    detectionLatencyMs,
-    trackingLatencyMs,
+    hasObjects: activeObjects.length > 0,
+    objects: activeObjects,
+    primaryObject: activeObjects[0] || null,
+    fps,
+    detectionLatencyMs: detLatency,
+    trackingLatencyMs: trackLatency,
     sourceResolution: { width: srcW, height: srcH },
+    modelStatus: mlResult.modelStatus,
+    modelError: mlResult.modelError,
+    backendName: mlResult.backendName,
   };
 }
 
 /**
- * Transforms normalized coordinates (0.0 to 1.0) into exact full-resolution
- * pixel coordinates and crops the selected tracked object with safe boundary clamping.
+ * Intelligent auto-cropping utility that clamps bounding boxes safely
+ * to image boundaries and preserves resolution for OCR, barcodes, etc.
  */
 export async function cropTrackedObjectFromSource(
   sourceImageOrVideo: string | HTMLVideoElement | HTMLCanvasElement,
   normalizedBox: NormalizedRect,
-  paddingFactor: number = 0.05
+  paddingFactor: number = 0.04
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const handleCropCanvas = (
@@ -632,6 +364,17 @@ export async function cropTrackedObjectFromSource(
       naturalH: number
     ) => {
       try {
+        if (
+          !normalizedBox ||
+          normalizedBox.width <= 0 ||
+          normalizedBox.height <= 0 ||
+          naturalW <= 0 ||
+          naturalH <= 0
+        ) {
+          resolve(typeof sourceImageOrVideo === 'string' ? sourceImageOrVideo : '');
+          return;
+        }
+
         const padX = normalizedBox.width * paddingFactor * naturalW;
         const padY = normalizedBox.height * paddingFactor * naturalH;
 

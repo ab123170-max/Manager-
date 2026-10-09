@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Target, CheckCircle2, Lock, Sparkles, AlertCircle } from 'lucide-react';
 import { TrackedObject, NormalizedRect } from '../../utils/realtimeVisionTracker';
+import { mapNormalizedRectToViewport } from '../../utils/coordinateMapping';
 
 interface LiveVisionDetectionOverlayProps {
   objects: TrackedObject[];
@@ -28,9 +29,36 @@ export const LiveVisionDetectionOverlay: React.FC<LiveVisionDetectionOverlayProp
   trackingLatencyMs = 2,
   resolution = { width: 1280, height: 720 },
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setContainerSize({
+          width: Math.round(rect.width || window.innerWidth),
+          height: Math.round(rect.height || window.innerHeight),
+        });
+      } else {
+        setContainerSize({
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
+      }
+    };
+
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
   return (
-    <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden select-none">
-      {/* Optional In-Development Debug HUD (Hidden in production) */}
+    <div
+      ref={containerRef}
+      className="absolute inset-0 pointer-events-none z-20 overflow-hidden select-none"
+    >
+      {/* Optional In-Development Debug HUD */}
       {showDebugInfo && (
         <div className="absolute top-2 left-2 z-40 bg-black/85 backdrop-blur-md text-emerald-400 font-mono text-[10px] p-2.5 rounded-xl border border-emerald-500/30 space-y-1 shadow-xl pointer-events-auto">
           <div className="font-bold text-white flex items-center gap-1.5 border-b border-white/10 pb-1">
@@ -51,11 +79,15 @@ export const LiveVisionDetectionOverlay: React.FC<LiveVisionDetectionOverlayProp
         const isLost = obj.state === 'TEMPORARILY_LOST';
         const isDetected = obj.state === 'DETECTED';
 
-        // Coordinates mapped dynamically to camera viewport percentage
-        const leftPercent = Math.max(0, Math.min(94, obj.box.x * 100));
-        const topPercent = Math.max(0, Math.min(94, obj.box.y * 100));
-        const widthPercent = Math.max(6, Math.min(100 - leftPercent, obj.box.width * 100));
-        const heightPercent = Math.max(6, Math.min(100 - topPercent, obj.box.height * 100));
+        const viewport = mapNormalizedRectToViewport(obj.box, {
+          sourceWidth: resolution.width || 1280,
+          sourceHeight: resolution.height || 720,
+          containerWidth: containerSize.width || window.innerWidth,
+          containerHeight: containerSize.height || window.innerHeight,
+          fitMode: 'cover',
+        });
+
+        if (!viewport.isVisible) return null;
 
         // Styling based on tracking states
         let borderClasses = 'border-2 border-[#1473EA] shadow-[0_0_15px_rgba(20,115,234,0.45)]';
@@ -81,12 +113,12 @@ export const LiveVisionDetectionOverlay: React.FC<LiveVisionDetectionOverlayProp
             key={obj.id}
             style={{
               position: 'absolute',
-              left: `${leftPercent}%`,
-              top: `${topPercent}%`,
-              width: `${widthPercent}%`,
-              height: `${heightPercent}%`,
-              // Smooth, low-latency transition interpolation between detection frames
-              transition: 'left 0.08s linear, top 0.08s linear, width 0.08s linear, height 0.08s linear',
+              left: `${viewport.leftPercent}%`,
+              top: `${viewport.topPercent}%`,
+              width: `${viewport.widthPercent}%`,
+              height: `${viewport.heightPercent}%`,
+              transition: 'left 0.05s linear, top 0.05s linear, width 0.05s linear, height 0.05s linear',
+              willChange: 'left, top, width, height',
             }}
             onClick={(e) => {
               e.stopPropagation();
@@ -100,50 +132,34 @@ export const LiveVisionDetectionOverlay: React.FC<LiveVisionDetectionOverlayProp
             <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-3 border-l-3 border-inherit rounded-bl-lg pointer-events-none" />
             <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-3 border-r-3 border-inherit rounded-br-lg pointer-events-none" />
 
-            {/* Subtle Laser Sweep line (Only when selected or actively tracking) */}
-            {(isSelected || obj.state === 'TRACKING') && !isLost && (
-              <div className="absolute inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-cyan-300 to-transparent opacity-70 top-1/2 -translate-y-1/2 pointer-events-none animate-pulse" />
+            {/* Laser scanning indicator when active */}
+            {!isLost && (
+              <div className="absolute left-0 right-0 h-[2px] bg-cyan-400 opacity-60 shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-scan-laser pointer-events-none" />
             )}
 
-            {/* Header Badge: Tracking ID + Class + State */}
-            <div className="absolute -top-6 left-1 right-1 flex items-center justify-between gap-1 pointer-events-none">
-              <div className="flex items-center gap-1.5 bg-[#092B4C]/90 backdrop-blur-md px-2 py-0.5 rounded-md border border-white/10 text-[9px] font-black tracking-tight text-white shadow-md truncate">
-                {isSelected ? (
-                  <Lock className="w-3 h-3 text-emerald-400 shrink-0" />
-                ) : (
-                  <Target className="w-3 h-3 text-[#1473EA] shrink-0" />
-                )}
+            {/* Top Badge: Tracking ID & State */}
+            <div className="absolute -top-5.5 left-2 flex items-center gap-1.5 pointer-events-none">
+              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider shadow-md flex items-center gap-1 ${badgeBg}`}>
+                <Target className="w-2.5 h-2.5" />
                 <span>{obj.id}</span>
-                <span className="text-white/40">•</span>
-                <span className="text-white/90 truncate">{obj.label}</span>
-              </div>
+                <span className="opacity-60">•</span>
+                <span>{obj.label}</span>
+                <span className="opacity-60">•</span>
+                <span>{stateLabel}</span>
+              </span>
 
               {/* Confidence badge */}
-              <div className="bg-[#092B4C]/90 backdrop-blur-md px-1.5 py-0.5 rounded-md border border-white/10 text-[9px] font-bold text-emerald-400 shadow-md shrink-0">
+              <span className="bg-[#092B4C]/90 backdrop-blur-md px-1.5 py-0.5 rounded-full border border-white/10 text-[9px] font-mono text-emerald-400 shadow-md">
                 {Math.round(obj.confidence * 100)}%
-              </div>
+              </span>
             </div>
 
-            {/* Tap to select / lock hint overlay on hover or active */}
-            <div className="w-full h-full flex items-center justify-center p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="bg-[#092B4C]/85 backdrop-blur-md px-2.5 py-1 rounded-xl text-white text-[10px] font-bold shadow-lg flex items-center gap-1.5 border border-white/15">
-                <Sparkles className="w-3 h-3 text-cyan-300" />
-                <span>{isSelected ? 'Selected (Tap to scan)' : 'Tap to Target & Crop'}</span>
+            {/* Barcode badge if present */}
+            {obj.detectedBarcode && (
+              <div className="absolute -bottom-5 left-2 bg-black/85 backdrop-blur-md px-2 py-0.5 rounded-md border border-white/10 text-[8px] font-mono text-cyan-300 pointer-events-none">
+                BARCODE: {obj.detectedBarcode}
               </div>
-            </div>
-
-            {/* Bottom State / Barcode Indicator */}
-            <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 w-max max-w-[95%] pointer-events-none">
-              <div className={`px-2 py-0.5 rounded-md text-[9px] font-black tracking-wider uppercase backdrop-blur-md shadow-md flex items-center gap-1 ${badgeBg}`}>
-                {obj.detectedBarcode ? (
-                  <>
-                    <span>BARCODE: {obj.detectedBarcode}</span>
-                  </>
-                ) : (
-                  <span>{stateLabel}</span>
-                )}
-              </div>
-            </div>
+            )}
           </div>
         );
       })}

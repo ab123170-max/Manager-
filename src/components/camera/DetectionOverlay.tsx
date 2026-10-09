@@ -1,13 +1,19 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Real-time Dynamic Detection Overlay.
+ * Mathematically maps normalized ML detections to viewport coordinates.
+ * Strictly no fabricated confidences, phantom boxes, or misaligned overlays.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Target, Check, Sparkles, Lock, AlertCircle, Crosshair } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Target, Check, Sparkles, AlertCircle, Crosshair, Cpu, CheckCircle2 } from 'lucide-react';
 import { RealtimeDetectionResult, NormalizedRect } from '../../utils/realtimeProductDetector';
 import { TrackedProduct, getActiveTargetField } from '../../utils/productTracker';
 import { TrackedObject } from '../../utils/realtimeVisionTracker';
+import { mapNormalizedRectToViewport } from '../../utils/coordinateMapping';
+import { ModelLoadingStatus } from '../../utils/mlProductDetector';
 
 interface DetectionOverlayProps {
   detection: RealtimeDetectionResult;
@@ -22,6 +28,10 @@ interface DetectionOverlayProps {
   detectionLatencyMs?: number;
   trackingLatencyMs?: number;
   sourceResolution?: { width: number; height: number };
+  modelStatus?: ModelLoadingStatus;
+  modelError?: string | null;
+  backendName?: string;
+  cameraSourceType?: string;
 }
 
 export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
@@ -37,145 +47,139 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
   detectionLatencyMs = 8,
   trackingLatencyMs = 2,
   sourceResolution = { width: 1280, height: 720 },
+  modelStatus = 'ready',
+  modelError = null,
+  backendName = 'webgl',
+  cameraSourceType = 'Web Camera',
 }) => {
-  const [lastBox, setLastBox] = useState<NormalizedRect | null>(null);
-  const [lostTracking, setLostTracking] = useState(false);
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
-  // Measure the camera viewport. Since the video uses object-cover, the source
-  // frame can be cropped on portrait screens; map boxes to the visible frame.
+  // Monitor rendered container dimensions to ensure mathematically accurate coordinate mapping
   useEffect(() => {
-    const node = overlayRef.current;
-    if (!node) return;
     const updateSize = () => {
-      const rect = node.getBoundingClientRect();
-      setViewportSize({ width: rect.width, height: rect.height });
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setContainerSize({
+          width: Math.round(rect.width || window.innerWidth),
+          height: Math.round(rect.height || window.innerHeight),
+        });
+      } else {
+        setContainerSize({
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
+      }
     };
+
     updateSize();
-    const observer = new ResizeObserver(updateSize);
-    observer.observe(node);
-    window.addEventListener('orientationchange', updateSize);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('orientationchange', updateSize);
-    };
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
   }, []);
-
-  const mapSourceRectToViewport = (box: NormalizedRect): NormalizedRect => {
-    const vw = viewportSize.width;
-    const vh = viewportSize.height;
-    const sw = sourceResolution.width;
-    const sh = sourceResolution.height;
-    if (!vw || !vh || !sw || !sh) return box;
-    const scale = Math.max(vw / sw, vh / sh);
-    const renderedW = sw * scale;
-    const renderedH = sh * scale;
-    const offsetX = (vw - renderedW) / 2;
-    const offsetY = (vh - renderedH) / 2;
-    const left = (box.x * renderedW + offsetX) / vw;
-    const top = (box.y * renderedH + offsetY) / vh;
-    const right = ((box.x + box.width) * renderedW + offsetX) / vw;
-    const bottom = ((box.y + box.height) * renderedH + offsetY) / vh;
-    const clippedLeft = Math.max(0, Math.min(1, left));
-    const clippedTop = Math.max(0, Math.min(1, top));
-    const clippedRight = Math.max(clippedLeft, Math.min(1, right));
-    const clippedBottom = Math.max(clippedTop, Math.min(1, bottom));
-    return {
-      x: clippedLeft,
-      y: clippedTop,
-      width: clippedRight - clippedLeft,
-      height: clippedBottom - clippedTop,
-    };
-  };
-
-  // Keep track of primary product box to gracefully handle re-acquisition
-  useEffect(() => {
-    if (detection.hasProduct && detection.productBox) {
-      setLastBox(detection.productBox);
-      setLostTracking(false);
-    } else if (!detection.hasProduct && lastBox && !lostTracking) {
-      setLostTracking(true);
-      const timer = setTimeout(() => {
-        setLastBox(null);
-        setLostTracking(false);
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [detection.hasProduct, detection.productBox, lastBox, lostTracking]);
 
   const activeTarget = getActiveTargetField(trackedProduct);
   const isComplete = activeTarget.name === 'Complete';
 
-  const confidencePercent = detection.hasProduct
-    ? Math.round((0.84 + detection.stabilityScore * 0.14) * 100)
+  // Primary object to render
+  const primaryObject = trackedObjects.length > 0 ? trackedObjects[0] : null;
+  const hasGenuineDetection = detection.hasProduct && (Boolean(primaryObject) || Boolean(detection.productBox));
+
+  const primaryBox: NormalizedRect | null = primaryObject
+    ? primaryObject.box
+    : detection.hasProduct
+    ? detection.productBox
+    : null;
+
+  // Genuine confidence score (from ML model, never fabricated)
+  const confidencePercent = primaryObject
+    ? Math.round(primaryObject.confidence * 100)
+    : detection.confidence
+    ? Math.round(detection.confidence * 100)
     : 0;
 
-  // Format tracking ID to match requirement (e.g., 'ID 01', 'ID 02' or 'TRK-084')
-  const trackingId = trackedObjects.length > 0 && trackedObjects[0]?.id
-    ? trackedObjects[0].id
-    : `ID ${trackedProduct.id.replace('prod-', '').slice(-2).padStart(2, '0')}`;
+  const trackingId = primaryObject?.id || `ID 01`;
+  const productLabel = primaryObject?.label || detection.detectedLabel || 'Packaged Product';
 
-  // If we have multi-object real-time tracking, render all tracked objects
-  const hasMultipleTrackedObjects = trackedObjects && trackedObjects.length > 1;
-
-  // Primary box coordinates to render
-  // The tracker is the authoritative live geometry. Prefer its current box over the
-  // slower field-analysis box so the overlay follows the physical product every frame.
-  const trackedPrimaryBox = trackedObjects.length > 0 ? trackedObjects[0].box : null;
-  const visiblePrimaryTrack = trackedObjects.find((obj) =>
-    obj.state !== 'TEMPORARILY_LOST' && obj.confidence >= 0.55
-  );
-  const primaryBox = visiblePrimaryTrack?.box || (detection.hasProduct ? detection.productBox : (lostTracking ? lastBox : null));
-  const mappedPrimaryBox = primaryBox ? mapSourceRectToViewport(primaryBox) : null;
-
-  // Completed fields calculation
-  const totalFields = 5;
-  const completedFieldsCount = Object.values(trackedProduct.fields).filter(
-    (f) => f.status === 'complete'
-  ).length;
+  // Mathematically map normalized bounding box to the container viewport
+  const primaryViewport = primaryBox && containerSize.width > 0
+    ? mapNormalizedRectToViewport(primaryBox, {
+        sourceWidth: sourceResolution.width || 1280,
+        sourceHeight: sourceResolution.height || 720,
+        containerWidth: containerSize.width,
+        containerHeight: containerSize.height,
+        fitMode: 'cover',
+      })
+    : null;
 
   return (
-    <div ref={overlayRef} className="absolute inset-0 pointer-events-none z-10 overflow-hidden select-none">
-      {/* Optional In-Development Debug HUD (Hidden in production) */}
+    <div
+      ref={containerRef}
+      className="absolute inset-0 pointer-events-none z-10 overflow-hidden select-none"
+    >
+      {/* ========================================================================= */}
+      {/* 1. VISION DIAGNOSTICS & DEBUG HUD (Toggleable in header)                   */}
+      {/* ========================================================================= */}
       {showDebugInfo && (
-        <div className="absolute top-2 left-2 z-40 bg-black/85 backdrop-blur-md text-emerald-400 font-mono text-[10px] p-2.5 rounded-xl border border-emerald-500/30 space-y-0.5 shadow-xl pointer-events-auto">
-          <div className="font-bold text-white flex items-center gap-1.5 border-b border-white/10 pb-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>VISION PIPELINE DEBUG</span>
+        <div className="absolute top-16 left-3 z-40 bg-black/90 backdrop-blur-md text-emerald-400 font-mono text-[10px] p-3 rounded-2xl border border-emerald-500/40 space-y-1 shadow-2xl pointer-events-auto max-w-[280px]">
+          <div className="font-bold text-white flex items-center justify-between border-b border-white/10 pb-1.5 mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${modelStatus === 'ready' ? 'bg-emerald-400 animate-pulse' : modelStatus === 'loading' ? 'bg-amber-400 animate-spin' : 'bg-rose-500'}`} />
+              <span className="tracking-wider">VISION DIAGNOSTICS</span>
+            </div>
+            <span className="text-[9px] text-white/50">{backendName.toUpperCase()}</span>
           </div>
-          <div>FPS: <span className="text-white">{fps}</span></div>
-          <div>Det Latency: <span className="text-white">{detectionLatencyMs} ms</span></div>
-          <div>Track Latency: <span className="text-white">{trackingLatencyMs} ms</span></div>
-          <div>Objects Detected: <span className="text-white">{trackedObjects.length || (detection.hasProduct ? 1 : 0)}</span></div>
-          <div>Resolution: <span className="text-white">{sourceResolution.width}x{sourceResolution.height}</span></div>
-          <div>Tracking IDs: <span className="text-white">{trackedObjects.map((o) => o.id).join(', ') || trackingId}</span></div>
+
+          <div>Model: <span className="text-white font-semibold">{modelStatus === 'ready' ? 'SSDLite MobileNetV2' : modelStatus === 'loading' ? 'Loading weights...' : 'Load Error'}</span></div>
+          {modelError && <div className="text-rose-400 text-[9px] truncate">Err: {modelError}</div>}
+          <div>Camera: <span className="text-white">{cameraSourceType}</span></div>
+          <div>FPS: <span className="text-white font-bold">{fps}</span></div>
+          <div>Det Latency: <span className="text-white font-bold">{detectionLatencyMs} ms</span></div>
+          <div>Track Latency: <span className="text-white font-bold">{trackingLatencyMs} ms</span></div>
+          <div>Objects Detected: <span className="text-white font-bold">{trackedObjects.length}</span></div>
+          <div>Source Res: <span className="text-white">{sourceResolution.width}x{sourceResolution.height}</span></div>
+          <div>Viewport: <span className="text-white">{containerSize.width}x{containerSize.height}</span></div>
+
+          {primaryObject && (
+            <div className="border-t border-white/10 pt-1 mt-1 space-y-0.5">
+              <div>Primary ID: <span className="text-white font-bold">{primaryObject.id}</span></div>
+              <div>Class: <span className="text-white font-bold">{primaryObject.label}</span> ({Math.round(primaryObject.confidence * 100)}%)</div>
+              <div>State: <span className="text-white font-bold">{primaryObject.state}</span></div>
+              {primaryViewport && (
+                <div>Box Px: <span className="text-white">{primaryViewport.leftPx}, {primaryViewport.topPx}, {primaryViewport.widthPx}x{primaryViewport.heightPx}</span></div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Render Multiple Secondary Detected Objects when present in frame */}
-      {hasMultipleTrackedObjects &&
+      {/* ========================================================================= */}
+      {/* 2. SECONDARY DETECTED OBJECTS (Multi-Object Tracking)                     */}
+      {/* ========================================================================= */}
+      {trackedObjects.length > 1 &&
         trackedObjects.slice(1).map((secObj) => {
+          const secViewport = mapNormalizedRectToViewport(secObj.box, {
+            sourceWidth: sourceResolution.width || 1280,
+            sourceHeight: sourceResolution.height || 720,
+            containerWidth: containerSize.width,
+            containerHeight: containerSize.height,
+            fitMode: 'cover',
+          });
+
+          if (!secViewport.isVisible) return null;
+
           const isSelected = selectedObjectId === secObj.id || secObj.isLocked;
-          if (secObj.state === 'TEMPORARILY_LOST' || secObj.confidence < 0.55) return null;
-          const mappedBox = mapSourceRectToViewport(secObj.box);
-          if (mappedBox.width <= 0.005 || mappedBox.height <= 0.005) return null;
-          const leftPct = mappedBox.x * 100;
-          const topPct = mappedBox.y * 100;
-          const widthPct = Math.max(1.5, Math.min(100 - leftPct, mappedBox.width * 100));
-          const heightPct = Math.max(1.5, Math.min(100 - topPct, mappedBox.height * 100));
 
           return (
             <div
               key={secObj.id}
               style={{
                 position: 'absolute',
-                left: `${leftPct}%`,
-                top: `${topPct}%`,
-                width: `${widthPct}%`,
-                height: `${heightPct}%`,
-                transition: 'left 0.06s linear, top 0.06s linear, width 0.06s linear, height 0.06s linear',
-            willChange: 'left, top, width, height',
+                left: `${secViewport.leftPercent}%`,
+                top: `${secViewport.topPercent}%`,
+                width: `${secViewport.widthPercent}%`,
+                height: `${secViewport.heightPercent}%`,
+                transition: 'left 0.05s linear, top 0.05s linear, width 0.05s linear, height 0.05s linear',
+                willChange: 'left, top, width, height',
               }}
               onClick={(e) => {
                 e.stopPropagation();
@@ -191,69 +195,65 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
                 <Target className="w-3 h-3 text-[#1473EA]" />
                 <span>{secObj.id}</span>
                 <span className="text-white/40">•</span>
+                <span>{secObj.label}</span>
+                <span className="text-white/40">•</span>
                 <span>{Math.round(secObj.confidence * 100)}%</span>
               </div>
             </div>
           );
         })}
 
-      {/* Render Primary Tracked Product Bounding Box */}
-      {mappedPrimaryBox && mappedPrimaryBox.width > 0.005 && mappedPrimaryBox.height > 0.005 && (() => {
-        const leftPct = mappedPrimaryBox.x * 100;
-        const topPct = mappedPrimaryBox.y * 100;
-        const widthPct = Math.max(1.5, Math.min(100 - leftPct, mappedPrimaryBox.width * 100));
-        const heightPct = Math.max(1.5, Math.min(100 - topPct, mappedPrimaryBox.height * 100));
-
-        return (
-          <div
-            style={{
-              position: 'absolute',
-              left: `${leftPct}%`,
-              top: `${topPct}%`,
-              width: `${widthPct}%`,
-              height: `${heightPct}%`,
-              // Responsive cubic transition: moves & resizes continuously with the physical object
-              transition: 'left 0.07s linear, top 0.07s linear, width 0.07s linear, height 0.07s linear',
-              willChange: 'left, top, width, height',
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (trackedObjects.length > 0 && onSelectObject) {
-                onSelectObject(trackedObjects[0]);
-              }
-            }}
-            className={`border-2 rounded-3xl relative flex flex-col justify-between pointer-events-auto cursor-pointer transition-transform ${
-              lostTracking
-                ? 'border-amber-400 border-dashed shadow-[0_0_12px_rgba(251,191,36,0.4)] opacity-80'
-                : isComplete
-                ? 'border-emerald-500 shadow-[0_0_24px_rgba(16,185,129,0.7)] ring-2 ring-emerald-400/30'
-                : detection.trackingState === 'stable'
-                ? 'border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.55)]'
-                : 'border-[#1473EA] shadow-[0_0_18px_rgba(20,115,234,0.45)]'
-            }`}
-          >
-          {/* 4 Corner Bracket Accents (ScanMe signature design) */}
+      {/* ========================================================================= */}
+      {/* 3. PRIMARY PRODUCT BOUNDING BOX                                           */}
+      {/* ========================================================================= */}
+      {hasGenuineDetection && primaryViewport && primaryViewport.isVisible && (
+        <div
+          style={{
+            position: 'absolute',
+            left: `${primaryViewport.leftPercent}%`,
+            top: `${primaryViewport.topPercent}%`,
+            width: `${primaryViewport.widthPercent}%`,
+            height: `${primaryViewport.heightPercent}%`,
+            // High-frequency, low-latency linear transition follows physical object immediately
+            transition: 'left 0.05s linear, top 0.05s linear, width 0.05s linear, height 0.05s linear',
+            willChange: 'left, top, width, height',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (primaryObject && onSelectObject) {
+              onSelectObject(primaryObject);
+            }
+          }}
+          className={`border-2 rounded-3xl relative flex flex-col justify-between pointer-events-auto cursor-pointer transition-colors ${
+            isComplete
+              ? 'border-emerald-500 shadow-[0_0_24px_rgba(16,185,129,0.7)] ring-2 ring-emerald-400/30'
+              : detection.trackingState === 'stable'
+              ? 'border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.55)]'
+              : 'border-[#1473EA] shadow-[0_0_18px_rgba(20,115,234,0.45)]'
+          }`}
+        >
+          {/* Corner Bracket Accents (Signature ScanMe UI) */}
           <div className="absolute -top-1.5 -left-1.5 w-6 h-6 border-t-4 border-l-4 border-inherit rounded-tl-xl pointer-events-none" />
           <div className="absolute -top-1.5 -right-1.5 w-6 h-6 border-t-4 border-r-4 border-inherit rounded-tr-xl pointer-events-none" />
           <div className="absolute -bottom-1.5 -left-1.5 w-6 h-6 border-b-4 border-l-4 border-inherit rounded-bl-xl pointer-events-none" />
           <div className="absolute -bottom-1.5 -right-1.5 w-6 h-6 border-b-4 border-r-4 border-inherit rounded-br-xl pointer-events-none" />
 
-          {/* Laser Scanning Bar */}
-          {!isComplete && !lostTracking && (
+          {/* Laser Scanning Line Animation */}
+          {!isComplete && (
             <div className="absolute left-0 right-0 h-[2px] bg-cyan-400 opacity-60 shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-scan-laser pointer-events-none" />
           )}
 
           {/* Top Header Badge Row */}
           <div className="absolute -top-6 left-2 right-2 flex items-center justify-between gap-2 pointer-events-none select-none">
-            {/* Tracking ID & Status */}
+            {/* Tracking ID, Class & Status */}
             <div className="flex items-center gap-1.5 bg-[#092B4C]/90 backdrop-blur-md px-2.5 py-0.5 rounded-full border border-white/10 shadow-lg text-[10px] font-black text-white">
               <Target className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               <span>{trackingId}</span>
               <span className="w-1.5 h-1.5 rounded-full bg-white/30" />
+              <span className="text-cyan-200">{productLabel}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-white/30" />
               <span className="text-cyan-300">
-                {lostTracking
-                  ? 'REACQUIRING'
-                  : isComplete
+                {isComplete
                   ? 'LOCKED & READY'
                   : detection.trackingState === 'stable'
                   ? 'STABLE'
@@ -261,113 +261,36 @@ export const DetectionOverlay: React.FC<DetectionOverlayProps> = ({
               </span>
             </div>
 
-            {/* Confidence */}
-            {!lostTracking && (
-              <div className="bg-[#092B4C]/90 backdrop-blur-md px-2 py-0.5 rounded-full border border-white/10 shadow-lg text-[10px] font-black text-emerald-400 flex items-center gap-1 shrink-0">
-                <span>{confidencePercent}%</span>
-              </div>
-            )}
-          </div>
-
-          {/* Main Internal Content: Active Target Region Highlight */}
-          <div className="absolute inset-0 p-3 flex flex-col justify-between pointer-events-none">
-            <div className="w-full h-full relative">
-              {(() => {
-                if (lostTracking || isComplete) return null;
-
-                const activeRegion = detection.regions.find((reg) => activeTarget.types.includes(reg.type));
-                if (!activeRegion) return null;
-
-                const relX = ((activeRegion.box.x - primaryBox.x) / primaryBox.width) * 100;
-                const relY = ((activeRegion.box.y - primaryBox.y) / primaryBox.height) * 100;
-                const relW = (activeRegion.box.width / primaryBox.width) * 100;
-                const relH = (activeRegion.box.height / primaryBox.height) * 100;
-
-                return (
-                  <div
-                    key={activeRegion.id}
-                    style={{
-                      position: 'absolute',
-                      left: `${Math.max(0, Math.min(92, Math.round(relX)))}%`,
-                      top: `${Math.max(0, Math.min(92, Math.round(relY)))}%`,
-                      width: `${Math.max(8, Math.min(100, Math.round(relW)))}%`,
-                      height: `${Math.max(6, Math.min(100, Math.round(relH)))}%`,
-                      transition: 'all 0.12s linear',
-                    }}
-                    className="border-2 border-dashed border-cyan-400 bg-cyan-400/10 shadow-[0_0_10px_rgba(34,211,238,0.35)] rounded-xl flex items-start p-1 pointer-events-none"
-                  >
-                    <span className="text-[9px] font-black bg-[#092B4C]/90 px-1.5 py-0.5 rounded text-white truncate max-w-full flex items-center gap-1 border border-white/10 shadow-md">
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                      <span>{activeTarget.name}</span>
-                    </span>
-                  </div>
-                );
-              })()}
-
-              {/* Completed checkdots inside bounding box */}
-              {(() => {
-                const completedTypes = Object.entries(trackedProduct.fields)
-                  .filter(([_, val]) => val.status === 'complete')
-                  .map(([key, _]) => {
-                    if (key === 'productName') return 'product_name';
-                    if (key === 'manufactureDate') return 'mfd_date';
-                    if (key === 'expiryDate') return 'expiry_date';
-                    if (key === 'price') return 'price_mrp';
-                    if (key === 'barcode') return 'barcode_qr';
-                    return '';
-                  })
-                  .filter(Boolean);
-
-                const completedRegions = detection.regions.filter((reg) => completedTypes.includes(reg.type as any));
-
-                return completedRegions.map((reg) => {
-                  const relX = ((reg.box.x - primaryBox.x) / primaryBox.width) * 100;
-                  const relY = ((reg.box.y - primaryBox.y) / primaryBox.height) * 100;
-                  const relW = (reg.box.width / primaryBox.width) * 100;
-                  const relH = (reg.box.height / primaryBox.height) * 100;
-                  const centerX = relX + relW / 2;
-                  const centerY = relY + relH / 2;
-
-                  return (
-                    <div
-                      key={reg.id}
-                      style={{
-                        position: 'absolute',
-                        left: `${Math.max(2, Math.min(98, centerX))}%`,
-                        top: `${Math.max(2, Math.min(98, centerY))}%`,
-                        transform: 'translate(-50%, -50%)',
-                      }}
-                      className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center border border-white shadow-lg"
-                      title={`${reg.label} Captured ✓`}
-                    >
-                      <Check className="w-3.5 h-3.5 stroke-[3.5]" />
-                    </div>
-                  );
-                });
-              })()}
+            {/* Genuine ML Confidence Score */}
+            <div className="bg-[#092B4C]/90 backdrop-blur-md px-2.5 py-0.5 rounded-full border border-white/10 shadow-lg text-[10px] font-black text-emerald-400 flex items-center gap-1 shrink-0">
+              <span>{confidencePercent}%</span>
             </div>
           </div>
 
-          {/* Bottom Extraction Status Pill */}
-          {!lostTracking && (
-            <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 bg-[#092B4C]/90 backdrop-blur-md px-3 py-0.5 rounded-full border border-white/10 shadow-lg text-[9px] font-black text-white flex items-center gap-1.5 tracking-tight pointer-events-none select-none w-max max-w-[90%]">
-              {isComplete ? (
-                <>
-                  <Sparkles className="w-3 h-3 text-emerald-400 shrink-0" />
-                  <span className="text-emerald-400">All fields tracked & crop-ready!</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-white/60">Extracted:</span>
-                  <span className="text-emerald-400">{completedFieldsCount}/{totalFields}</span>
-                  <span className="w-1 h-1 rounded-full bg-white/20" />
-                  <span className="text-cyan-300">Aim at {activeTarget.name}</span>
-                </>
-              )}
+          {/* Detected Barcode Tag if available */}
+          {detection.detectedBarcode && (
+            <div className="absolute -bottom-6 left-2 flex items-center gap-1 bg-black/80 backdrop-blur-md px-2 py-0.5 rounded-md border border-white/10 text-[9px] font-mono text-cyan-300 pointer-events-none">
+              <span>BARCODE:</span>
+              <span className="text-white font-bold">{detection.detectedBarcode}</span>
             </div>
           )}
         </div>
-      );})()}
+      )}
+
+      {/* Model Loading / Error Pill when no product detected */}
+      {!hasGenuineDetection && modelStatus === 'loading' && (
+        <div className="absolute top-16 inset-x-0 mx-auto w-max bg-black/75 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/15 text-white text-xs font-semibold flex items-center gap-2 pointer-events-none">
+          <div className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+          <span>Initializing Vision Model (SSDLite MobileNetV2)...</span>
+        </div>
+      )}
+
+      {!hasGenuineDetection && modelStatus === 'error' && (
+        <div className="absolute top-16 inset-x-0 mx-auto w-max max-w-[90%] bg-rose-950/85 backdrop-blur-md px-4 py-2 rounded-2xl border border-rose-500/30 text-rose-200 text-xs font-semibold flex items-center gap-2 pointer-events-none">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>Vision model failed to load. Manual capture is available.</span>
+        </div>
+      )}
     </div>
   );
 };
