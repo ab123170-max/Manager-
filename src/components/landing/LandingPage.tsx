@@ -34,7 +34,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted, onLogin,
   }, []);
 
   const anonId = getAnonymousId();
-  const APK_DOWNLOAD_URL = `/api/download-apk?anon_id=${encodeURIComponent(anonId)}`;
+  const APK_DOWNLOAD_URL = `https://github.com/ab123170-max/Manager-/releases/latest/download/scanme-ai.apk?anon_id=${encodeURIComponent(anonId)}`;
   const [isDownloading, setIsDownloading] = useState(false);
   const [autoGuideActive, setAutoGuideActive] = useState(true);
   const autoScrollCancelledRef = useRef(false);
