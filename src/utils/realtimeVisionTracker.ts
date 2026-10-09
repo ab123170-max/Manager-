@@ -4,6 +4,7 @@
  */
 
 import { detectFastCode } from './fastBarcodeEngine';
+import { detectRealObjects } from './realObjectDetector';
 
 export interface NormalizedRect {
   x: number; // 0.0 to 1.0 (relative to preview width)
@@ -547,6 +548,31 @@ export async function detectAndTrackObjectsInFrame(
       confidence,
       label,
       color: hexColor,
+    });
+  }
+
+  // Use actual on-device ML detections as the source of truth. The gradient/colour
+  // heuristic above is deliberately replaced, so background edges alone cannot
+  // make the UI claim that a product was detected.
+  const modelDetections = await detectRealObjects(source);
+  rawDetections.length = 0;
+  for (const prediction of modelDetections) {
+    const box = prediction.box;
+    const pixels = ctx.getImageData(
+      Math.max(0, Math.floor(box.x * sampleW)),
+      Math.max(0, Math.floor(box.y * sampleH)),
+      Math.max(1, Math.min(sampleW - Math.floor(box.x * sampleW), Math.ceil(box.width * sampleW))),
+      Math.max(1, Math.min(sampleH - Math.floor(box.y * sampleH), Math.ceil(box.height * sampleH)))
+    ).data;
+    let r = 0, g = 0, b = 0, count = 0;
+    for (let i = 0; i < pixels.length; i += 16) {
+      r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2]; count++;
+    }
+    rawDetections.push({
+      box,
+      confidence: prediction.confidence,
+      label: prediction.label,
+      color: count ? `#${((1 << 24) + (Math.round(r / count) << 16) + (Math.round(g / count) << 8) + Math.round(b / count)).toString(16).slice(1)}` : '#808080',
     });
   }
 
