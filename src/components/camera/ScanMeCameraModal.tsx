@@ -428,13 +428,24 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
           const res = await analyzeLiveFrame(frameSource, prevDetectionRef.current);
           prevDetectionRef.current = res;
 
-          // If multi-object vision tracker found an active or locked object, synchronize box coordinates
-          if (visionRes.primaryObject && visionRes.primaryObject.state !== 'TEMPORARILY_LOST') {
-            res.productBox = visionRes.primaryObject.box;
+          // The TensorFlow.js COCO-SSD model is the source of truth for object presence.
+          // Do not let the separate edge/contrast heuristic mark a background as a product.
+          const modelObject = visionRes.primaryObject &&
+            visionRes.primaryObject.state !== 'TEMPORARILY_LOST' &&
+            visionRes.primaryObject.confidence >= 0.55
+              ? visionRes.primaryObject
+              : null;
+
+          if (modelObject) {
+            res.productBox = modelObject.box;
             res.hasProduct = true;
-            if (visionRes.primaryObject.detectedBarcode) {
-              res.detectedBarcode = visionRes.primaryObject.detectedBarcode;
+            if (modelObject.detectedBarcode) {
+              res.detectedBarcode = modelObject.detectedBarcode;
             }
+          } else {
+            res.productBox = null;
+            res.hasProduct = false;
+            res.isStable = false;
           }
 
           setDetection(res);
