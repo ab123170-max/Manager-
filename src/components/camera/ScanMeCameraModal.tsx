@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Camera,
   X,
@@ -891,8 +892,11 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
   const f = trackedProduct.fields;
   const activeTarget = getActiveTargetField(trackedProduct);
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-hidden select-none">
+  // Render outside #root: the native CameraX preview sits behind the WebView,
+  // and camera-preview-active intentionally hides #root so the page cannot cover it.
+  // A portal keeps the scanner controls and ML bounding boxes visible above CameraX.
+  return createPortal(
+    <div className="camera-scanner-modal fixed inset-0 z-50 overflow-hidden select-none">
       {/* Hidden canvas for browser preview snapshots */}
       <canvas ref={canvasRef} className="hidden" />
 
@@ -1475,7 +1479,8 @@ export const ScanMeCameraModal: React.FC<ScanMeCameraModalProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 };
 
